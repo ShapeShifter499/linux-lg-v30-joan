@@ -20,15 +20,15 @@ struct qrtr_smd_dev {
 static int qcom_smd_qrtr_callback(struct rpmsg_device *rpdev,
 				  void *data, int len, void *priv, u32 addr)
 {
-	struct qrtr_smd_dev *qdev = dev_get_drvdata(&rpdev->dev);
+	struct qrtr_smd_dev *qsdev = dev_get_drvdata(&rpdev->dev);
 	int rc;
 
-	if (!qdev)
+	if (!qsdev)
 		return -EAGAIN;
 
-	rc = qrtr_endpoint_post(&qdev->ep, data, len);
+	rc = qrtr_endpoint_post(&qsdev->ep, data, len);
 	if (rc == -EINVAL) {
-		dev_err(qdev->dev, "invalid ipcrouter packet\n");
+		dev_err(qsdev->dev, "invalid ipcrouter packet\n");
 		/* return 0 to let smd drop the packet */
 		rc = 0;
 	}
@@ -39,14 +39,14 @@ static int qcom_smd_qrtr_callback(struct rpmsg_device *rpdev,
 /* from qrtr to smd */
 static int qcom_smd_qrtr_send(struct qrtr_endpoint *ep, struct sk_buff *skb)
 {
-	struct qrtr_smd_dev *qdev = container_of(ep, struct qrtr_smd_dev, ep);
+	struct qrtr_smd_dev *qsdev = container_of(ep, struct qrtr_smd_dev, ep);
 	int rc;
 
 	rc = skb_linearize(skb);
 	if (rc)
 		goto out;
 
-	rc = rpmsg_send(qdev->channel, skb->data, skb->len);
+	rc = rpmsg_send(qsdev->channel, skb->data, skb->len);
 
 out:
 	if (rc)
@@ -58,22 +58,24 @@ out:
 
 static int qcom_smd_qrtr_probe(struct rpmsg_device *rpdev)
 {
-	struct qrtr_smd_dev *qdev;
+	struct qrtr_smd_dev *qsdev;
 	int rc;
 
-	qdev = devm_kzalloc(&rpdev->dev, sizeof(*qdev), GFP_KERNEL);
-	if (!qdev)
+	qsdev = devm_kzalloc(&rpdev->dev, sizeof(*qsdev), GFP_KERNEL);
+	if (!qsdev)
 		return -ENOMEM;
 
-	qdev->channel = rpdev->ept;
-	qdev->dev = &rpdev->dev;
-	qdev->ep.xmit = qcom_smd_qrtr_send;
+	qsdev->channel = rpdev->ept;
+	qsdev->dev = &rpdev->dev;
+	qsdev->ep.xmit = qcom_smd_qrtr_send;
+	qsdev->ep.add_device = qcom_smd_qrtr_add_device;
+	qsdev->ep.del_device = qcom_smd_qrtr_del_device;
 
-	rc = qrtr_endpoint_register(&qdev->ep, QRTR_EP_NID_AUTO);
+	rc = qrtr_endpoint_register(&qsdev->ep, QRTR_EP_NID_AUTO);
 	if (rc)
 		return rc;
 
-	dev_set_drvdata(&rpdev->dev, qdev);
+	dev_set_drvdata(&rpdev->dev, qsdev);
 
 	dev_dbg(&rpdev->dev, "Qualcomm SMD QRTR driver probed\n");
 
@@ -82,9 +84,9 @@ static int qcom_smd_qrtr_probe(struct rpmsg_device *rpdev)
 
 static void qcom_smd_qrtr_remove(struct rpmsg_device *rpdev)
 {
-	struct qrtr_smd_dev *qdev = dev_get_drvdata(&rpdev->dev);
+	struct qrtr_smd_dev *qsdev = dev_get_drvdata(&rpdev->dev);
 
-	qrtr_endpoint_unregister(&qdev->ep);
+	qrtr_endpoint_unregister(&qsdev->ep);
 
 	dev_set_drvdata(&rpdev->dev, NULL);
 }
