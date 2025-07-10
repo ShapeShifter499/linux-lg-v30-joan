@@ -22646,6 +22646,19 @@ F:	Documentation/networking/device_drivers/cellular/qualcomm/rmnet.rst
 F:	drivers/net/ethernet/qualcomm/rmnet/
 F:	include/linux/if_rmnet.h
 
+QUALCOMM SENSOR MANAGER IIO DRIVER
+M:	Yassine Oudjana <y.oudjana@protonmail.com>
+L:	linux-iio@vger.kernel.org
+L:	linux-arm-msm@vger.kernel.org
+S:	Maintained
+F:	drivers/iio/common/qcom_smgr/Kconfig
+F:	drivers/iio/common/qcom_smgr/Makefile
+F:	drivers/iio/common/qcom_smgr/qcom_smgr.c
+F:	drivers/iio/common/qcom_smgr/qmi/Makefile
+F:	drivers/iio/common/qcom_smgr/qmi/qmi_sns_smgr.c
+F:	drivers/iio/common/qcom_smgr/qmi/qmi_sns_smgr.h
+F:	include/linux/iio/common/qcom_smgr.h
+
 QUALCOMM TEE (QCOMTEE) DRIVER
 M:	Amirreza Zarrabi <amirreza.zarrabi@oss.qualcomm.com>
 L:	linux-arm-msm@vger.kernel.org
