@@ -7,6 +7,7 @@
 #include <linux/module.h>
 #include <linux/skbuff.h>
 #include <linux/rpmsg.h>
+#include <linux/soc/qcom/qrtr.h>
 
 #include "qrtr.h"
 
@@ -15,6 +16,197 @@ struct qrtr_smd_dev {
 	struct rpmsg_endpoint *channel;
 	struct device *dev;
 };
+
+struct qrtr_new_server {
+	struct qrtr_smd_dev *parent;
+	unsigned int node;
+	unsigned int port;
+	u16 service;
+	u16 instance;
+
+	struct work_struct work;
+};
+
+struct qrtr_del_server {
+	struct qrtr_smd_dev *parent;
+	unsigned int port;
+
+	struct work_struct work;
+};
+
+static int qcom_smd_qrtr_device_match(struct device *dev, const struct device_driver *drv)
+{
+	struct qrtr_device *qdev = to_qrtr_device(dev);
+	struct qrtr_driver *qdrv = to_qrtr_driver(drv);
+	const struct qrtr_device_id *id = qdrv->id_table;
+
+	if (!id)
+		return 0;
+
+	while (id->service != 0) {
+		if (id->service == qdev->service && id->instance == qdev->instance)
+			return 1;
+		id++;
+	}
+
+	return 0;
+}
+
+static int qcom_smd_qrtr_uevent(const struct device *dev, struct kobj_uevent_env *env)
+{
+	const struct qrtr_device *qdev = to_qrtr_device(dev);
+
+	return add_uevent_var(env, "MODALIAS=%s%x:%x", QRTR_MODULE_PREFIX, qdev->service,
+			      qdev->instance);
+}
+
+static int qcom_smd_qrtr_device_probe(struct device *dev)
+{
+	struct qrtr_device *qdev = to_qrtr_device(dev);
+	struct qrtr_driver *qdrv = to_qrtr_driver(dev->driver);
+
+	return qdrv->probe(qdev);
+}
+
+static void qcom_smd_qrtr_device_remove(struct device *dev)
+{
+	struct qrtr_device *qdev = to_qrtr_device(dev);
+	struct qrtr_driver *qdrv = to_qrtr_driver(dev->driver);
+
+	if (qdrv->remove)
+		qdrv->remove(qdev);
+}
+
+const struct bus_type qrtr_bus = {
+	.name		= "qrtr",
+	.match		= qcom_smd_qrtr_device_match,
+	.uevent		= qcom_smd_qrtr_uevent,
+	.probe		= qcom_smd_qrtr_device_probe,
+	.remove		= qcom_smd_qrtr_device_remove,
+};
+EXPORT_SYMBOL_NS_GPL(qrtr_bus, "QRTR");
+
+int __qrtr_driver_register(struct qrtr_driver *drv, struct module *owner)
+{
+	drv->driver.bus = &qrtr_bus;
+	drv->driver.owner = owner;
+
+	return driver_register(&drv->driver);
+}
+EXPORT_SYMBOL_NS_GPL(__qrtr_driver_register, "QRTR");
+
+void qrtr_driver_unregister(struct qrtr_driver *drv)
+{
+	driver_unregister(&drv->driver);
+}
+EXPORT_SYMBOL_NS_GPL(qrtr_driver_unregister, "QRTR");
+
+static void qcom_smd_qrtr_dev_release(struct device *dev)
+{
+	struct qrtr_device *qdev = to_qrtr_device(dev);
+
+	kfree(qdev);
+}
+
+static int qcom_smd_qrtr_match_device_by_port(struct device *dev, const void *data)
+{
+	struct qrtr_device *qdev = to_qrtr_device(dev);
+	unsigned const int *port = data;
+
+	return qdev->port == *port;
+}
+
+static void qcom_smd_qrtr_add_device_worker(struct work_struct *work)
+{
+	struct qrtr_new_server *new_server = container_of(work, struct qrtr_new_server, work);
+	struct qrtr_smd_dev *qsdev = new_server->parent;
+	struct qrtr_device *qdev;
+	int ret;
+
+	qdev = kzalloc(sizeof(*qdev), GFP_KERNEL);
+	if (!qdev)
+		return;
+
+	*qdev = (struct qrtr_device) {
+		.node = new_server->node,
+		.port = new_server->port,
+		.service = new_server->service,
+		.instance = new_server->instance
+	};
+
+	devm_kfree(qsdev->dev, new_server);
+
+	dev_set_name(&qdev->dev, "%d-%d", qdev->node, qdev->port);
+
+	qdev->dev.bus = &qrtr_bus;
+	qdev->dev.parent = qsdev->dev;
+	qdev->dev.release = qcom_smd_qrtr_dev_release;
+
+	ret = device_register(&qdev->dev);
+	if (ret) {
+		dev_err(qsdev->dev, "Failed to register QRTR device: %pe\n", ERR_PTR(ret));
+		put_device(&qdev->dev);
+	}
+}
+
+static void qcom_smd_qrtr_del_device_worker(struct work_struct *work)
+{
+	struct qrtr_del_server *del_server = container_of(work, struct qrtr_del_server, work);
+	struct qrtr_smd_dev *qsdev = del_server->parent;
+	struct device *dev = device_find_child(qsdev->dev, &del_server->port,
+					       qcom_smd_qrtr_match_device_by_port);
+
+	device_unregister(dev);
+}
+
+static int qcom_smd_qrtr_add_device(struct qrtr_endpoint *parent, unsigned int node,
+				    unsigned int port, u16 service, u16 instance)
+{
+	struct qrtr_smd_dev *qsdev = container_of(parent, struct qrtr_smd_dev, ep);
+	struct qrtr_new_server *new_server;
+
+	new_server = devm_kzalloc(qsdev->dev, sizeof(*new_server), GFP_KERNEL);
+	if (!new_server)
+		return -ENOMEM;
+
+	*new_server = (struct qrtr_new_server) {
+		.parent = qsdev,
+		.node = node,
+		.port = port,
+		.service = service,
+		.instance = instance
+	};
+
+	INIT_WORK(&new_server->work, qcom_smd_qrtr_add_device_worker);
+	schedule_work(&new_server->work);
+
+	return 0;
+}
+
+static int qcom_smd_qrtr_del_device(struct qrtr_endpoint *parent, unsigned int port)
+{
+	struct qrtr_smd_dev *qsdev = container_of(parent, struct qrtr_smd_dev, ep);
+	struct qrtr_del_server *del_server;
+
+	del_server = devm_kzalloc(qsdev->dev, sizeof(*del_server), GFP_KERNEL);
+	if (!del_server)
+		return -ENOMEM;
+
+	del_server->parent = qsdev;
+	del_server->port = port;
+
+	INIT_WORK(&del_server->work, qcom_smd_qrtr_del_device_worker);
+	schedule_work(&del_server->work);
+
+	return 0;
+}
+
+static int qcom_smd_qrtr_device_unregister(struct device *dev, void *data)
+{
+	device_unregister(dev);
+
+	return 0;
+}
 
 /* from smd to qrtr */
 static int qcom_smd_qrtr_callback(struct rpmsg_device *rpdev,
@@ -86,6 +278,8 @@ static void qcom_smd_qrtr_remove(struct rpmsg_device *rpdev)
 {
 	struct qrtr_smd_dev *qsdev = dev_get_drvdata(&rpdev->dev);
 
+	device_for_each_child(qsdev->dev, NULL, qcom_smd_qrtr_device_unregister);
+
 	qrtr_endpoint_unregister(&qsdev->ep);
 
 	dev_set_drvdata(&rpdev->dev, NULL);
@@ -106,7 +300,29 @@ static struct rpmsg_driver qcom_smd_qrtr_driver = {
 	},
 };
 
-module_rpmsg_driver(qcom_smd_qrtr_driver);
+static int __init qcom_smd_qrtr_init(void)
+{
+	int ret;
+
+	ret = bus_register(&qrtr_bus);
+	if (ret)
+		return ret;
+
+	ret = register_rpmsg_driver(&qcom_smd_qrtr_driver);
+	if (ret)
+		bus_unregister(&qrtr_bus);
+
+	return ret;
+}
+
+static void __exit qcom_smd_qrtr_exit(void)
+{
+	unregister_rpmsg_driver(&qcom_smd_qrtr_driver);
+	bus_unregister(&qrtr_bus);
+}
+
+subsys_initcall(qcom_smd_qrtr_init);
+module_exit(qcom_smd_qrtr_exit);
 
 MODULE_ALIAS("rpmsg:IPCRTR");
 MODULE_DESCRIPTION("Qualcomm IPC-Router SMD interface driver");

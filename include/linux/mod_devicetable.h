@@ -48,6 +48,7 @@
 #include "device-id/platform.h"
 #include "device-id/pnp.h"
 #include "device-id/rio.h"
+#include "device-id/qrtr.h"
 #include "device-id/rpmsg.h"
 #include "device-id/sdio.h"
 #include "device-id/sdw.h"
