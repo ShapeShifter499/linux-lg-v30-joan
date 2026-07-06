@@ -161,6 +161,20 @@
 	status = "okay";
 };
 
+&soc {
+	/*
+	 * APSS watchdog, missing from mainline msm8998.dtsi (address
+	 * from downstream qcom,wdt@17817000). LG's boot chain leaves
+	 * it armed, so a kernel that never pets it resets ~30s in
+	 * even when otherwise healthy.
+	 */
+	watchdog@17817000 {
+		compatible = "qcom,apss-wdt-msm8998", "qcom,kpss-wdt";
+		reg = <0x17817000 0x1000>;
+		clocks = <&sleep_clk>;
+	};
+};
+
 &qusb2phy {
 	status = "okay";
 
