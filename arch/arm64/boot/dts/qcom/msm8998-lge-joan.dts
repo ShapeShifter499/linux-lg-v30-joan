@@ -51,16 +51,26 @@
 		};
 
 		/*
-		 * Same 1 MiB region downstream carves out for ramoops, so
-		 * crash logs can be recovered after rebooting back to the
-		 * Android downstream kernel.
+		 * Byte-compatible with the downstream ramoops layout
+		 * (msm8998-joan_*.dtsi: mem-size 0x80000, console @0,
+		 * ftrace @0x40000, no dump/pmsg space): after a crashed
+		 * mainline boot falls back to the LG 4.4 kernel, Android
+		 * parses our console log and drops it in
+		 * /data/system/dropbox as SYSTEM_LAST_KMSG. Any other
+		 * split leaves the log invisible to downstream.
 		 */
 		ramoops@b0000000 {
 			compatible = "ramoops";
-			reg = <0x0 0xb0000000 0x0 0x100000>;
-			console-size = <0x40000>;
-			pmsg-size = <0x20000>;
+			reg = <0x0 0xb0000000 0x0 0x80000>;
 			record-size = <0x1000>;
+			console-size = <0x40000>;
+			ftrace-size = <0x40000>;
+		};
+
+		/* rest of downstream's 1 MiB ramoops carve-out */
+		reserved@b0080000 {
+			reg = <0x0 0xb0080000 0x0 0x80000>;
+			no-map;
 		};
 	};
 
