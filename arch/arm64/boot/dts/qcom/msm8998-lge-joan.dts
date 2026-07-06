@@ -72,6 +72,39 @@
 			reg = <0x0 0xb0080000 0x0 0x80000>;
 			no-map;
 		};
+
+		/*
+		 * LG's firmware memory map (downstream msm8998.dtsi +
+		 * joan dtsi) protects more RAM than mainline msm8998.dtsi
+		 * reserves. These nodes plug exactly the holes where the
+		 * mainline allocator could hand out firmware-owned pages
+		 * (instant silent XPU reset). Deltas: tail of LG's
+		 * removed_regions, tail of pil_slpi (LG SLPI ends at
+		 * 0x95c00000, not 0x95200000) split around mainline's
+		 * gpu_mem/wlan_msa nodes, pil_ipa_gpu, and LG's crash_fb.
+		 * Note mainline gpu_mem/wlan_msa (0x95600000/0x95700000)
+		 * lie inside LG's SLPI range and must move before zap
+		 * shader / wifi bringup.
+		 */
+		reserved@85f00000 {
+			reg = <0x0 0x85f00000 0x0 0x100000>;
+			no-map;
+		};
+
+		reserved@95215000 {
+			reg = <0x0 0x95215000 0x0 0x3eb000>;
+			no-map;
+		};
+
+		reserved@95800000 {
+			reg = <0x0 0x95800000 0x0 0x500000>;
+			no-map;
+		};
+
+		crash_fb_mem: reserved@b0100000 {
+			reg = <0x0 0xb0100000 0x0 0x1800000>;
+			no-map;
+		};
 	};
 
 	gpio-keys {
