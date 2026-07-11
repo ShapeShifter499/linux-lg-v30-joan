@@ -391,8 +391,33 @@
 	};
 };
 
+&sdhc2 {
+	status = "okay";
+
+	cd-gpios = <&tlmm 40 GPIO_ACTIVE_LOW>;
+
+	vmmc-supply = <&vreg_l21a_2p95>;
+	vqmmc-supply = <&vreg_l13a_2p95>;
+
+	pinctrl-names = "default", "sleep";
+	pinctrl-0 = <&sdc2_on &sdc2_cd_joan>;
+	pinctrl-1 = <&sdc2_off &sdc2_cd_joan>;
+};
+
 &tlmm {
 	gpio-reserved-ranges = <0 4>, <49 4>, <81 4>;
+
+	/*
+	 * The SoC-level sdc2_cd state uses the MTP's GPIO 95; joan routes
+	 * SD card-detect to GPIO 40 (downstream msm8998-joan_*.dtsi,
+	 * cd-gpios = <&tlmm 40 0x1>).
+	 */
+	sdc2_cd_joan: sdc2-cd-state {
+		pins = "gpio40";
+		function = "gpio";
+		bias-pull-up;
+		drive-strength = <2>;
+	};
 };
 
 &ufshc {
