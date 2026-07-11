@@ -505,6 +505,7 @@
 };
 
 &mdss_dsi0 {
+	vdd-supply = <&vreg_l1a_0p875>;
 	vdda-supply = <&vreg_l2a_1p2>;
 	status = "okay";
 
