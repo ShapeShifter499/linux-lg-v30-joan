@@ -465,3 +465,73 @@
 	vdd-1.3-rfa-supply = <&vreg_l17a_1p3>;
 	vdd-3.3-ch0-supply = <&vreg_l25a_3p3>;
 };
+
+/*
+ * Display: SW43402 DSC command-mode panel.
+ * NOTE: bringup-stage, not yet validated on device. The MDSS blocks sit
+ * behind the mmss SMMU (cd00000.iommu), which currently fails deferred
+ * probe (-110) — this chain will not light up until that is resolved.
+ * Panel rails are board GPIO-enabled fixed supplies (downstream uses
+ * lge,gpio-vddio = TLMM 92, lge,gpio-vpnl = TLMM 69).
+ */
+/ {
+	vreg_panel_vddio: regulator-panel-vddio {
+		compatible = "regulator-fixed";
+		regulator-name = "panel_vddio";
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		gpio = <&tlmm 92 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		regulator-boot-on;
+	};
+
+	vreg_panel_vpnl: regulator-panel-vpnl {
+		compatible = "regulator-fixed";
+		regulator-name = "panel_vpnl";
+		regulator-min-microvolt = <3000000>;
+		regulator-max-microvolt = <3000000>;
+		gpio = <&tlmm 69 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		regulator-boot-on;
+	};
+};
+
+&mdss {
+	status = "okay";
+};
+
+&mdss_mdp {
+	status = "okay";
+};
+
+&mdss_dsi0 {
+	vdda-supply = <&vreg_l2a_1p2>;
+	status = "okay";
+
+	panel@0 {
+		compatible = "lg,sw43402";
+		reg = <0>;
+
+		vddio-supply = <&vreg_panel_vddio>;
+		vpnl-supply = <&vreg_panel_vpnl>;
+
+		reset-gpios = <&tlmm 35 GPIO_ACTIVE_LOW>;
+
+		port {
+			panel_in: endpoint {
+				remote-endpoint = <&mdss_dsi0_out>;
+			};
+		};
+	};
+};
+
+&mdss_dsi0_out {
+	data-lanes = <0 1 2 3>;
+	remote-endpoint = <&panel_in>;
+	qcom,te-source = "mdp_vsync_e";
+};
+
+&mdss_dsi0_phy {
+	vdds-supply = <&vreg_l1a_0p875>;
+	status = "okay";
+};
