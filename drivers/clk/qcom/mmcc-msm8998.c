@@ -1568,6 +1568,47 @@ static struct clk_branch mdss_dp_aux_clk = {
 	},
 };
 
+/*
+ * The byte-interface clock runs at half the byte clock. It has a dedicated
+ * hardware divider, so model it explicitly instead of parenting the interface
+ * branch straight to byte*_clk_src: otherwise the interface's half-rate
+ * request propagates through CLK_SET_RATE_PARENT into the shared PHY byte
+ * source and rewrites the DSI PLL output divider, halving the whole link.
+ */
+static struct clk_regmap_div mdss_byte0_intf_div_clk = {
+	.reg = 0x237c,
+	.shift = 0,
+	.width = 2,
+	/*
+	 * NOTE: Op does not work for div-3. Current assumption is that div-3
+	 * is not a recommended setting for this divider.
+	 */
+	.clkr = {
+		.hw.init = &(struct clk_init_data){
+			.name = "mdss_byte0_intf_div_clk",
+			.parent_hws = (const struct clk_hw *[]){ &byte0_clk_src.clkr.hw },
+			.num_parents = 1,
+			.ops = &clk_regmap_div_ops,
+			.flags = CLK_GET_RATE_NOCACHE,
+		},
+	},
+};
+
+static struct clk_regmap_div mdss_byte1_intf_div_clk = {
+	.reg = 0x2380,
+	.shift = 0,
+	.width = 2,
+	.clkr = {
+		.hw.init = &(struct clk_init_data){
+			.name = "mdss_byte1_intf_div_clk",
+			.parent_hws = (const struct clk_hw *[]){ &byte1_clk_src.clkr.hw },
+			.num_parents = 1,
+			.ops = &clk_regmap_div_ops,
+			.flags = CLK_GET_RATE_NOCACHE,
+		},
+	},
+};
+
 static struct clk_branch mdss_byte0_intf_clk = {
 	.halt_reg = 0x2374,
 	.clkr = {
@@ -1575,10 +1616,10 @@ static struct clk_branch mdss_byte0_intf_clk = {
 		.enable_mask = BIT(0),
 		.hw.init = &(struct clk_init_data){
 			.name = "mdss_byte0_intf_clk",
-			.parent_hws = (const struct clk_hw *[]){ &byte0_clk_src.clkr.hw },
+			.parent_hws = (const struct clk_hw *[]){ &mdss_byte0_intf_div_clk.clkr.hw },
 			.num_parents = 1,
 			.ops = &clk_branch2_ops,
-			.flags = CLK_SET_RATE_PARENT,
+			.flags = CLK_SET_RATE_PARENT | CLK_GET_RATE_NOCACHE,
 		},
 	},
 };
@@ -1590,10 +1631,10 @@ static struct clk_branch mdss_byte1_intf_clk = {
 		.enable_mask = BIT(0),
 		.hw.init = &(struct clk_init_data){
 			.name = "mdss_byte1_intf_clk",
-			.parent_hws = (const struct clk_hw *[]){ &byte1_clk_src.clkr.hw },
+			.parent_hws = (const struct clk_hw *[]){ &mdss_byte1_intf_div_clk.clkr.hw },
 			.num_parents = 1,
 			.ops = &clk_branch2_ops,
-			.flags = CLK_SET_RATE_PARENT,
+			.flags = CLK_SET_RATE_PARENT | CLK_GET_RATE_NOCACHE,
 		},
 	},
 };
@@ -2708,6 +2749,8 @@ static struct clk_regmap *mmcc_msm8998_clocks[] = {
 	[MDSS_DP_CRYPTO_CLK] = &mdss_dp_crypto_clk.clkr,
 	[MDSS_DP_PIXEL_CLK] = &mdss_dp_pixel_clk.clkr,
 	[MDSS_DP_AUX_CLK] = &mdss_dp_aux_clk.clkr,
+	[MDSS_BYTE0_INTF_DIV_CLK] = &mdss_byte0_intf_div_clk.clkr,
+	[MDSS_BYTE1_INTF_DIV_CLK] = &mdss_byte1_intf_div_clk.clkr,
 	[MDSS_BYTE0_INTF_CLK] = &mdss_byte0_intf_clk.clkr,
 	[MDSS_BYTE1_INTF_CLK] = &mdss_byte1_intf_clk.clkr,
 	[CAMSS_CSI0PHYTIMER_CLK] = &camss_csi0phytimer_clk.clkr,
