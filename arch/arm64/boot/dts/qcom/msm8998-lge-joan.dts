@@ -418,6 +418,20 @@
 		bias-pull-up;
 		drive-strength = <2>;
 	};
+
+	/*
+	 * Panel tear-effect input. Downstream routes the SW43402's TE
+	 * output to TLMM GPIO 10 muxed as mdp_vsync_a
+	 * (msm8998-joan-common-pinctrl.dtsi, mdss_te_active) and leaves
+	 * MDP_VSYNC_SEL at its reset default, i.e. vsync source 0
+	 * ("mdp_vsync_p" in mainline terms).
+	 */
+	mdss_te_default: mdss-te-default-state {
+		pins = "gpio10";
+		function = "mdp_vsync_a";
+		drive-strength = <2>;
+		bias-pull-down;
+	};
 };
 
 &ufshc {
@@ -518,6 +532,9 @@
 
 		reset-gpios = <&tlmm 35 GPIO_ACTIVE_LOW>;
 
+		pinctrl-0 = <&mdss_te_default>;
+		pinctrl-names = "default";
+
 		port {
 			panel_in: endpoint {
 				remote-endpoint = <&mdss_dsi0_out>;
@@ -529,7 +546,7 @@
 &mdss_dsi0_out {
 	data-lanes = <0 1 2 3>;
 	remote-endpoint = <&panel_in>;
-	qcom,te-source = "mdp_vsync_e";
+	qcom,te-source = "mdp_vsync_p";
 };
 
 &mdss_dsi0_phy {
