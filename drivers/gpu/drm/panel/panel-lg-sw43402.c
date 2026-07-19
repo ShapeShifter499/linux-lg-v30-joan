@@ -131,9 +131,18 @@ static int sw43402_prepare(struct drm_panel *panel)
 	 * boot. Enable the brightness-control block and go to full scale
 	 * so the panel is usable without userspace; a proper backlight
 	 * device can replace the hardcoded value later.
+	 *
+	 * The panel needs a moment after display-on before it will latch
+	 * these: written back-to-back with display-on, WRDISBV reads back
+	 * 0 via 52h and the panel stays dark; with ~20ms of settle (and a
+	 * repeated DBV write for margin) it reads back 0xff.
 	 */
+	mipi_dsi_msleep(&dsi_ctx, 20);
 	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, MIPI_DCS_WRITE_CONTROL_DISPLAY,
 				     0x2c);
+	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, MIPI_DCS_SET_DISPLAY_BRIGHTNESS,
+				     0xff);
+	mipi_dsi_msleep(&dsi_ctx, 20);
 	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, MIPI_DCS_SET_DISPLAY_BRIGHTNESS,
 				     0xff);
 
