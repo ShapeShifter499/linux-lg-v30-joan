@@ -121,6 +121,22 @@ static int sw43402_prepare(struct drm_panel *panel)
 	mipi_dsi_msleep(&dsi_ctx, 60);
 	mipi_dsi_dcs_set_display_on_multi(&dsi_ctx);
 
+	/*
+	 * The downstream on-command sequence programs WRCTRLD (53h) with
+	 * LG-custom bits (0x07) that leave the standard brightness gate
+	 * (BCTRL) clear, and WRDISBV (51h) with the blmap floor value 3;
+	 * with BCTRL clear the panel gates DBV writes (any width reads
+	 * back 0 via 52h) and emits nothing visible. Stock relies on
+	 * Android raising brightness through bl_ctrl_dcs right after
+	 * boot. Enable the brightness-control block and go to full scale
+	 * so the panel is usable without userspace; a proper backlight
+	 * device can replace the hardcoded value later.
+	 */
+	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, MIPI_DCS_WRITE_CONTROL_DISPLAY,
+				     0x2c);
+	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, MIPI_DCS_SET_DISPLAY_BRIGHTNESS,
+				     0xff);
+
 	if (dsi_ctx.accum_err)
 		regulator_bulk_disable(ARRAY_SIZE(sw43402_supplies),
 				       ctx->supplies);
