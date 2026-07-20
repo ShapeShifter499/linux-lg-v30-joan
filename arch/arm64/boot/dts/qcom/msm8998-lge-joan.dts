@@ -512,6 +512,14 @@
 
 &mdss {
 	status = "okay";
+	/*
+	 * Hard-reset the whole MDSS complex at probe: the bootloader
+	 * leaves the display pipeline live (splash/fastboot screen), and
+	 * programming the first modeset onto running hardware wedges the
+	 * HS pixel path until a full disable/enable cycle. The BCR pulse
+	 * gives the kernel cold silicon instead.
+	 */
+	resets = <&mmcc MDSS_BCR>;
 };
 
 &mdss_mdp {
