@@ -432,6 +432,20 @@
 		drive-strength = <2>;
 		bias-pull-down;
 	};
+
+	touch_int_default: touch-int-default-state {
+		pins = "gpio125";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-pull-up;
+	};
+
+	touch_reset_default: touch-reset-default-state {
+		pins = "gpio89";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-pull-up;
+	};
 };
 
 &ufshc {
@@ -560,4 +574,60 @@
 &mdss_dsi0_phy {
 	vdds-supply = <&vreg_l1a_0p875>;
 	status = "okay";
+};
+
+/*
+ * Touch: STMicro FingerTipS on blsp1_i2c5 at 0x49. Downstream binds its
+ * own "stm,ftm4" driver (lge_touch); mainline's stmfts speaks the same
+ * FingerTipS command set, so try it first. The controller keeps its
+ * firmware in on-chip flash — downstream only pushes L0S59P1_1_11.ftb
+ * for updates — so no firmware file is needed to bring it up.
+ *
+ * Both rails are GPIO load switches, not programmable regulators, so
+ * the voltages below are nominal descriptors only. Downstream names
+ * them vdd-gpio (TLMM 85) and vio-gpio (TLMM 86); the mapping onto
+ * stmfts's "avdd" (analog) and "vdd" (digital I/O) is inferred from the
+ * usual FingerTipS wiring and is unverified on this board.
+ */
+/ {
+	vreg_touch_avdd: regulator-touch-avdd {
+		compatible = "regulator-fixed";
+		regulator-name = "touch_avdd";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		gpio = <&tlmm 85 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+	};
+
+	vreg_touch_vdd: regulator-touch-vdd {
+		compatible = "regulator-fixed";
+		regulator-name = "touch_vdd";
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		gpio = <&tlmm 86 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+	};
+};
+
+&blsp1_i2c5 {
+	status = "okay";
+
+	touchscreen@49 {
+		compatible = "st,fts3670";
+		reg = <0x49>;
+
+		interrupt-parent = <&tlmm>;
+		interrupts = <125 IRQ_TYPE_LEVEL_LOW>;
+
+		vdd-supply = <&vreg_touch_vdd>;
+		avdd-supply = <&vreg_touch_avdd>;
+
+		reset-gpios = <&tlmm 89 GPIO_ACTIVE_LOW>;
+
+		touchscreen-size-x = <1440>;
+		touchscreen-size-y = <2880>;
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&touch_int_default &touch_reset_default>;
+	};
 };
