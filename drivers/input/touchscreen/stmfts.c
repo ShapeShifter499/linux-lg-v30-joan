@@ -284,10 +284,17 @@ static void stmfts_parse_events(struct stmfts_data *sdata)
 			break;
 
 		case STMFTS_EV_ERROR:
-			dev_warn(&sdata->client->dev,
-				 "error code: 0x%x%x%x%x%x%x",
-				 event[6], event[5], event[4],
-				 event[3], event[2], event[1]);
+			/*
+			 * Zero-pad each byte: without it the payload loses
+			 * leading zeroes and renders as a misleading value.
+			 * Rate-limit because some controllers emit an
+			 * unrecognised status byte on every wake, which is
+			 * harmless but would otherwise flood the log.
+			 */
+			dev_warn_ratelimited(&sdata->client->dev,
+					     "error code: 0x%02x%02x%02x%02x%02x%02x",
+					     event[6], event[5], event[4],
+					     event[3], event[2], event[1]);
 			break;
 
 		default:
