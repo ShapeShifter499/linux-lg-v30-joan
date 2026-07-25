@@ -14,6 +14,8 @@
 #include <linux/leds.h>
 #include <linux/module.h>
 #include <linux/pm_runtime.h>
+#include <linux/property.h>
+#include <linux/unaligned.h>
 #include <linux/regulator/consumer.h>
 
 /* I2C commands */
@@ -68,6 +70,51 @@
 #define STMFTS_STACK_DEPTH	32
 #define STMFTS_DATA_MAX_SIZE	(STMFTS_EVENT_SIZE * STMFTS_STACK_DEPTH)
 #define STMFTS_MAX_FINGERS	10
+
+/*
+ * Some FingerTipS variants (notably the FTM4 fitted to LG joan) expose a
+ * register-write protocol alongside the single-byte command set, and will not
+ * assert their interrupt line until interrupt generation has been enabled in
+ * their own control register.
+ */
+#define STMFTS_WRITE_REG		0xb6
+#define STMFTS_REG_SYSTEM_RESET		0x0028
+#define STMFTS_SYSTEM_RESET_VALUE	0x80
+#define STMFTS_REG_INT_CTRL		0x002c
+#define STMFTS_INT_ENABLE		0x48
+#define STMFTS_READ_ONE_EVENT		0x85
+#define STMFTS_FTS3670_READY_RETRIES	50
+#define STMFTS_FLUSH_BUFFER		0xa1
+#define STMFTS_RELEASE_INFO		0xaa
+#define STMFTS_EV_INTERNAL_RELEASE_INFO	0x14
+#define STMFTS_EV_EXTERNAL_RELEASE_INFO	0x15
+#define STMFTS_INT_DISABLE		0x08
+#define STMFTS_SENSE_OFF		0x92
+#define STMFTS_SENSE_ON			0x93
+
+/**
+ * struct stmfts_variant - per-compatible controller behaviour
+ * @fts3670_bringup: controller needs a register-write reset and an explicit
+ *	interrupt-enable before it will answer any command
+ * @fts3670_contact_layout: contact events pack both coordinate low nibbles into
+ *	byte 3, and order the trailing fields differently
+ * @fts3670_identity: chip id and versions come from a register read and
+ *	release-info events rather than the STMFTS_READ_INFO block read
+ */
+struct stmfts_variant {
+	bool fts3670_bringup;
+	bool fts3670_contact_layout;
+	bool fts3670_identity;
+};
+
+static const struct stmfts_variant stmfts_variant_stmfts = {
+};
+
+static const struct stmfts_variant stmfts_variant_fts3670 = {
+	.fts3670_bringup = true,
+	.fts3670_contact_layout = true,
+	.fts3670_identity = true,
+};
 #define STMFTS_DEV_NAME		"stmfts"
 
 static const struct regulator_bulk_data stmfts_supplies[] = {
@@ -76,6 +123,7 @@ static const struct regulator_bulk_data stmfts_supplies[] = {
 };
 
 struct stmfts_data {
+	const struct stmfts_variant *variant;
 	struct i2c_client *client;
 	struct input_dev *input;
 	struct gpio_desc *reset_gpio;
@@ -174,12 +222,29 @@ static void stmfts_report_contact_event(struct stmfts_data *sdata,
 					const u8 event[])
 {
 	u8 slot_id = (event[0] & STMFTS_MASK_TOUCH_ID) >> 4;
-	u16 x = event[1] | ((event[2] & STMFTS_MASK_X_MSB) << 8);
-	u16 y = (event[2] >> 4) | (event[3] << 4);
-	u8 maj = event[4];
-	u8 min = event[5];
-	u8 orientation = event[6];
-	u8 area = event[7];
+	u8 maj, min, pressure, orientation;
+	u16 x, y;
+
+	if (sdata->variant->fts3670_contact_layout) {
+		/*
+		 * Byte 3 carries the low nibble of both coordinates, with
+		 * bytes 1 and 2 holding the high bytes, and the trailing
+		 * fields run pressure, orientation, width, height.
+		 */
+		x = (event[1] << 4) | ((event[3] & 0xf0) >> 4);
+		y = (event[2] << 4) | (event[3] & 0x0f);
+		pressure = event[4];
+		orientation = event[5];
+		maj = event[6];
+		min = event[7];
+	} else {
+		x = event[1] | ((event[2] & STMFTS_MASK_X_MSB) << 8);
+		y = (event[2] >> 4) | (event[3] << 4);
+		maj = event[4];
+		min = event[5];
+		orientation = event[6];
+		pressure = event[7];
+	}
 
 	input_mt_slot(sdata->input, slot_id);
 
@@ -188,7 +253,7 @@ static void stmfts_report_contact_event(struct stmfts_data *sdata,
 	input_report_abs(sdata->input, ABS_MT_POSITION_Y, y);
 	input_report_abs(sdata->input, ABS_MT_TOUCH_MAJOR, maj);
 	input_report_abs(sdata->input, ABS_MT_TOUCH_MINOR, min);
-	input_report_abs(sdata->input, ABS_MT_PRESSURE, area);
+	input_report_abs(sdata->input, ABS_MT_PRESSURE, pressure);
 	input_report_abs(sdata->input, ABS_MT_ORIENTATION, orientation);
 
 	input_sync(sdata->input);
@@ -312,17 +377,19 @@ static irqreturn_t stmfts_irq_handler(int irq, void *dev)
 	guard(mutex)(&sdata->mutex);
 
 	err = stmfts_read_events(sdata);
-	if (unlikely(err))
+	if (unlikely(err)) {
 		dev_err(&sdata->client->dev,
 			"failed to read events: %d\n", err);
-	else
+	} else {
 		stmfts_parse_events(sdata);
+	}
 
 	return IRQ_HANDLED;
 }
 
 static int stmfts_command(struct stmfts_data *sdata, const u8 cmd)
 {
+	unsigned long left;
 	int err;
 
 	reinit_completion(&sdata->cmd_done);
@@ -331,8 +398,9 @@ static int stmfts_command(struct stmfts_data *sdata, const u8 cmd)
 	if (err)
 		return err;
 
-	if (!wait_for_completion_timeout(&sdata->cmd_done,
-					 msecs_to_jiffies(1000)))
+	left = wait_for_completion_timeout(&sdata->cmd_done,
+					   msecs_to_jiffies(1000));
+	if (!left)
 		return -ETIMEDOUT;
 
 	return 0;
@@ -529,10 +597,103 @@ static struct attribute *stmfts_sysfs_attrs[] = {
 };
 ATTRIBUTE_GROUPS(stmfts_sysfs);
 
+static int stmfts_write_reg(struct stmfts_data *sdata, u16 reg, u8 value)
+{
+	u8 frame[4] = { STMFTS_WRITE_REG, reg >> 8, reg & 0xff, value };
+	struct i2c_msg msg = {
+		.addr = sdata->client->addr,
+		.len = sizeof(frame),
+		.buf = frame,
+	};
+	int err;
+
+	err = i2c_transfer(sdata->client->adapter, &msg, 1);
+	if (err < 0)
+		return err;
+
+	return err == 1 ? 0 : -EIO;
+}
+
+/*
+ * The FTS3670 does not implement the STMFTS_READ_INFO block read, so the
+ * generic path returns success with a zeroed chip id. Identity instead comes
+ * from a register read for the chip id, and from release-info events emitted
+ * in response to STMFTS_RELEASE_INFO.
+ *
+ * The threaded IRQ handler drains the event FIFO, so sensing and the
+ * interrupt are held off across the sequence or the release-info events are
+ * consumed before they can be read.
+ */
+static int stmfts_fts3670_read_identity(struct stmfts_data *sdata)
+{
+	u8 chip_req[3] = { STMFTS_WRITE_REG, 0x00, 0x04 };
+	u8 rd = STMFTS_READ_ONE_EVENT;
+	u8 val[7] = {};
+	u8 ev[STMFTS_EVENT_SIZE];
+	struct i2c_msg chip_msg[2] = {
+		{ .addr = sdata->client->addr, .len = sizeof(chip_req),
+		  .buf = chip_req },
+		{ .addr = sdata->client->addr, .flags = I2C_M_RD,
+		  .len = sizeof(val), .buf = val },
+	};
+	int err, i;
+
+	err = i2c_transfer(sdata->client->adapter, chip_msg,
+			   ARRAY_SIZE(chip_msg));
+	if (err != ARRAY_SIZE(chip_msg))
+		return err < 0 ? err : -EIO;
+
+	sdata->chip_id = get_unaligned_be16(&val[1]);
+
+	stmfts_write_reg(sdata, STMFTS_REG_INT_CTRL, STMFTS_INT_DISABLE);
+	i2c_smbus_write_byte(sdata->client, STMFTS_SENSE_OFF);
+	disable_irq(sdata->client->irq);
+	msleep(50);
+
+	i2c_smbus_write_byte(sdata->client, STMFTS_FLUSH_BUFFER);
+	msleep(50);
+	i2c_smbus_write_byte(sdata->client, STMFTS_RELEASE_INFO);
+	msleep(50);
+
+	for (i = 0; i < STMFTS_FTS3670_READY_RETRIES; i++) {
+		struct i2c_msg msg[2] = {
+			{ .addr = sdata->client->addr, .len = 1, .buf = &rd },
+			{ .addr = sdata->client->addr, .flags = I2C_M_RD,
+			  .len = sizeof(ev), .buf = ev },
+		};
+
+		if (i2c_transfer(sdata->client->adapter, msg,
+				 ARRAY_SIZE(msg)) != ARRAY_SIZE(msg))
+			break;
+
+		if (!ev[0])
+			break;
+
+		if (ev[0] == STMFTS_EV_INTERNAL_RELEASE_INFO) {
+			sdata->fw_ver = get_unaligned_be16(&ev[3]);
+			sdata->config_id = ev[6];
+			sdata->config_ver = ev[5];
+		} else if (ev[0] == STMFTS_EV_EXTERNAL_RELEASE_INFO) {
+			sdata->chip_ver = ev[1];
+		}
+
+		msleep(10);
+	}
+
+	i2c_smbus_write_byte(sdata->client, STMFTS_SENSE_ON);
+	stmfts_write_reg(sdata, STMFTS_REG_INT_CTRL, STMFTS_INT_ENABLE);
+	enable_irq(sdata->client->irq);
+
+	return 0;
+}
+
 static int stmfts_read_system_info(struct stmfts_data *sdata)
 {
 	int err;
 	u8 reg[8];
+
+	if (sdata->variant->fts3670_identity)
+		return stmfts_fts3670_read_identity(sdata);
 
 	err = i2c_smbus_read_i2c_block_data(sdata->client, STMFTS_READ_INFO,
 					    sizeof(reg), reg);
@@ -559,11 +720,79 @@ static void stmfts_reset(struct stmfts_data *sdata)
 	msleep(50);
 }
 
+
+
+static int stmfts_fts3670_wait_ready(struct stmfts_data *sdata)
+{
+	u8 cmd = STMFTS_READ_ONE_EVENT;
+	u8 event[STMFTS_EVENT_SIZE];
+	int err, i;
+
+	for (i = 0; i < STMFTS_FTS3670_READY_RETRIES; i++) {
+		struct i2c_msg msg[2] = {
+			{
+				.addr = sdata->client->addr,
+				.len = 1,
+				.buf = &cmd,
+			},
+			{
+				.addr = sdata->client->addr,
+				.flags = I2C_M_RD,
+				.len = sizeof(event),
+				.buf = event,
+			},
+		};
+
+		err = i2c_transfer(sdata->client->adapter, msg,
+				   ARRAY_SIZE(msg));
+		if (err == ARRAY_SIZE(msg) &&
+		    event[0] == STMFTS_EV_CONTROLLER_READY)
+			return 0;
+
+		msleep(20);
+	}
+
+	return -ETIMEDOUT;
+}
+
+/*
+ * The FTS3670 ignores the single-byte command set until it has been reset
+ * through its register interface and told to generate interrupts. Without
+ * the interrupt-enable write it emits only its unconditional power-on ready
+ * event, after which every command waiting on cmd_done times out.
+ */
+static int stmfts_fts3670_bringup(struct stmfts_data *sdata)
+{
+	int err;
+
+	err = stmfts_write_reg(sdata, STMFTS_REG_SYSTEM_RESET,
+			       STMFTS_SYSTEM_RESET_VALUE);
+	if (err)
+		return err;
+
+	msleep(10);
+
+	err = stmfts_fts3670_wait_ready(sdata);
+	if (err)
+		return err;
+
+	err = stmfts_write_reg(sdata, STMFTS_REG_INT_CTRL, STMFTS_INT_ENABLE);
+	if (err)
+		return err;
+
+	msleep(10);
+
+	return 0;
+}
+
 static int stmfts_configure(struct stmfts_data *sdata)
 {
 	int err;
 
-	err = stmfts_command(sdata, STMFTS_SYSTEM_RESET);
+	if (sdata->variant->fts3670_bringup)
+		err = stmfts_fts3670_bringup(sdata);
+	else
+		err = stmfts_command(sdata, STMFTS_SYSTEM_RESET);
 	if (err)
 		return err;
 
@@ -605,8 +834,10 @@ static int stmfts_power_on(struct stmfts_data *sdata)
 	 */
 	msleep(20);
 
-	if (sdata->reset_gpio)
+	if (sdata->reset_gpio) {
 		stmfts_reset(sdata);
+	} else {
+	}
 
 	err = stmfts_read_system_info(sdata);
 	if (err)
@@ -687,6 +918,10 @@ static int stmfts_probe(struct i2c_client *client)
 		return -ENOMEM;
 
 	i2c_set_clientdata(client, sdata);
+
+	sdata->variant = device_get_match_data(&client->dev);
+	if (!sdata->variant)
+		sdata->variant = &stmfts_variant_stmfts;
 
 	sdata->client = client;
 	mutex_init(&sdata->mutex);
@@ -837,7 +1072,8 @@ static const struct dev_pm_ops stmfts_pm_ops = {
 
 #ifdef CONFIG_OF
 static const struct of_device_id stmfts_of_match[] = {
-	{ .compatible = "st,stmfts", },
+	{ .compatible = "st,stmfts", .data = &stmfts_variant_stmfts },
+	{ .compatible = "st,fts3670", .data = &stmfts_variant_fts3670 },
 	{ },
 };
 MODULE_DEVICE_TABLE(of, stmfts_of_match);
