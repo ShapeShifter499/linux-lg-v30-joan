@@ -160,39 +160,157 @@ static const struct regmap_config es9218p_regmap_config = {
 static const DECLARE_TLV_DB_SCALE(es9218p_vol_tlv, -12750, 50, 1);
 
 /*
- * The board's analog jack switch, which selects what the headphone jack is
- * connected to.  Exposed as a control so the routing can be moved without a
- * rebuild while the destination of each analog output is still being mapped.
+ * Operating mode.  RESET_N and MODE2 are not independent signals: together they
+ * are a two-bit mode field on the DAC itself, transcribed from LG's es9218p.c:
+ *
+ *	RESET_N=H, MODE2=L	HiFi		DAC + amplifier active
+ *	RESET_N=H, MODE2=H	LowFi
+ *	RESET_N=L, MODE2=H	Low Power Bypass
+ *	RESET_N=L, MODE2=L	Standby (shutdown)
+ *
+ * In Low Power Bypass the part shuts its own DAC down and passes analogue
+ * through to the jack, which is how downstream idles: it sits in LPB and only
+ * transitions to HiFi once a load has been measured on insertion.
+ *
+ * Note the inversion.  reset-gpios is ACTIVE_LOW in DT, so a gpiod value of 0
+ * means RESET_N is *high* and the part is out of reset; hph-sw-gpios is
+ * ACTIVE_HIGH and maps straight through.
+ *
+ * This control only moves the mode pins.  The register sequences downstream
+ * runs across a transition (es9218p_sabre_hifi2lpb() and friends) are not
+ * implemented yet, so changing mode under an active stream is not expected to
+ * be glitch-free.
  */
-static int es9218p_hph_sw_get(struct snd_kcontrol *kcontrol,
-			      struct snd_ctl_elem_value *ucontrol)
+/*
+ * Defined below, beside the register sequence and amplifier power-up it
+ * replays: a mode that holds RESET_N low clears the register map, so restoring
+ * the pins alone does not restore the part.
+ */
+static int es9218p_restore_after_reset(struct es9218p_priv *es9218p);
+
+enum es9218p_mode {
+	ES9218P_MODE_HIFI = 0,
+	ES9218P_MODE_LOWFI,
+	ES9218P_MODE_LPB,
+	ES9218P_MODE_STANDBY,
+};
+
+static const char * const es9218p_mode_text[] = {
+	"HiFi", "LowFi", "Low Power Bypass", "Standby",
+};
+
+static SOC_ENUM_SINGLE_EXT_DECL(es9218p_mode_enum, es9218p_mode_text);
+
+/* { reset gpiod value, mode2 gpiod value } per mode, in enum order. */
+static const u8 es9218p_mode_pins[][2] = {
+	[ES9218P_MODE_HIFI]	= { 0, 0 },
+	[ES9218P_MODE_LOWFI]	= { 0, 1 },
+	[ES9218P_MODE_LPB]	= { 1, 1 },
+	[ES9218P_MODE_STANDBY]	= { 1, 0 },
+};
+
+static int es9218p_mode_get(struct snd_kcontrol *kcontrol,
+			    struct snd_ctl_elem_value *ucontrol)
 {
 	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct es9218p_priv *es9218p = snd_soc_component_get_drvdata(component);
+	int rst, sw, i;
 
-	if (!es9218p->hph_sw_gpio)
+	if (!es9218p->reset_gpio || !es9218p->hph_sw_gpio)
 		return -ENODEV;
 
-	ucontrol->value.integer.value[0] =
-		gpiod_get_value_cansleep(es9218p->hph_sw_gpio);
+	rst = gpiod_get_value_cansleep(es9218p->reset_gpio);
+	sw  = gpiod_get_value_cansleep(es9218p->hph_sw_gpio);
 
-	return 0;
+	for (i = 0; i < ARRAY_SIZE(es9218p_mode_pins); i++) {
+		if (es9218p_mode_pins[i][0] == rst &&
+		    es9218p_mode_pins[i][1] == sw) {
+			ucontrol->value.enumerated.item[0] = i;
+			return 0;
+		}
+	}
+
+	return -EINVAL;
 }
 
-static int es9218p_hph_sw_put(struct snd_kcontrol *kcontrol,
-			      struct snd_ctl_elem_value *ucontrol)
+static int es9218p_mode_put(struct snd_kcontrol *kcontrol,
+			    struct snd_ctl_elem_value *ucontrol)
 {
 	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct es9218p_priv *es9218p = snd_soc_component_get_drvdata(component);
-	int val = !!ucontrol->value.integer.value[0];
+	unsigned int mode = ucontrol->value.enumerated.item[0];
+	struct snd_soc_dapm_context *dapm;
+	int rst, sw;
 
-	if (!es9218p->hph_sw_gpio)
+	if (mode >= ARRAY_SIZE(es9218p_mode_pins))
+		return -EINVAL;
+
+	if (!es9218p->reset_gpio || !es9218p->hph_sw_gpio)
 		return -ENODEV;
 
-	if (gpiod_get_value_cansleep(es9218p->hph_sw_gpio) == val)
+	rst = gpiod_get_value_cansleep(es9218p->reset_gpio);
+	sw  = gpiod_get_value_cansleep(es9218p->hph_sw_gpio);
+
+	if (es9218p_mode_pins[mode][0] == rst && es9218p_mode_pins[mode][1] == sw)
 		return 0;
 
-	gpiod_set_value_cansleep(es9218p->hph_sw_gpio, val);
+	/*
+	 * Leaving an amplifier mode has to hand amp-mode control back to the
+	 * mode pin before RESET_N drops, or the part does not reach bypass.
+	 * Downstream's es9218p_sabre_hifione2lpb() writes AMP_CONFIG = 0 --
+	 * "amp mode core on, amp mode gpio set to trigger Core On", which it
+	 * notes leaves the part in LowFi under GPIO2 control -- waits, and only
+	 * then pulls RESETb low. The 100 ms settle is what LG compiles in for
+	 * this board specifically (CONFIG_MACH_MSM8998_JOAN); the generic path
+	 * has no delay there.
+	 */
+	if (es9218p_mode_pins[mode][0] == 1 && rst == 0) {
+		regmap_write(es9218p->regmap, ES9218P_AMP_CONFIG, 0);
+		gpiod_set_value_cansleep(es9218p->hph_sw_gpio,
+					 es9218p_mode_pins[mode][1]);
+		msleep(100);
+		gpiod_set_value_cansleep(es9218p->reset_gpio,
+					 es9218p_mode_pins[mode][0]);
+	} else if (es9218p_mode_pins[mode][0] == 0) {
+		/* Powering the part back up: MODE2 first, then release RESET_N. */
+		gpiod_set_value_cansleep(es9218p->hph_sw_gpio,
+					 es9218p_mode_pins[mode][1]);
+		gpiod_set_value_cansleep(es9218p->reset_gpio,
+					 es9218p_mode_pins[mode][0]);
+		usleep_range(1000, 2000);
+	} else {
+		gpiod_set_value_cansleep(es9218p->reset_gpio,
+					 es9218p_mode_pins[mode][0]);
+		gpiod_set_value_cansleep(es9218p->hph_sw_gpio,
+					 es9218p_mode_pins[mode][1]);
+		usleep_range(1000, 2000);
+	}
+
+	/*
+	 * RESET_N low clears the register map, so returning to an amplifier
+	 * mode has to replay the init sequence and bring the output stage back
+	 * up.  Without this the part reports the right mode and the card shows
+	 * a live route and a RUNNING PCM while the jack stays silent.
+	 */
+	if (es9218p_mode_pins[mode][0] == 0 && rst == 1)
+		es9218p_restore_after_reset(es9218p);
+
+	/*
+	 * Only HiFi drives the jack from this part.  Park the output pins in
+	 * every other mode so the DAPM path goes away and the DPCM backend
+	 * detaches from the front-end: while it stays attached, opening a
+	 * stream fails hw_params with -ENXIO as soon as the part leaves HiFi,
+	 * and that takes the whole front-end open down with it.
+	 */
+	dapm = snd_soc_component_to_dapm(component);
+	if (mode == ES9218P_MODE_HIFI) {
+		snd_soc_dapm_force_enable_pin(dapm, "HPOUTL");
+		snd_soc_dapm_force_enable_pin(dapm, "HPOUTR");
+	} else {
+		snd_soc_dapm_disable_pin(dapm, "HPOUTL");
+		snd_soc_dapm_disable_pin(dapm, "HPOUTR");
+	}
+	snd_soc_dapm_sync(dapm);
 
 	return 1;
 }
@@ -203,8 +321,8 @@ static const struct snd_kcontrol_new es9218p_snd_controls[] = {
 			 0, 0xff, 1, es9218p_vol_tlv),
 	SOC_SINGLE("Headphone Playback Switch",
 		   ES9218P_FILTER_BAND_SYSTEM_MUTE, 0, 1, 1),
-	SOC_SINGLE_BOOL_EXT("Headphone Analog Switch", 0,
-			    es9218p_hph_sw_get, es9218p_hph_sw_put),
+	SOC_ENUM_EXT("Headphone Mode", es9218p_mode_enum,
+		     es9218p_mode_get, es9218p_mode_put),
 };
 
 static int es9218p_dac_event(struct snd_soc_dapm_widget *w,
@@ -290,6 +408,26 @@ static const struct reg_sequence es9218p_init_seq[] = {
 	{ ES9218P_MASTERMODE_SYNC_CONFIG, 0x02 },
 	{ ES9218P_GEN_CONFIG,		0x06 },
 };
+
+static int es9218p_amp_power_up(struct es9218p_priv *es9218p);
+
+static int es9218p_restore_after_reset(struct es9218p_priv *es9218p)
+{
+	int ret;
+
+	regcache_mark_dirty(es9218p->regmap);
+
+	ret = regmap_multi_reg_write(es9218p->regmap, es9218p_init_seq,
+				     ARRAY_SIZE(es9218p_init_seq));
+	if (ret)
+		return ret;
+
+	ret = regcache_sync(es9218p->regmap);
+	if (ret)
+		return ret;
+
+	return es9218p_amp_power_up(es9218p);
+}
 
 /*
  * Bring the headphone amplifier up.  This is ESS's ordering, transcribed from
