@@ -391,11 +391,31 @@ int adreno_get_param(struct msm_gpu *gpu, struct msm_context *ctx,
 		return 0;
 	case MSM_PARAM_TIMESTAMP:
 		if (adreno_gpu->funcs->get_timestamp) {
+			int ret;
+
 			pm_runtime_get_sync(&gpu->pdev->dev);
-			*value = adreno_gpu->funcs->get_timestamp(gpu);
+
+			/*
+			 * msm_gpu_pm_resume() sets needs_hw_init, because on
+			 * some platforms powering the GPU back up resets the
+			 * block: msm8998's GPU_GX_GDSC carries SW_RESET |
+			 * AON_RESET and asserts GPU_GX_BCR on every enable.
+			 * That leaves the GPU in its post-reset state, which
+			 * on a5xx means secure mode -- reading any register
+			 * before hw_init has re-run the zap shader and left
+			 * secure mode is a permissions violation, and the
+			 * firmware takes the whole SoC down without so much as
+			 * a log line. Re-init before touching the hardware.
+			 */
+			mutex_lock(&gpu->lock);
+			ret = msm_gpu_hw_init(gpu);
+			if (!ret)
+				*value = adreno_gpu->funcs->get_timestamp(gpu);
+			mutex_unlock(&gpu->lock);
+
 			pm_runtime_put_autosuspend(&gpu->pdev->dev);
 
-			return 0;
+			return ret;
 		}
 		return -EINVAL;
 	case MSM_PARAM_PRIORITIES:

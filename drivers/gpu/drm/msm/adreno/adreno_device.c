@@ -28,6 +28,11 @@ static bool skip_gpu;
 MODULE_PARM_DESC(no_gpu, "Disable GPU driver register (0=enable GPU driver register (default), 1=skip GPU driver register");
 module_param(skip_gpu, bool, 0400);
 
+static bool a5xx_k127_no_suspend;
+MODULE_PARM_DESC(k127_no_suspend,
+	"K127: hold a runtime-PM reference so the GPU never power-collapses (msm8998/a540 bring-up)");
+module_param_named(k127_no_suspend, a5xx_k127_no_suspend, bool, 0400);
+
 extern const struct adreno_gpulist a2xx_gpulist;
 extern const struct adreno_gpulist a3xx_gpulist;
 extern const struct adreno_gpulist a4xx_gpulist;
@@ -104,6 +109,27 @@ struct msm_gpu *adreno_load_gpu(struct drm_device *dev)
 	 * booting the gpu, go ahead and enable runpm:
 	 */
 	pm_runtime_enable(&pdev->dev);
+
+	/*
+	 * K127: bring-up workaround for msm8998/a540 GX power collapse.
+	 *
+	 * hw_init() succeeds and the GPU is stable indefinitely while powered,
+	 * but the first collapse-then-restore cycle takes the SoC down hard --
+	 * silently, inside pm_runtime_get_sync(), before a5xx_pm_resume() runs
+	 * a single instruction. a5xx_pm_suspend() only resets the VBIF ahead of
+	 * collapse for a510/a530 ("the others will tend to lock up"), so the
+	 * a540 collapse path has never actually been exercised on hardware.
+	 *
+	 * Holding one unbalanced reference keeps the usage count off zero, so
+	 * the GPU never autosuspends and the broken restore is never reached.
+	 * This costs idle power and is NOT a fix -- it isolates the collapse
+	 * defect so rendering can be brought up independently of it.
+	 */
+	if (a5xx_k127_no_suspend) {
+		pm_runtime_get_noresume(&pdev->dev);
+		DRM_DEV_INFO(dev->dev,
+			     "K127: holding runtime-PM reference, GPU will not power-collapse\n");
+	}
 
 	ret = pm_runtime_get_sync(&pdev->dev);
 	if (ret < 0) {

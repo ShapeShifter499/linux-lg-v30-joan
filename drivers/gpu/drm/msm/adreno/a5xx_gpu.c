@@ -14,6 +14,54 @@
 #include "a5xx_gpu.h"
 
 extern bool hang_debug;
+static bool a5xx_k118_probe;		/* default OFF: real gpu_write runs */
+module_param_named(k118_probe, a5xx_k118_probe, bool, 0600);
+MODULE_PARM_DESC(k118_probe,
+	"K118: log power state and abort before the first GPU register write");
+
+/*
+ * K123: staged abort walk through a5xx_hw_init().
+ *
+ * Rendering wedges this SoC hard enough that dmesg never reaches the disk, so
+ * the only way to localise the failure is to stop before it.  k123_stage = N
+ * aborts just before stage N; 0 (default) runs the whole function unchanged.
+ * Every boundary reached is logged, so a surviving boot reports how far it got
+ * without needing a separate run per stage.
+ *
+ * After an abort the stage latches to 1, so the submit retries that follow a
+ * failed hw_init stop at the entry boundary instead of re-running the step
+ * under test over and over.
+ */
+static int a5xx_k123_stage;
+module_param_named(k123_stage, a5xx_k123_stage, int, 0600);
+MODULE_PARM_DESC(k123_stage,
+	"K123: a5xx_hw_init() abort stage (0 = run all, N = abort before stage N)");
+
+static const char * const a5xx_k123_names[] = {
+	[1] = "hw_init entry",
+	[2] = "adreno_hw_init (ucode load)",
+	[3] = "gpmu_ucode_init + preempt_hw_init",
+	[4] = "me_init (first CP submit)",
+	[5] = "power_init (GPMU boot)",
+	[6] = "zap_shader_init",
+	[7] = "CP_SET_SECURE_MODE submit",
+	[8] = "preempt_start",
+};
+
+static int a5xx_k123(struct msm_gpu *gpu, int stage)
+{
+	dev_info(gpu->dev->dev, "K123: reached stage %d (%s)\n",
+		 stage, a5xx_k123_names[stage]);
+
+	if (a5xx_k123_stage != stage)
+		return 0;
+
+	dev_info(gpu->dev->dev, "K123: ABORT before stage %d (%s)\n",
+		 stage, a5xx_k123_names[stage]);
+	a5xx_k123_stage = 1;
+	return -EIO;
+}
+
 static void a5xx_dump(struct msm_gpu *gpu);
 
 #define GPU_PAS_ID 13
@@ -699,6 +747,10 @@ static int a5xx_hw_init(struct msm_gpu *gpu)
 	u32 hbb;
 	int ret;
 
+	ret = a5xx_k123(gpu, 1);
+	if (ret)
+		return ret;
+
 	gpu_write(gpu, REG_A5XX_VBIF_ROUND_ROBIN_QOS_ARB, 0x00000003);
 
 	if (adreno_is_a509(adreno_gpu) || adreno_is_a512(adreno_gpu) ||
@@ -916,7 +968,15 @@ static int a5xx_hw_init(struct msm_gpu *gpu)
 		gpu_rmw(gpu, REG_A5XX_HLSQ_DBG_ECO_CNTL, BIT(18), 0);
 	}
 
+	ret = a5xx_k123(gpu, 2);
+	if (ret)
+		return ret;
+
 	ret = adreno_hw_init(gpu);
+	if (ret)
+		return ret;
+
+	ret = a5xx_k123(gpu, 3);
 	if (ret)
 		return ret;
 
@@ -951,7 +1011,16 @@ static int a5xx_hw_init(struct msm_gpu *gpu)
 
 	/* Clear ME_HALT to start the micro engine */
 	gpu_write(gpu, REG_A5XX_CP_PFP_ME_CNTL, 0);
+
+	ret = a5xx_k123(gpu, 4);
+	if (ret)
+		return ret;
+
 	ret = a5xx_me_init(gpu);
+	if (ret)
+		return ret;
+
+	ret = a5xx_k123(gpu, 5);
 	if (ret)
 		return ret;
 
@@ -980,8 +1049,16 @@ static int a5xx_hw_init(struct msm_gpu *gpu)
 	 * guessed wrong then access to the RBBM_SECVID_TRUST_CNTL register will
 	 * be blocked and a permissions violation will soon follow.
 	 */
+	ret = a5xx_k123(gpu, 6);
+	if (ret)
+		return ret;
+
 	ret = a5xx_zap_shader_init(gpu);
 	if (!ret) {
+		ret = a5xx_k123(gpu, 7);
+		if (ret)
+			return ret;
+
 		OUT_PKT7(gpu->rb[0], CP_SET_SECURE_MODE, 1);
 		OUT_RING(gpu->rb[0], 0x00000000);
 
@@ -1002,8 +1079,14 @@ static int a5xx_hw_init(struct msm_gpu *gpu)
 		return ret;
 	}
 
+	ret = a5xx_k123(gpu, 8);
+	if (ret)
+		return ret;
+
 	/* Last step - yield the ringbuffer */
 	a5xx_preempt_start(gpu);
+
+	dev_info(gpu->dev->dev, "K123: hw_init completed all stages\n");
 
 	return 0;
 }
@@ -1362,6 +1445,46 @@ static int a5xx_pm_resume(struct msm_gpu *gpu)
 		/* Turn on sp_input_clk at HM level */
 		gpu_rmw(gpu, REG_A5XX_RBBM_CLOCK_CNTL, 0xff, 0);
 		return 0;
+	}
+
+	/*
+	 * K118 DIAGNOSTIC: dump power/clock state at the exact moment before
+	 * the first GPU register access, then abort. On joan this write hangs
+	 * the AHB bus and takes the SoC with it, so the state can only be
+	 * captured by NOT performing it. Set a5xx_k118_probe=0 to re-arm the
+	 * real write.
+	 */
+	{
+		int i;
+
+		dev_info(&gpu->pdev->dev,
+			 "K118: === state immediately before first gpu_write ===\n");
+		dev_info(&gpu->pdev->dev, "K118: nr_clocks=%d\n", gpu->nr_clocks);
+		for (i = 0; i < gpu->nr_clocks; i++) {
+			struct clk *c = gpu->grp_clks[i].clk;
+
+			dev_info(&gpu->pdev->dev,
+				 "K118: clk[%d] %-14s rate=%lu\n",
+				 i, gpu->grp_clks[i].id ? gpu->grp_clks[i].id : "?",
+				 c ? clk_get_rate(c) : 0);
+		}
+		dev_info(&gpu->pdev->dev, "K118: core_clk rate=%lu\n",
+			 gpu->core_clk ? clk_get_rate(gpu->core_clk) : 0);
+		if (gpu->gpu_reg)
+			dev_info(&gpu->pdev->dev,
+				 "K118: vdd enabled=%d uV=%d\n",
+				 regulator_is_enabled(gpu->gpu_reg),
+				 regulator_get_voltage(gpu->gpu_reg));
+		else
+			dev_info(&gpu->pdev->dev, "K118: vdd = NULL\n");
+		dev_info(&gpu->pdev->dev, "K118: gpu_cx = %s\n",
+			 gpu->gpu_cx ? "present" : "NULL");
+
+		if (a5xx_k118_probe) {
+			dev_info(&gpu->pdev->dev,
+				 "K118: ABORTING before gpu_write (SoC-safe)\n");
+			return -EIO;
+		}
 	}
 
 	/* Turn the RBCCU domain first to limit the chances of voltage droop */

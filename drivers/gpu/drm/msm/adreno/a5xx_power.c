@@ -292,6 +292,33 @@ static void a5xx_lm_enable(struct msm_gpu *gpu)
 	gpu_write(gpu, REG_A5XX_GPMU_CLOCK_THROTTLE_CTRL, 0x011);
 }
 
+/*
+ * K124: selectively disable the GPMU's autonomous power features.
+ *
+ * a5xx_hw_init() completes cleanly and the GPU idles indefinitely, but the
+ * first real render resets the whole SoC with no kernel log line at all --
+ * not an oops, not a GPU fault, not a hang report.  The mechanisms that are
+ * dormant at idle, engage under load, and act without the kernel in the loop
+ * all live here, so they are the ones worth subtracting one at a time.
+ *
+ * Two are independently suspect on joan:
+ *   - a5xx_pc_init() enables SP/TP *inter-frame* power collapse, driven by
+ *     the GPMU, which by definition does nothing until frames are rendered.
+ *   - a540_lm_setup() passes _get_mvolts(gpu->fast_rate) to the AGC.  Our OPP
+ *     table carries no opp-microvolt, so dev_pm_opp_get_voltage() returns 0
+ *     and the GPMU is configured with 0 mV for the active power level.
+ *
+ * Bitmask, so a single build can be bisected across boots via the cmdline:
+ *   1  skip lm_setup   (no AGC/limits configuration)
+ *   2  skip pc_init    (no SP/TP inter-frame power collapse)
+ *   4  skip gpmu_init  (do not start the GPMU at all)
+ *   8  skip lm_enable  (a530-only in-tree; no-op on a540)
+ */
+static int a5xx_k124_pm;
+module_param_named(k124_pm, a5xx_k124_pm, int, 0600);
+MODULE_PARM_DESC(k124_pm,
+	"K124: skip a5xx GPMU power features (1=lm_setup 2=pc_init 4=gpmu_init 8=lm_enable)");
+
 int a5xx_power_init(struct msm_gpu *gpu)
 {
 	struct adreno_gpu *adreno_gpu = to_adreno_gpu(gpu);
@@ -301,22 +328,41 @@ int a5xx_power_init(struct msm_gpu *gpu)
 	if (!(adreno_is_a530(adreno_gpu) || adreno_is_a540(adreno_gpu)))
 		return 0;
 
+	if (a5xx_k124_pm)
+		DRM_DEV_INFO(gpu->dev->dev, "K124: pm skip mask 0x%x\n",
+			     a5xx_k124_pm);
+
 	/* Set up the limits management */
-	if (adreno_is_a530(adreno_gpu))
+	if (a5xx_k124_pm & 1) {
+		DRM_DEV_INFO(gpu->dev->dev, "K124: skipping lm_setup\n");
+	} else if (adreno_is_a530(adreno_gpu)) {
 		a530_lm_setup(gpu);
-	else if (adreno_is_a540(adreno_gpu))
+	} else if (adreno_is_a540(adreno_gpu)) {
+		DRM_DEV_INFO(gpu->dev->dev, "K124: lm_setup mvolts=%u rate=%u\n",
+			     _get_mvolts(gpu, gpu->fast_rate), gpu->fast_rate);
 		a540_lm_setup(gpu);
+	}
 
 	/* Set up SP/TP power collapse */
-	a5xx_pc_init(gpu);
+	if (a5xx_k124_pm & 2)
+		DRM_DEV_INFO(gpu->dev->dev, "K124: skipping pc_init\n");
+	else
+		a5xx_pc_init(gpu);
 
 	/* Start the GPMU */
-	ret = a5xx_gpmu_init(gpu);
-	if (ret)
-		return ret;
+	if (a5xx_k124_pm & 4) {
+		DRM_DEV_INFO(gpu->dev->dev, "K124: skipping gpmu_init\n");
+	} else {
+		ret = a5xx_gpmu_init(gpu);
+		if (ret)
+			return ret;
+	}
 
 	/* Start the limits management */
-	a5xx_lm_enable(gpu);
+	if (a5xx_k124_pm & 8)
+		DRM_DEV_INFO(gpu->dev->dev, "K124: skipping lm_enable\n");
+	else
+		a5xx_lm_enable(gpu);
 
 	return 0;
 }
