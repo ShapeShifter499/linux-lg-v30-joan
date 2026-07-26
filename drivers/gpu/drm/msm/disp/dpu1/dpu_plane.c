@@ -88,6 +88,11 @@ struct dpu_plane {
 	const struct dpu_mdss_cfg *catalog;
 };
 
+static bool dpu_k128_no_ubwc_scanout;
+MODULE_PARM_DESC(k128_no_ubwc_scanout,
+	"K128: refuse DRM_FORMAT_MOD_QCOM_COMPRESSED scanout, forcing linear (msm8998 UBWC 1.0 bring-up)");
+module_param_named(k128_no_ubwc_scanout, dpu_k128_no_ubwc_scanout, bool, 0400);
+
 static const uint64_t supported_format_modifiers[] = {
 	DRM_FORMAT_MOD_QCOM_COMPRESSED,
 	DRM_FORMAT_MOD_LINEAR,
@@ -1785,6 +1790,27 @@ static bool dpu_plane_format_mod_supported(struct drm_plane *plane,
 
 	if (modifier == DRM_FORMAT_MOD_LINEAR)
 		return true;
+
+	/*
+	 * K128: refuse compressed scanout, forcing userspace to negotiate
+	 * linear.
+	 *
+	 * On msm8998 (UBWC 1.0) msm_mdss programs no UBWC parameters at all --
+	 * its MDSS revision falls through the >= 4.0.0 ladder in
+	 * msm_mdss_enable() -- yet this function still advertises
+	 * DRM_FORMAT_MOD_QCOM_COMPRESSED, because it only tests
+	 * ubwc_enc_version == 0 and UBWC_1_0 is nonzero. So the DPU claims it
+	 * can scan out compressed buffers while its decoder was never
+	 * configured, and the first modeset with a GPU-rendered buffer takes the
+	 * SoC down silently.
+	 *
+	 * Doing this in the kernel rather than via WLR_DRM_NO_MODIFIERS is
+	 * deliberate: that env var only drops wlroots to legacy ADDFB, which the
+	 * kernel then treats as linear while Mesa may still have laid the buffer
+	 * out tiled -- the same mismatch, just implicit.
+	 */
+	if (dpu_k128_no_ubwc_scanout && modifier == DRM_FORMAT_MOD_QCOM_COMPRESSED)
+		return false;
 
 	if (modifier == DRM_FORMAT_MOD_QCOM_COMPRESSED && !has_no_ubwc)
 		return dpu_find_format(format, qcom_compressed_supported_formats,

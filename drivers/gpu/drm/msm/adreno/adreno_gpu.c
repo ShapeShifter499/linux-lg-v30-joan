@@ -17,6 +17,11 @@
 #include <linux/nvmem-consumer.h>
 #include <soc/qcom/ocmem.h>
 #include "adreno_gpu.h"
+
+static bool adreno_k130_no_powercycle;
+MODULE_PARM_DESC(k130_no_powercycle,
+	"K130: recovery skips the GPU suspend/resume power cycle (msm8998 bring-up: that cycle resets the SoC)");
+module_param_named(k130_no_powercycle, adreno_k130_no_powercycle, bool, 0600);
 #include "a6xx_gpu.h"
 #include "msm_gem.h"
 #include "msm_mmu.h"
@@ -729,8 +734,25 @@ void adreno_recover(struct msm_gpu *gpu)
 	int ret;
 
 	msm_perfcntr_suspend(gpu);
-	gpu->funcs->pm_suspend(gpu);
-	gpu->funcs->pm_resume(gpu);
+
+	/*
+	 * K130: on msm8998 the GX GDSC carries SW_RESET | AON_RESET, and this
+	 * direct suspend/resume pair -- which deliberately bypasses runtime PM
+	 * refcounting, so the K127 hold cannot protect it -- is the exact
+	 * collapse-then-restore cycle that takes the whole SoC down. Every
+	 * "silent" death at first render was really: GPU fault -> recover ->
+	 * this power cycle -> SoC reset. Skipping the cycle makes faults
+	 * survivable and the post-fault state readable; recovery quality is
+	 * secondary to the machine staying up.
+	 */
+	if (adreno_k130_no_powercycle) {
+		DRM_DEV_ERROR(dev->dev,
+			      "K130: skipping recover power cycle, memptrs fence readback=%08x\n",
+			      gpu->rb[0]->memptrs->fence);
+	} else {
+		gpu->funcs->pm_suspend(gpu);
+		gpu->funcs->pm_resume(gpu);
+	}
 	msm_perfcntr_resume(gpu);
 
 	ret = msm_gpu_hw_init(gpu);

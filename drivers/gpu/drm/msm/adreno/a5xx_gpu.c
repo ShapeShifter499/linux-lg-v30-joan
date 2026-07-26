@@ -32,6 +32,27 @@ MODULE_PARM_DESC(k118_probe,
  * failed hw_init stop at the entry boundary instead of re-running the step
  * under test over and over.
  */
+static bool a5xx_k136_no_secure_switch;
+MODULE_PARM_DESC(k136_no_secure_switch,
+	"K136: do not submit CP_SET_SECURE_MODE; leave the GPU in secure mode (msm8998 bring-up diagnostic)");
+module_param_named(k136_no_secure_switch, a5xx_k136_no_secure_switch, bool, 0400);
+
+static bool a5xx_k135_zap_first;
+MODULE_PARM_DESC(k135_zap_first,
+	"K135: authenticate zap shader before starting the CP, downstream order (msm8998 bring-up)");
+module_param_named(k135_zap_first, a5xx_k135_zap_first, bool, 0400);
+static int k135_zap_ret;
+
+static bool a5xx_k134_boot_ib;
+MODULE_PARM_DESC(k134_boot_ib,
+	"K134: execute a NOP indirect buffer at the end of hw_init (msm8998 bring-up diagnostic)");
+module_param_named(k134_boot_ib, a5xx_k134_boot_ib, bool, 0400);
+
+static bool a5xx_k131_no_preempt;
+MODULE_PARM_DESC(k131_no_preempt,
+	"K131: force nr_rings=1 to disable a5xx preemption (msm8998 bring-up)");
+module_param_named(k131_no_preempt, a5xx_k131_no_preempt, bool, 0400);
+
 static int a5xx_k123_stage;
 module_param_named(k123_stage, a5xx_k123_stage, int, 0600);
 MODULE_PARM_DESC(k123_stage,
@@ -740,6 +761,65 @@ static int a5xx_zap_shader_init(struct msm_gpu *gpu)
 	  A5XX_RBBM_INT_0_MASK_UCHE_OOB_ACCESS | \
 	  A5XX_RBBM_INT_0_MASK_GPMU_VOLTAGE_DROOP)
 
+
+/* K134: submit a NOP IB (PFD then PFE) and report whether each executes. */
+static void a5xx_k134_test(struct msm_gpu *gpu, const char *when)
+{
+	static struct drm_gem_object *k134_bo;
+	static uint64_t k134_iova;
+	static u32 *k134_ptr;
+	int i;
+
+	if (!k134_ptr) {
+		/*
+		 * K134 attempt 2: map the IB GPU_READONLY. The gpmufw BO
+		 * (WC|GPU_READONLY, iova 0x1013000) is the one IB that
+		 * executes; the RW ones hang. If this flips the result, IB
+		 * fetches from GPU-writeable pages are what this SoC's
+		 * XPU/SMMU stalls.
+		 */
+		k134_ptr = msm_gem_kernel_new(gpu->dev, PAGE_SIZE,
+					      MSM_BO_WC | MSM_BO_GPU_READONLY,
+					      gpu->vm,
+					      &k134_bo, &k134_iova);
+		if (IS_ERR(k134_ptr)) {
+			dev_info(gpu->dev->dev, "K134: BO alloc failed %ld\n",
+				 PTR_ERR(k134_ptr));
+			k134_ptr = NULL;
+			return;
+		}
+		/*
+		 * K134 attempt 3: no PKT7 at all. gpmufw -- the one IB that
+		 * executes -- is pure TYPE4 writes; mirror that, and write a
+		 * marker to CP_SCRATCH_REG(3) so execution is positively
+		 * verified by register readback instead of inferred from
+		 * idle.
+		 */
+		for (i = 0; i < 8; i += 2) {
+			k134_ptr[i] = PKT4(REG_A5XX_CP_SCRATCH_REG(3), 1);
+			k134_ptr[i + 1] = 0x0134be00 + i;
+		}
+	}
+
+	OUT_PKT7(gpu->rb[0], CP_INDIRECT_BUFFER_PFD, 3);
+	OUT_RING(gpu->rb[0], lower_32_bits(k134_iova));
+	OUT_RING(gpu->rb[0], upper_32_bits(k134_iova));
+	OUT_RING(gpu->rb[0], 8);
+	a5xx_flush(gpu, gpu->rb[0], true);
+	dev_info(gpu->dev->dev, "K134 [%s]: PFD IB %s scratch3=%08x\n", when,
+		 a5xx_idle(gpu, gpu->rb[0]) ? "EXECUTED" : "HUNG",
+		 gpu_read(gpu, REG_A5XX_CP_SCRATCH_REG(3)));
+
+	OUT_PKT7(gpu->rb[0], CP_INDIRECT_BUFFER_PFE, 3);
+	OUT_RING(gpu->rb[0], lower_32_bits(k134_iova));
+	OUT_RING(gpu->rb[0], upper_32_bits(k134_iova));
+	OUT_RING(gpu->rb[0], 8);
+	a5xx_flush(gpu, gpu->rb[0], true);
+	dev_info(gpu->dev->dev, "K134 [%s]: PFE IB %s scratch3=%08x\n", when,
+		 a5xx_idle(gpu, gpu->rb[0]) ? "EXECUTED" : "HUNG",
+		 gpu_read(gpu, REG_A5XX_CP_SCRATCH_REG(3)));
+}
+
 static int a5xx_hw_init(struct msm_gpu *gpu)
 {
 	struct adreno_gpu *adreno_gpu = to_adreno_gpu(gpu);
@@ -1009,6 +1089,27 @@ static int a5xx_hw_init(struct msm_gpu *gpu)
 	/* Disable the interrupts through the initial bringup stage */
 	gpu_write(gpu, REG_A5XX_RBBM_INT_0_MASK, A5XX_INT_MASK);
 
+	/*
+	 * K135: authenticate the zap shader BEFORE starting the micro engine,
+	 * matching downstream's a5xx_rb_start() order (zap PIL load happens in
+	 * a5xx_microcode_load, while ME_HALT is still set; only then me_init
+	 * and the CP_SET_SECURE_MODE submit).
+	 *
+	 * Measured motivation: the GPMU ucode IB (stage 5) executes, so IB
+	 * fetch works BEFORE the zap auth + secure-mode exit; every IB after
+	 * it hangs with VBIF_BUSY stuck and PFP/ME idle. Mainline is the only
+	 * implementation that lets TZ install the zap into a CP that is
+	 * already fetching; downstream never runs the CP until the zap is in
+	 * place. If TZ-side CPZ installation desyncs a live CP's prefetch
+	 * path, this reorder is the fix.
+	 */
+	if (a5xx_k135_zap_first) {
+		k135_zap_ret = a5xx_zap_shader_init(gpu);
+		dev_info(gpu->dev->dev,
+			 "K135: zap auth before ME start, ret=%d\n",
+			 k135_zap_ret);
+	}
+
 	/* Clear ME_HALT to start the micro engine */
 	gpu_write(gpu, REG_A5XX_CP_PFP_ME_CNTL, 0);
 
@@ -1053,11 +1154,23 @@ static int a5xx_hw_init(struct msm_gpu *gpu)
 	if (ret)
 		return ret;
 
-	ret = a5xx_zap_shader_init(gpu);
+	if (a5xx_k134_boot_ib)
+		a5xx_k134_test(gpu, "pre-switch");
+
+	if (a5xx_k135_zap_first)
+		ret = k135_zap_ret;	/* auth already done before ME start */
+	else
+		ret = a5xx_zap_shader_init(gpu);
 	if (!ret) {
 		ret = a5xx_k123(gpu, 7);
 		if (ret)
 			return ret;
+
+		if (a5xx_k136_no_secure_switch) {
+			dev_info(gpu->dev->dev,
+				 "K136: skipping CP_SET_SECURE_MODE, GPU stays secure\n");
+			goto k136_skipped;
+		}
 
 		OUT_PKT7(gpu->rb[0], CP_SET_SECURE_MODE, 1);
 		OUT_RING(gpu->rb[0], 0x00000000);
@@ -1082,6 +1195,10 @@ static int a5xx_hw_init(struct msm_gpu *gpu)
 	ret = a5xx_k123(gpu, 8);
 	if (ret)
 		return ret;
+
+k136_skipped:
+	if (a5xx_k134_boot_ib)
+		a5xx_k134_test(gpu, "post-switch");
 
 	/* Last step - yield the ringbuffer */
 	a5xx_preempt_start(gpu);
@@ -1866,6 +1983,20 @@ static struct msm_gpu *a5xx_gpu_init(struct drm_device *dev)
 
 	if (config->info->revn == 510)
 		nr_rings = 1;
+
+	/*
+	 * K131: preemption is a wedge suspect on joan. Boot-time hw_init ring
+	 * execution (me_init, SET_SECURE_MODE) completes, but the first
+	 * userspace submit stalls the CP mid-ring (rptr frozen short of wptr,
+	 * IB1 not yet loaded) with RBBM_STATUS C00003C1. What userspace
+	 * submits carry that hw_init's ring stream does not is the
+	 * CP_CONTEXT_SWITCH_YIELD preemption wrapping -- nr_rings = 1 removes
+	 * exactly that machinery and nothing else.
+	 */
+	if (a5xx_k131_no_preempt) {
+		nr_rings = 1;
+		DRM_DEV_INFO(dev->dev, "K131: preemption disabled, nr_rings=1\n");
+	}
 
 	ret = adreno_gpu_init(dev, pdev, adreno_gpu, config->info->funcs, nr_rings);
 	if (ret) {

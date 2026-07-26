@@ -7,6 +7,11 @@
 #include "drm/drm_drv.h"
 
 #include "msm_gpu.h"
+
+static bool msm_k130_no_crash_capture;
+MODULE_PARM_DESC(k130_no_crash_capture,
+	"K130: skip crashstate capture in recover_worker (msm8998 bring-up: capture register reads wedge the bus)");
+module_param_named(k130_no_crash_capture, msm_k130_no_crash_capture, bool, 0600);
 #include "msm_gem.h"
 #include "msm_mmu.h"
 #include "msm_fence.h"
@@ -525,7 +530,18 @@ static void recover_worker(struct kthread_work *work)
 
 	/* Record the crash state */
 	pm_runtime_get_sync(&gpu->pdev->dev);
-	msm_gpu_crashstate_capture(gpu, submit, NULL, comm, cmd);
+	/*
+	 * K130: the previous run died between "offending task" and
+	 * adreno_recover() -- with the recover power cycle already gated off --
+	 * which brackets the death inside this capture: a5xx_gpu_state_get()
+	 * reads large register lists from a just-faulted GPU, and one of those
+	 * reads wedges the bus. Skip the capture too; a crashdump is worthless
+	 * if collecting it resets the machine.
+	 */
+	if (!msm_k130_no_crash_capture)
+		msm_gpu_crashstate_capture(gpu, submit, NULL, comm, cmd);
+	else
+		DRM_DEV_ERROR(dev->dev, "K130: skipping crashstate capture\n");
 
 	memalloc_noreclaim_restore(noreclaim_flag);
 

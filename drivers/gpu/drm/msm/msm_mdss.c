@@ -267,6 +267,21 @@ static int msm_mdss_enable(struct msm_mdss *msm_mdss)
 
 	hw_rev = readl_relaxed(msm_mdss->mmio + REG_MDSS_HW_VERSION);
 
+	/*
+	 * K128: log the revision rather than infer it. On msm8998 this decides
+	 * whether any UBWC parameters are programmed at all -- everything below
+	 * 4.0.0 falls through the ladder below and programs nothing, while
+	 * dpu_plane_format_mod_supported() still advertises
+	 * DRM_FORMAT_MOD_QCOM_COMPRESSED because ubwc_enc_version is UBWC_1_0
+	 * (nonzero). Print it so the fall-through is a measurement.
+	 */
+	dev_info(msm_mdss->dev,
+		 "K128: MDSS_HW_VERSION=0x%08x enc=%d dec=%d hbb=%d swizzle=0x%x\n",
+		 hw_rev, msm_mdss->mdss_data->ubwc_enc_version,
+		 msm_mdss->mdss_data->ubwc_dec_version,
+		 msm_mdss->mdss_data->highest_bank_bit,
+		 qcom_ubwc_swizzle(msm_mdss->mdss_data));
+
 	if (hw_rev >= MDSS_HW_VER(6, 0, 0))
 		msm_mdss_6x_setup_ubwc(msm_mdss);
 	else if (hw_rev >= MDSS_HW_VER(5, 0, 0))

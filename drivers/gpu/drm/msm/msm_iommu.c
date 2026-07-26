@@ -11,6 +11,11 @@
 #include "msm_gpu_trace.h"
 #include "msm_mmu.h"
 
+static bool msm_k132_tlbi_on_map;
+MODULE_PARM_DESC(k132_tlbi_on_map,
+	"K132: full TLB invalidate after every IOMMU map (msm8998 bring-up: new PTEs invisible to the GPU)");
+module_param_named(k132_tlbi_on_map, msm_k132_tlbi_on_map, bool, 0600);
+
 struct msm_iommu {
 	struct msm_mmu base;
 	struct iommu_domain *domain;
@@ -691,6 +696,25 @@ static int msm_iommu_map(struct msm_mmu *mmu, uint64_t iova,
 	ret = iommu_map_sgtable(iommu->domain, iova, sgt, prot);
 	if (ret < 0)
 		return ret;
+
+	/*
+	 * K132: full TLB invalidate after every map.
+	 *
+	 * Measured on msm8998/joan: the CP reads and writes every boot-time
+	 * mapping correctly (ring fetch, fence write to memptrs), but hangs on
+	 * the first fetch from any mapping created after boot -- an IB at a
+	 * fresh iova stalls the CP with RBBM_STATUS C00003C1 and no SMMU
+	 * context fault is raised. That asymmetry -- old PTEs visible, new
+	 * PTEs invisible -- is the signature of a walk cache that holds
+	 * negative (invalid) entries, which some qcom SMMUv2 implementations
+	 * do; downstream kernels carry invalidate-on-map errata for exactly
+	 * this. Mainline only invalidates on unmap, as the ARM spec expects.
+	 * A blanket flush per map is a sledgehammer, but if it makes IB
+	 * execution work the diagnosis is confirmed and the fix can be
+	 * narrowed to a ranged invalidate.
+	 */
+	if (msm_k132_tlbi_on_map)
+		iommu_flush_iotlb_all(iommu->domain);
 
 	return (ret == len) ? 0 : -EINVAL;
 }
