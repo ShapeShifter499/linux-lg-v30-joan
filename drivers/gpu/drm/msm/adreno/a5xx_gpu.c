@@ -208,33 +208,45 @@ static void a5xx_submit(struct msm_gpu *gpu, struct msm_gem_submit *submit)
 		return;
 	}
 
-	OUT_PKT7(ring, CP_PREEMPT_ENABLE_GLOBAL, 1);
-	OUT_RING(ring, 0x02);
-
-	/* Turn off protected mode to write to special registers */
-	OUT_PKT7(ring, CP_SET_PROTECTED_MODE, 1);
-	OUT_RING(ring, 0);
-
-	/* Set the save preemption record for the ring/command */
-	OUT_PKT4(ring, REG_A5XX_CP_CONTEXT_SWITCH_SAVE_ADDR_LO, 2);
-	OUT_RING(ring, lower_32_bits(a5xx_gpu->preempt_iova[submit->ring->id]));
-	OUT_RING(ring, upper_32_bits(a5xx_gpu->preempt_iova[submit->ring->id]));
-
-	/* Turn back on protected mode */
-	OUT_PKT7(ring, CP_SET_PROTECTED_MODE, 1);
-	OUT_RING(ring, 1);
-
 	/*
-	 * Disable local preemption by default because it requires
-	 * user-space to be aware of it and provide additional handling
-	 * to restore rendering state or do various flushes on switch.
+	 * K140: with a single ring there are no preemption records --
+	 * a5xx_preempt_init() never ran, so preempt_iova[] is 0. Emitting the
+	 * preemption preamble anyway programs CP_CONTEXT_SWITCH_SAVE_ADDR to 0
+	 * and arms YIELD_ENABLE before the IB; measured on msm8998/joan, the
+	 * first IB the CP then processes stalls the VBIF forever (bare IBs
+	 * written directly to the ring execute fine, and IB-less submits
+	 * survive because the yield machinery never engages). Skip the whole
+	 * preemption wrapping when nr_rings == 1.
 	 */
-	OUT_PKT7(ring, CP_PREEMPT_ENABLE_LOCAL, 1);
-	OUT_RING(ring, 0x0);
+	if (gpu->nr_rings > 1) {
+		OUT_PKT7(ring, CP_PREEMPT_ENABLE_GLOBAL, 1);
+		OUT_RING(ring, 0x02);
 
-	/* Allow CP_CONTEXT_SWITCH_YIELD packets in the IB2 */
-	OUT_PKT7(ring, CP_YIELD_ENABLE, 1);
-	OUT_RING(ring, 0x02);
+		/* Turn off protected mode to write to special registers */
+		OUT_PKT7(ring, CP_SET_PROTECTED_MODE, 1);
+		OUT_RING(ring, 0);
+
+		/* Set the save preemption record for the ring/command */
+		OUT_PKT4(ring, REG_A5XX_CP_CONTEXT_SWITCH_SAVE_ADDR_LO, 2);
+		OUT_RING(ring, lower_32_bits(a5xx_gpu->preempt_iova[submit->ring->id]));
+		OUT_RING(ring, upper_32_bits(a5xx_gpu->preempt_iova[submit->ring->id]));
+
+		/* Turn back on protected mode */
+		OUT_PKT7(ring, CP_SET_PROTECTED_MODE, 1);
+		OUT_RING(ring, 1);
+
+		/*
+		 * Disable local preemption by default because it requires
+		 * user-space to be aware of it and provide additional handling
+		 * to restore rendering state or do various flushes on switch.
+		 */
+		OUT_PKT7(ring, CP_PREEMPT_ENABLE_LOCAL, 1);
+		OUT_RING(ring, 0x0);
+
+		/* Allow CP_CONTEXT_SWITCH_YIELD packets in the IB2 */
+		OUT_PKT7(ring, CP_YIELD_ENABLE, 1);
+		OUT_RING(ring, 0x02);
+	}
 
 	/* Submit the commands */
 	for (i = 0; i < submit->nr_cmds; i++) {
@@ -265,21 +277,23 @@ static void a5xx_submit(struct msm_gpu *gpu, struct msm_gem_submit *submit)
 			update_shadow_rptr(gpu, ring);
 	}
 
-	/*
-	 * Write the render mode to NULL (0) to indicate to the CP that the IBs
-	 * are done rendering - otherwise a lucky preemption would start
-	 * replaying from the last checkpoint
-	 */
-	OUT_PKT7(ring, CP_SET_RENDER_MODE, 5);
-	OUT_RING(ring, 0);
-	OUT_RING(ring, 0);
-	OUT_RING(ring, 0);
-	OUT_RING(ring, 0);
-	OUT_RING(ring, 0);
+	if (gpu->nr_rings > 1) {
+		/*
+		 * Write the render mode to NULL (0) to indicate to the CP that
+		 * the IBs are done rendering - otherwise a lucky preemption
+		 * would start replaying from the last checkpoint
+		 */
+		OUT_PKT7(ring, CP_SET_RENDER_MODE, 5);
+		OUT_RING(ring, 0);
+		OUT_RING(ring, 0);
+		OUT_RING(ring, 0);
+		OUT_RING(ring, 0);
+		OUT_RING(ring, 0);
 
-	/* Turn off IB level preemptions */
-	OUT_PKT7(ring, CP_YIELD_ENABLE, 1);
-	OUT_RING(ring, 0x01);
+		/* Turn off IB level preemptions */
+		OUT_PKT7(ring, CP_YIELD_ENABLE, 1);
+		OUT_RING(ring, 0x01);
+	}
 
 	/* Write the fence to the scratch register */
 	OUT_PKT4(ring, REG_A5XX_CP_SCRATCH_REG(2), 1);
@@ -762,60 +776,57 @@ static int a5xx_zap_shader_init(struct msm_gpu *gpu)
 	  A5XX_RBBM_INT_0_MASK_GPMU_VOLTAGE_DROOP)
 
 
-/* K134: submit a NOP IB (PFD then PFE) and report whether each executes. */
-static void a5xx_k134_test(struct msm_gpu *gpu, const char *when)
+/*
+ * K139: the mapping-age discriminator. Two BOs, identical flags (WC, RW) and
+ * identical PKT4-scratch-marker content; BO0 is allocated+mapped at stage 3,
+ * BEFORE the CP starts, BO1 at stage 6, after. Both are IB'd back-to-back at
+ * stage 6. If BO0 executes and BO1 hangs, the "GPU only sees pre-CP-start
+ * mappings" invariant is confirmed with an internal control in one boot; if
+ * both hang, the rule is wrong. NOTE: if BO0 hangs, BO1's result is
+ * contaminated (the ring is already stalled) and means nothing.
+ */
+static struct drm_gem_object *k139_bo[2];
+static uint64_t k139_iova[2];
+
+static void a5xx_k139_alloc(struct msm_gpu *gpu, int which)
 {
-	static struct drm_gem_object *k134_bo;
-	static uint64_t k134_iova;
-	static u32 *k134_ptr;
+	u32 *ptr;
 	int i;
 
-	if (!k134_ptr) {
-		/*
-		 * K134 attempt 2: map the IB GPU_READONLY. The gpmufw BO
-		 * (WC|GPU_READONLY, iova 0x1013000) is the one IB that
-		 * executes; the RW ones hang. If this flips the result, IB
-		 * fetches from GPU-writeable pages are what this SoC's
-		 * XPU/SMMU stalls.
-		 */
-		k134_ptr = msm_gem_kernel_new(gpu->dev, PAGE_SIZE,
-					      MSM_BO_WC | MSM_BO_GPU_READONLY,
-					      gpu->vm,
-					      &k134_bo, &k134_iova);
-		if (IS_ERR(k134_ptr)) {
-			dev_info(gpu->dev->dev, "K134: BO alloc failed %ld\n",
-				 PTR_ERR(k134_ptr));
-			k134_ptr = NULL;
-			return;
-		}
-		/*
-		 * K134 attempt 3: no PKT7 at all. gpmufw -- the one IB that
-		 * executes -- is pure TYPE4 writes; mirror that, and write a
-		 * marker to CP_SCRATCH_REG(3) so execution is positively
-		 * verified by register readback instead of inferred from
-		 * idle.
-		 */
-		for (i = 0; i < 8; i += 2) {
-			k134_ptr[i] = PKT4(REG_A5XX_CP_SCRATCH_REG(3), 1);
-			k134_ptr[i + 1] = 0x0134be00 + i;
-		}
+	if (k139_bo[which])
+		return;
+
+	ptr = msm_gem_kernel_new(gpu->dev, PAGE_SIZE, MSM_BO_WC,
+				 gpu->vm, &k139_bo[which], &k139_iova[which]);
+	if (IS_ERR(ptr)) {
+		dev_info(gpu->dev->dev, "K139: alloc %d failed %ld\n",
+			 which, PTR_ERR(ptr));
+		k139_bo[which] = NULL;
+		return;
 	}
 
-	OUT_PKT7(gpu->rb[0], CP_INDIRECT_BUFFER_PFD, 3);
-	OUT_RING(gpu->rb[0], lower_32_bits(k134_iova));
-	OUT_RING(gpu->rb[0], upper_32_bits(k134_iova));
-	OUT_RING(gpu->rb[0], 8);
-	a5xx_flush(gpu, gpu->rb[0], true);
-	dev_info(gpu->dev->dev, "K134 [%s]: PFD IB %s scratch3=%08x\n", when,
-		 a5xx_idle(gpu, gpu->rb[0]) ? "EXECUTED" : "HUNG",
-		 gpu_read(gpu, REG_A5XX_CP_SCRATCH_REG(3)));
+	for (i = 0; i < 8; i += 2) {
+		ptr[i] = PKT4(REG_A5XX_CP_SCRATCH_REG(3), 1);
+		ptr[i + 1] = (which ? 0x0139bb00 : 0x0139aa00) + i;
+	}
+
+	dev_info(gpu->dev->dev, "K139: BO%d mapped at %llx (%s CP start)\n",
+		 which, k139_iova[which], which ? "AFTER" : "BEFORE");
+}
+
+static void a5xx_k139_test(struct msm_gpu *gpu, int which)
+{
+	if (!k139_bo[which])
+		return;
 
 	OUT_PKT7(gpu->rb[0], CP_INDIRECT_BUFFER_PFE, 3);
-	OUT_RING(gpu->rb[0], lower_32_bits(k134_iova));
-	OUT_RING(gpu->rb[0], upper_32_bits(k134_iova));
+	OUT_RING(gpu->rb[0], lower_32_bits(k139_iova[which]));
+	OUT_RING(gpu->rb[0], upper_32_bits(k139_iova[which]));
 	OUT_RING(gpu->rb[0], 8);
 	a5xx_flush(gpu, gpu->rb[0], true);
-	dev_info(gpu->dev->dev, "K134 [%s]: PFE IB %s scratch3=%08x\n", when,
+	dev_info(gpu->dev->dev,
+		 "K139: IB from BO%d (%s-CP-start map): %s scratch3=%08x\n",
+		 which, which ? "post" : "pre",
 		 a5xx_idle(gpu, gpu->rb[0]) ? "EXECUTED" : "HUNG",
 		 gpu_read(gpu, REG_A5XX_CP_SCRATCH_REG(3)));
 }
@@ -1063,6 +1074,10 @@ static int a5xx_hw_init(struct msm_gpu *gpu)
 	if (adreno_is_a530(adreno_gpu) || adreno_is_a540(adreno_gpu))
 		a5xx_gpmu_ucode_init(gpu);
 
+	/* K139: map BO0 while the CP is still halted */
+	if (a5xx_k134_boot_ib)
+		a5xx_k139_alloc(gpu, 0);
+
 	gpu_write64(gpu, REG_A5XX_CP_ME_INSTR_BASE_LO, a5xx_gpu->pm4_iova);
 	gpu_write64(gpu, REG_A5XX_CP_PFP_INSTR_BASE_LO, a5xx_gpu->pfp_iova);
 
@@ -1154,8 +1169,11 @@ static int a5xx_hw_init(struct msm_gpu *gpu)
 	if (ret)
 		return ret;
 
-	if (a5xx_k134_boot_ib)
-		a5xx_k134_test(gpu, "pre-switch");
+	if (a5xx_k134_boot_ib) {
+		a5xx_k139_alloc(gpu, 1);	/* mapped AFTER CP start */
+		a5xx_k139_test(gpu, 0);
+		a5xx_k139_test(gpu, 1);
+	}
 
 	if (a5xx_k135_zap_first)
 		ret = k135_zap_ret;	/* auth already done before ME start */
@@ -1197,9 +1215,6 @@ static int a5xx_hw_init(struct msm_gpu *gpu)
 		return ret;
 
 k136_skipped:
-	if (a5xx_k134_boot_ib)
-		a5xx_k134_test(gpu, "post-switch");
-
 	/* Last step - yield the ringbuffer */
 	a5xx_preempt_start(gpu);
 
