@@ -92,12 +92,19 @@
 		};
 
 		reserved@95215000 {
-			reg = <0x0 0x95215000 0x0 0x3eb000>;
+			/*
+			 * Extended to 0x95700000 so it also covers mainline's
+			 * default gpu_mem spot (0x95600000), which lies inside
+			 * LG's SLPI range; gpu_mem moves to LG's pil_ipa_gpu
+			 * address below.
+			 */
+			reg = <0x0 0x95215000 0x0 0x4eb000>;
 			no-map;
 		};
 
 		reserved@95800000 {
-			reg = <0x0 0x95800000 0x0 0x500000>;
+			/* Ends at 0x95c00000: LG's pil_ipa_gpu starts there. */
+			reg = <0x0 0x95800000 0x0 0x400000>;
 			no-map;
 		};
 
@@ -630,4 +637,66 @@
 		pinctrl-names = "default";
 		pinctrl-0 = <&touch_int_default &touch_reset_default>;
 	};
+};
+
+/*
+ * GPU (Adreno 540).
+ *
+ * gpu_mem moves to 0x95c00000, matching LG's pil_ipa_gpu region. This is
+ * required because mainline's default 0x95600000 lies inside LG's SLPI
+ * carve-out (0x94d00000-0x95c00000): letting the allocator hand out
+ * firmware-owned pages there causes an immediate silent XPU reset. The
+ * a540 zap blob itself is RELOCATABLE (QCOM_MDT_RELOCATABLE), so it does
+ * not require any particular address -- an earlier comment claiming it was
+ * address-locked was wrong; the move is about LG's memory map, not the blob.
+ *
+ * Firmware (a540_zap.*, a540_gpmu.fw2, a530_pm4/pfp) is not redistributable
+ * and must be present in /lib/firmware/qcom on the rootfs.
+ */
+&gpu_mem {
+	reg = <0x0 0x95c00000 0x0 0x100000>;
+};
+
+&adreno_gpu {
+	status = "okay";
+
+	/*
+	 * msm8998.dtsi points power-domains at the RPM VDDMX voltage domain,
+	 * which drives opp-level but does NOT switch the GPU on. The binding
+	 * allows a single power-domain, and every other Adreno 5xx in tree
+	 * (e.g. msm8996: power-domains = <&mmcc GPU_GX_GDSC>) attaches the GX
+	 * GDSC instead. With the RPM domain in that slot the GPUCC gpu_gx /
+	 * gpu_cx GDSCs have no consumer, never power up, and the clocks that
+	 * depend on them never produce a rate -- so the first register write
+	 * lands on an unpowered, unclocked block and hangs the AHB bus.
+	 * gpu_gx is a child of gpu_cx, so enabling GX brings CX up with it.
+	 */
+	power-domains = <&gpucc GPU_GX_GDSC>;
+
+	vdd-supply = <&pm8005_s1>;
+
+	zap-shader {
+		memory-region = <&gpu_mem>;
+		firmware-name = "qcom/a540_zap.mdt";
+	};
+};
+
+/*
+ * GPU OPP cap for bring-up.
+ *
+ * msm_gpu's enable_clk() sets the core clock to gpu->fast_rate -- the HIGHEST
+ * OPP -- as part of every resume, before any register access. Mainline's
+ * msm8998 table tops out at 710000097 Hz (TURBO), which is above the 650 MHz
+ * maximum downstream uses (msm8998-gpu.dtsi pwrlevel@0), and VDD_GFX here sits
+ * at ~752 mV with no CPR to raise it. Requesting turbo on a low-SVS voltage is
+ * not survivable, so drop everything above MIN_SVS until the rail is properly
+ * scaled.
+ */
+&gpu_opp_table {
+	/delete-node/ opp-710000097;
+	/delete-node/ opp-670000048;
+	/delete-node/ opp-596000097;
+	/delete-node/ opp-515000097;
+	/delete-node/ opp-414000000;
+	/delete-node/ opp-342000000;
 };
