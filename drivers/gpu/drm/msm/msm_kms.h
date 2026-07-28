@@ -101,6 +101,16 @@ struct msm_kms_funcs {
 	 * Format handling:
 	 */
 
+	/**
+	 * Reserve an encoder's display link for a non-commit caller, waiting for
+	 * any current frame to finish while preventing a new kickoff. On success
+	 * the caller must invoke ->release_link() after its transfer.
+	 *
+	 * The pair is optional. Implementations must provide both or neither.
+	 */
+	int (*acquire_link)(struct msm_kms *kms, struct drm_encoder *encoder);
+	void (*release_link)(struct msm_kms *kms, struct drm_encoder *encoder);
+
 	/* misc: */
 	long (*round_pixclk)(struct msm_kms *kms, unsigned long rate,
 			struct drm_encoder *encoder);

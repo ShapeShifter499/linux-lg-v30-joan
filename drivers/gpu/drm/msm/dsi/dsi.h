@@ -41,6 +41,9 @@ struct msm_dsi {
 
 	struct drm_bridge *next_bridge;
 
+	/* the encoder feeding this DSI, for link arbitration */
+	struct drm_encoder *encoder;
+
 	struct device *phy_dev;
 	bool phy_enabled;
 

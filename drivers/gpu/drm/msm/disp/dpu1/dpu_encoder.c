@@ -42,6 +42,9 @@
 #define DPU_ERROR_ENC(e, fmt, ...) DPU_ERROR("enc%d " fmt,\
 		(e) ? (e)->base.base.id : -1, ##__VA_ARGS__)
 
+/* A DCS caller drops its command if the current frame cannot finish in time. */
+#define DPU_LINK_ACQUIRE_TIMEOUT_MS 50
+
 #define DPU_ERROR_ENC_RATELIMITED(e, fmt, ...) DPU_ERROR_RATELIMITED("enc%d " fmt,\
 		(e) ? (e)->base.base.id : -1, ##__VA_ARGS__)
 
@@ -151,7 +154,8 @@ enum dpu_enc_rc_states {
  *			_after_ encoder_mask is cleared.
  * @connector:		If a mode is set, cached pointer to the active connector
  * @enc_lock:			Lock around physical encoder
- *				create/destroy/enable/disable
+ *				create/destroy/enable/disable and kickoff/DCS
+ *				exclusion
  * @frame_busy_mask:		Bitmask tracking which phys_enc we are still
  *				busy processing current command.
  *				Bit0 = phys_encs[0] etc.
@@ -2163,6 +2167,14 @@ void dpu_encoder_kickoff(struct drm_encoder *drm_enc)
 
 	trace_dpu_enc_kickoff(DRMID(drm_enc));
 
+	/*
+	 * Exclude DCS transfers from the point that a frame is marked pending
+	 * through the hardware kickoff. A DCS caller holds the same mutex while
+	 * waiting for that pending frame and transmitting its command, so neither
+	 * side can slip into the other's idle-to-start window.
+	 */
+	mutex_lock(&dpu_enc->enc_lock);
+
 	/* All phys encs are ready to go, trigger the kickoff */
 	_dpu_encoder_kickoff_phys(dpu_enc);
 
@@ -2172,6 +2184,8 @@ void dpu_encoder_kickoff(struct drm_encoder *drm_enc)
 		if (phys->ops.handle_post_kickoff)
 			phys->ops.handle_post_kickoff(phys);
 	}
+
+	mutex_unlock(&dpu_enc->enc_lock);
 
 	DPU_ATRACE_END("encoder_kickoff");
 }
@@ -2840,6 +2854,72 @@ int dpu_encoder_wait_for_commit_done(struct drm_encoder *drm_enc)
 }
 
 /**
+ * dpu_encoder_acquire_link - reserve an idle command-mode display link
+ * @drm_enc: encoder whose link is being reserved
+ *
+ * Reserve the kickoff gate, then wait for any frame already handed to the
+ * panel to finish. Holding the gate across the caller's DCS transfer prevents
+ * a new kickoff from racing into the interval between the idle observation
+ * and the command.
+ *
+ * Deliberately does NOT go through dpu_encoder_wait_for_tx_complete(). That
+ * path owns the display thread's bookkeeping: on timeout it runs frame-done
+ * recovery, and on success it clears the timeout report count. A second thread
+ * calling it can trigger spurious recovery or mask a real timeout, which
+ * manifests as a commit that never completes and a frozen display.
+ *
+ * Waits on the same waitqueue and counter without modifying either. On timeout
+ * the gate is released and the caller must not send the command: dropping a
+ * late brightness update is safer than corrupting a frame and DSC state.
+ *
+ * Return: 0 with the gate held, or a negative error with no gate held.
+ */
+int dpu_encoder_acquire_link(struct drm_encoder *drm_enc)
+{
+	struct dpu_encoder_virt *dpu_enc;
+	int i;
+
+	if (!drm_enc)
+		return -EINVAL;
+
+	dpu_enc = to_dpu_encoder_virt(drm_enc);
+	mutex_lock(&dpu_enc->enc_lock);
+
+	/* Nothing can be in flight while the encoder is off. */
+	if (!dpu_enc->enabled)
+		return 0;
+
+	for (i = 0; i < dpu_enc->num_phys_encs; i++) {
+		struct dpu_encoder_phys *phys = dpu_enc->phys_encs[i];
+
+		if (!phys)
+			continue;
+
+		if (!wait_event_timeout(phys->pending_kickoff_wq,
+					atomic_read(&phys->pending_kickoff_cnt) == 0,
+					msecs_to_jiffies(DPU_LINK_ACQUIRE_TIMEOUT_MS))) {
+			DPU_ERROR_ENC_RATELIMITED(dpu_enc,
+						  "timed out acquiring DSI link\n");
+			mutex_unlock(&dpu_enc->enc_lock);
+			return -ETIMEDOUT;
+		}
+	}
+
+	return 0;
+}
+
+/**
+ * dpu_encoder_release_link - release a link reserved by acquire_link
+ * @drm_enc: encoder whose link was reserved
+ */
+void dpu_encoder_release_link(struct drm_encoder *drm_enc)
+{
+	struct dpu_encoder_virt *dpu_enc = to_dpu_encoder_virt(drm_enc);
+
+	mutex_unlock(&dpu_enc->enc_lock);
+}
+
+/**
  * dpu_encoder_wait_for_tx_complete() - Wait for encoder to transfer pixels to panel
  * @drm_enc:	encoder pointer
  *
@@ -2860,6 +2940,14 @@ int dpu_encoder_wait_for_tx_complete(struct drm_encoder *drm_enc)
 	}
 	dpu_enc = to_dpu_encoder_virt(drm_enc);
 	DPU_DEBUG_ENC(dpu_enc, "\n");
+
+	/*
+	 * Nothing can be in flight while the encoder is off, and the per-phys
+	 * waits below log an error if called then. Link arbitration has its own
+	 * counter-only wait and disabled-encoder guard.
+	 */
+	if (!dpu_enc->enabled)
+		return 0;
 
 	for (i = 0; i < dpu_enc->num_phys_encs; i++) {
 		struct dpu_encoder_phys *phys = dpu_enc->phys_encs[i];

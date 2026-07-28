@@ -530,6 +530,18 @@ static void dpu_kms_wait_for_commit_done(struct msm_kms *kms,
 	}
 }
 
+static int dpu_kms_acquire_link(struct msm_kms *kms,
+				struct drm_encoder *encoder)
+{
+	return dpu_encoder_acquire_link(encoder);
+}
+
+static void dpu_kms_release_link(struct msm_kms *kms,
+				 struct drm_encoder *encoder)
+{
+	dpu_encoder_release_link(encoder);
+}
+
 static void dpu_kms_wait_flush(struct msm_kms *kms, unsigned crtc_mask)
 {
 	struct dpu_kms *dpu_kms = to_dpu_kms(kms);
@@ -1076,6 +1088,8 @@ static const struct msm_kms_funcs kms_funcs = {
 	.disable_commit  = dpu_kms_disable_commit,
 	.check_mode_changed = dpu_kms_check_mode_changed,
 	.flush_commit    = dpu_kms_flush_commit,
+	.acquire_link    = dpu_kms_acquire_link,
+	.release_link    = dpu_kms_release_link,
 	.wait_flush      = dpu_kms_wait_flush,
 	.complete_commit = dpu_kms_complete_commit,
 	.enable_vblank   = dpu_kms_enable_vblank,
