@@ -83,6 +83,12 @@ properties:
     minItems: 1
     maxItems: 64
 
+  vdd-supply:
+    description: GPU core power supply
+
+  vddcx-supply:
+    description: GPU core logic power supply
+
   sram:
     minItems: 1
     maxItems: 4
