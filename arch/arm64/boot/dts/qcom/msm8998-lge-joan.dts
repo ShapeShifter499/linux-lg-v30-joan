@@ -650,8 +650,11 @@
  * not require any particular address -- an earlier comment claiming it was
  * address-locked was wrong; the move is about LG's memory map, not the blob.
  *
- * Firmware (a540_zap.*, a540_gpmu.fw2, a530_pm4/pfp) is not redistributable
- * and must be present in /lib/firmware/qcom on the rootfs.
+ * A540 reuses the redistributable A530 PM4/PFP command firmware supplied by
+ * linux-firmware. The A540 GPMU and signed LG ZAP payload remain
+ * owner-extracted, device-specific inputs. All four firmware roles must be
+ * available under qcom/ in the firmware search path (the initramfs for the
+ * early-probe images used here).
  */
 &gpu_mem {
 	reg = <0x0 0x95c00000 0x0 0x100000>;
