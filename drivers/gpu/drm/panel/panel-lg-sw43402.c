@@ -25,12 +25,14 @@
 
 /*
  * Downstream uses DBV 3 for off. Device testing found 6 to be the dimmest
- * visible value and 251 to be the highest stable runtime value. Expose that
- * raw range and leave perceptual brightness curves to userspace.
+ * visible value. LG's lge,blmap_v1 ends at 251, but lge,blmap-ex reaches 255;
+ * direct testing confirmed that 252 through 255 are accepted, echoed, and
+ * visibly distinct. Expose the full raw range and leave perceptual brightness
+ * curves to userspace.
  */
 #define SW43402_DBV_OFF		3
 #define SW43402_DBV_MIN		6
-#define SW43402_DBV_MAX		251
+#define SW43402_DBV_MAX		255
 #define SW43402_WRCTRLD		0x07
 
 static const struct regulator_bulk_data sw43402_supplies[] = {
