@@ -194,9 +194,28 @@ static int sw43402_unprepare(struct drm_panel *panel)
 	struct sw43402_panel *ctx = to_sw43402(panel);
 	struct mipi_dsi_multi_context dsi_ctx = { .dsi = ctx->link };
 
+	/*
+	 * LG OLED ELVSS shutdown-prep sequence, byte-faithful to the
+	 * downstream DV3.1 off-command (dsi_lp_mode). Sending display-off
+	 * and sleep-in without this leaves the OLED voltage rails in an
+	 * unclean state, which shows up as transient rainbow/garbage on
+	 * the next blank/wake cycle until the panel re-initializes.
+	 */
+	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xca,
+				     0x00, 0x06, 0x00, 0x06, 0x00, 0x16, 0x10);
+	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xcb,
+				     0x0b, 0x68, 0x00, 0x0b, 0x68, 0x00, 0x0b, 0x68, 0x00,
+				     0x0b, 0x68, 0x00, 0x0b, 0x68, 0x00, 0x0b, 0x68, 0x00,
+				     0x0b, 0x68, 0x00, 0x0b, 0x68, 0x00, 0x0b, 0x68, 0x00,
+				     0x0b, 0x68, 0x00);
+	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xcc,
+				     0x0b, 0x68, 0x00, 0x0b, 0x68, 0x00, 0x0b, 0x68, 0x00,
+				     0x05, 0xb4, 0x00, 0x05, 0xb4, 0x00, 0x55, 0x12, 0x13);
+	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xe8, 0x08, 0x90, 0x10, 0x25);
+
 	mipi_dsi_dcs_set_display_off_multi(&dsi_ctx);
 	mipi_dsi_dcs_enter_sleep_mode_multi(&dsi_ctx);
-	mipi_dsi_msleep(&dsi_ctx, 100);
+	mipi_dsi_msleep(&dsi_ctx, 150);
 
 	gpiod_set_value(ctx->reset_gpio, 1);
 	regulator_bulk_disable(ARRAY_SIZE(sw43402_supplies), ctx->supplies);
