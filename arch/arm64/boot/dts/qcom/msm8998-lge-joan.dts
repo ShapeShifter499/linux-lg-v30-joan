@@ -719,6 +719,24 @@
 	/delete-node/ opp-342000000;
 	/delete-node/ opp-257000000;
 
+	/*
+	 * EXPERIMENTAL overclock OPP (local-only, never upstream):
+	 * 750 MHz is a Qualcomm-shipped GPU rate for this SoC family
+	 * (downstream clock-gpu-8998.c carries a 180-750 MHz table for
+	 * higher-binned parts; the V30 bin ships the 710 MHz table).
+	 * Voltage is linearly extrapolated from the measured stock curve
+	 * (936 mV @ 710 MHz; ~0.7-0.8 mV/MHz slope) -> 965 mV, well under
+	 * the pm8005_s1 1.1 V rail max. This OPP becomes fast_rate, so
+	 * every GPU resume runs the 750 corner. If the PLL cannot lock at
+	 * the higher VCO, the GPU probe fails or renders hang - RAM-only
+	 * and fully reversible (revert this commit).
+	 */
+	opp-750000000 {
+		opp-hz = /bits/ 64 <750000000>;
+		opp-microvolt = <965000>;
+		opp-supported-hw = <0xff>;
+	};
+
 	opp-710000097 {
 		opp-hz = /bits/ 64 <710000097>;
 		opp-microvolt = <936000>;
