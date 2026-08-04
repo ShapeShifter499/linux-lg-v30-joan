@@ -8,6 +8,7 @@
 #include <dt-bindings/clock/qcom,mmcc-msm8998.h>
 #include <dt-bindings/clock/qcom,rpmcc.h>
 #include <dt-bindings/firmware/qcom,scm.h>
+#include <dt-bindings/interconnect/qcom,msm8998.h>
 #include <dt-bindings/power/qcom-rpmpd.h>
 #include <dt-bindings/gpio/gpio.h>
 
@@ -1733,6 +1734,10 @@
 			reg = <0x05000000 0x40000>;
 			reg-names = "kgsl_3d0_reg_memory";
 
+			interconnects = <&bimc MAS_OXILI &bimc SLV_EBI>,
+					<&bimc MAS_OXILI &bimc SLV_HMSS_L3>;
+			interconnect-names = "gfx-mem", "gfx-l3";
+
 			clocks = <&gcc GCC_GPU_CFG_AHB_CLK>,
 				<&gpucc RBBMTIMER_CLK>,
 				<&gcc GCC_BIMC_GFX_CLK>,
@@ -1837,6 +1842,30 @@
 				 <&gcc GCC_GPU_GPLL0_CLK>;
 			clock-names = "xo",
 				      "gpll0";
+		};
+
+		bimc: interconnect@1000000 {
+			compatible = "qcom,msm8998-bimc";
+			reg = <0x01000000 0x80000>;
+			#interconnect-cells = <1>;
+		};
+
+		cnoc: interconnect@1500000 {
+			compatible = "qcom,msm8998-cnoc";
+			reg = <0x01500000 0x10000>;
+			#interconnect-cells = <1>;
+		};
+
+		snoc: interconnect@1740000 {
+			compatible = "qcom,msm8998-snoc";
+			reg = <0x01740000 0x10000>;
+			#interconnect-cells = <1>;
+		};
+
+		mnoc: interconnect@1660000 {
+			compatible = "qcom,msm8998-mnoc";
+			reg = <0x01660000 0x60000>;
+			#interconnect-cells = <1>;
 		};
 
 		lpass_q6_smmu: iommu@5100000 {
