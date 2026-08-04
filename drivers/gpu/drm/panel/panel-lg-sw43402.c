@@ -172,8 +172,16 @@ static int sw43402_prepare(struct drm_panel *panel)
 	mipi_dsi_msleep(&dsi_ctx, 60);
 	mipi_dsi_dcs_set_display_on_multi(&dsi_ctx);
 
-	/* Let display-on settle before enabling LG's brightness pipeline. */
-	mipi_dsi_msleep(&dsi_ctx, 20);
+	/*
+	 * Let display-on fully settle before the encoder's first frame is
+	 * kicked after a wake (blank -> unblank). A 20 ms wait let the DPU
+	 * start pushing compressed frames while the panel's DSC/scan-out was
+	 * still stabilizing, which the owner observed as transient rainbow
+	 * garbage on every wake transition (A184/A185). 120 ms is long enough
+	 * for the panel to complete its own post-display-on settle while
+	 * keeping wake latency reasonable for a lock-screen cycle.
+	 */
+	mipi_dsi_msleep(&dsi_ctx, 120);
 	sw43402_write_wrctrld(&dsi_ctx, ctx->link);
 	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, MIPI_DCS_SET_DISPLAY_BRIGHTNESS,
 				     SW43402_DBV_MAX);
