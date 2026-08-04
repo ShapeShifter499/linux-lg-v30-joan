@@ -143,13 +143,11 @@
 };
 
 &pm8005_regulators {
-	/* VDD_GFX supply */
+	/* VDD_GFX supply; managed by the OPP framework + msm_gpu (vdd) */
 	pm8005_s1: s1 {
 		regulator-min-microvolt = <524000>;
 		regulator-max-microvolt = <1100000>;
 		regulator-enable-ramp-delay = <500>;
-		/* Hack until we rig up the gpu consumer */
-		regulator-always-on;
 	};
 };
 
@@ -685,15 +683,23 @@
 };
 
 /*
- * GPU OPP cap for bring-up.
+ * GPU OPP levels and voltages.
  *
- * msm_gpu's enable_clk() sets the core clock to gpu->fast_rate -- the HIGHEST
- * OPP -- as part of every resume, before any register access. Mainline's
- * msm8998 table tops out at 710000097 Hz (TURBO), which is above the 650 MHz
- * maximum downstream uses (msm8998-gpu.dtsi pwrlevel@0), and VDD_GFX here sits
- * at ~752 mV with no CPR to raise it. Requesting turbo on a low-SVS voltage is
- * not survivable, so drop everything above MIN_SVS until the rail is properly
- * scaled.
+ * msm_gpu's enable_clk() sets the core clock to gpu->fast_rate -- the
+ * HIGHEST OPP -- as part of every resume, before any register access.
+ * The original bring-up capped the table at 257 MHz (MIN_SVS) because
+ * VDD_GFX (pm8005_s1) sat at the boot voltage (~752 mV) with no scaling
+ * in place, and turbo on a low-SVS voltage is not survivable.
+ *
+ * The stock Android kernel was swept on this exact device (2026-08-04;
+ * pm8005_s1 readback per kgsl pwrlevel) and the measured curve is used
+ * here as opp-microvolt. adreno_get_pwrlevels() registers the vdd
+ * supply with the OPP framework, so every dev_pm_opp_set_rate() scales
+ * the rail BEFORE raising the core clock; the resume fast_rate jump is
+ * therefore exactly the stock turbo corner (710 MHz @ 936 mV), which
+ * the device runs routinely. opp-level is intentionally omitted: the
+ * GPU's power domain is the GPU_GX GDSC (see above), which has no
+ * performance states.
  */
 &gpu_opp_table {
 	/delete-node/ opp-710000097;
@@ -702,4 +708,47 @@
 	/delete-node/ opp-515000097;
 	/delete-node/ opp-414000000;
 	/delete-node/ opp-342000000;
+	/delete-node/ opp-257000000;
+
+	opp-710000097 {
+		opp-hz = /bits/ 64 <710000097>;
+		opp-microvolt = <936000>;
+		opp-supported-hw = <0xff>;
+	};
+
+	opp-670000048 {
+		opp-hz = /bits/ 64 <670000048>;
+		opp-microvolt = <908000>;
+		opp-supported-hw = <0xff>;
+	};
+
+	opp-596000097 {
+		opp-hz = /bits/ 64 <596000097>;
+		opp-microvolt = <856000>;
+		opp-supported-hw = <0xff>;
+	};
+
+	opp-515000097 {
+		opp-hz = /bits/ 64 <515000097>;
+		opp-microvolt = <792000>;
+		opp-supported-hw = <0xff>;
+	};
+
+	opp-414000000 {
+		opp-hz = /bits/ 64 <414000000>;
+		opp-microvolt = <704000>;
+		opp-supported-hw = <0xff>;
+	};
+
+	opp-342000000 {
+		opp-hz = /bits/ 64 <342000000>;
+		opp-microvolt = <644000>;
+		opp-supported-hw = <0xff>;
+	};
+
+	opp-257000000 {
+		opp-hz = /bits/ 64 <257000000>;
+		opp-microvolt = <628000>;
+		opp-supported-hw = <0xff>;
+	};
 };
