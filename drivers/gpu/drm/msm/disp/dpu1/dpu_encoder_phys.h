@@ -246,6 +246,16 @@ struct dpu_encoder_phys_cmd {
 	int pp_timeout_report_cnt;
 	atomic_t pending_vblank_cnt;
 	wait_queue_head_t pending_vblank_wq;
+
+	/*
+	 * Set when the encoder transitions to enabled (including every
+	 * blank -> unblank wake). On the first kickoff after that
+	 * transition, the encoder waits for one TE (read-pointer) edge so
+	 * the first command-mode frame lands after the panel's scan-out
+	 * has re-established; without this the first frame can tear and
+	 * show as transient garbage on the wake transition.
+	 */
+	bool first_kickoff_after_enable;
 };
 
 /**
