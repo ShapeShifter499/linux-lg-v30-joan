@@ -658,6 +658,19 @@
 					hysteresis = <2000>;
 					type = "hot";
 				};
+
+				gpu1_alert1: trip-point1 {
+					temperature = <80000>;
+					hysteresis = <2000>;
+					type = "passive";
+				};
+			};
+
+			cooling-maps {
+				map0 {
+					trip = <&gpu1_alert1>;
+					cooling-device = <&adreno_gpu 0 6>;
+				};
 			};
 		};
 
@@ -671,6 +684,19 @@
 					temperature = <90000>;
 					hysteresis = <2000>;
 					type = "hot";
+				};
+
+				gpu2_alert1: trip-point1 {
+					temperature = <80000>;
+					hysteresis = <2000>;
+					type = "passive";
+				};
+			};
+
+			cooling-maps {
+				map0 {
+					trip = <&gpu2_alert1>;
+					cooling-device = <&adreno_gpu 0 6>;
 				};
 			};
 		};
@@ -1547,6 +1573,7 @@
 			iommus = <&adreno_smmu 0>;
 			operating-points-v2 = <&gpu_opp_table>;
 			power-domains = <&rpmpd RPMPD_VDDMX>;
+			#cooling-cells = <2>;
 			status = "disabled";
 
 			gpu_opp_table: opp-table {
