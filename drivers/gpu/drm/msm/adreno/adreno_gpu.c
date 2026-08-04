@@ -1104,6 +1104,29 @@ static int adreno_get_pwrlevels(struct device *dev,
 
 	gpu->fast_rate = 0;
 
+	/*
+	 * Register the VDD_GFX supply (vdd-supply in DT) with the OPP
+	 * framework BEFORE the table is populated so every
+	 * dev_pm_opp_set_rate() scales the rail to the OPP's
+	 * opp-microvolt before raising the core clock. The OPP core
+	 * refuses regulator configuration after OPPs are initialized
+	 * (-EBUSY). Without this the GPU would run the higher OPPs at
+	 * the regulator's boot voltage, which is not survivable on
+	 * msm8998 (the LG V30 stock kernel runs 710 MHz at 936 mV; boot
+	 * voltage is ~752 mV).
+	 */
+	if (device_property_present(dev, "vdd-supply")) {
+		const char * const supply_names[] = { "vdd", NULL };
+
+		ret = devm_pm_opp_set_regulators(dev, supply_names);
+		if (ret) {
+			DRM_DEV_ERROR(dev, "Unable to register OPP regulators: %d\n", ret);
+			return ret;
+		}
+	} else {
+		dev_dbg(dev, "No vdd-supply; skipping OPP regulator scaling\n");
+	}
+
 	/* devm_pm_opp_of_add_table may error out but will still create an OPP table */
 	ret = devm_pm_opp_of_add_table(dev);
 	if (ret == -ENODEV) {
@@ -1121,26 +1144,6 @@ static int adreno_get_pwrlevels(struct device *dev,
 	} else if (ret) {
 		DRM_DEV_ERROR(dev, "Unable to set the OPP table\n");
 		return ret;
-	}
-
-	/*
-	 * Register the VDD_GFX supply (vdd-supply in DT) with the OPP
-	 * framework so every dev_pm_opp_set_rate() scales the rail to the
-	 * OPP's opp-microvolt before raising the core clock. Without this
-	 * the GPU would run the higher OPPs at the regulator's boot
-	 * voltage, which is not survivable on msm8998 (the LG V30 stock
-	 * kernel runs 710 MHz at 936 mV; boot voltage is ~752 mV).
-	 */
-	if (device_property_present(dev, "vdd-supply")) {
-		const char * const supply_names[] = { "vdd", NULL };
-
-		ret = devm_pm_opp_set_regulators(dev, supply_names);
-		if (ret) {
-			DRM_DEV_ERROR(dev, "Unable to register OPP regulators: %d\n", ret);
-			return ret;
-		}
-	} else {
-		dev_dbg(dev, "No vdd-supply; skipping OPP regulator scaling\n");
 	}
 
 	/* Find the fastest defined rate */
