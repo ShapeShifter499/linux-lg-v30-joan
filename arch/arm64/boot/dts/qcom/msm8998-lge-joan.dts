@@ -724,16 +724,20 @@
 	 * 750 MHz is a Qualcomm-shipped GPU rate for this SoC family
 	 * (downstream clock-gpu-8998.c carries a 180-750 MHz table for
 	 * higher-binned parts; the V30 bin ships the 710 MHz table).
-	 * Voltage is linearly extrapolated from the measured stock curve
-	 * (936 mV @ 710 MHz; ~0.7-0.8 mV/MHz slope) -> 965 mV, well under
-	 * the pm8005_s1 1.1 V rail max. This OPP becomes fast_rate, so
-	 * every GPU resume runs the 750 corner. If the PLL cannot lock at
-	 * the higher VCO, the GPU probe fails or renders hang - RAM-only
-	 * and fully reversible (revert this commit).
+	 * Voltage: the first device test used 965 mV, which the OPP core
+	 * REJECTED ("OPP not supported by regulators") because the
+	 * pm8005_s1 rail (SPMI ftsmps426) steps in 4 mV — 965000 is
+	 * off-grid. 964000 is on-grid (964/4=241) and matches the linear
+	 * extrapolation of the measured curve (936 mV @ 710 MHz,
+	 * ~0.7 mV/MHz -> ~964 mV @ 750 MHz), under the 1.1 V rail max.
+	 * This OPP becomes fast_rate, so every GPU resume runs the 750
+	 * corner. If the PLL cannot lock at the higher VCO, GPU probe
+	 * fails or renders hang - RAM-only and fully reversible (revert
+	 * this commit).
 	 */
 	opp-750000000 {
 		opp-hz = /bits/ 64 <750000000>;
-		opp-microvolt = <965000>;
+		opp-microvolt = <964000>;
 		opp-supported-hw = <0xff>;
 	};
 
