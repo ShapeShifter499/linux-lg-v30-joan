@@ -741,6 +741,39 @@
 		opp-supported-hw = <0xff>;
 	};
 
+	/*
+	 * EXPERIMENTAL sweep OPPs above the device-proven 750 MHz corner
+	 * (G5-OC2 PASS). Frequencies beyond 750 are NOT Qualcomm-validated
+	 * for this SoC family — this is true overclocking past the
+	 * shipped envelope, tested empirically. Voltages are on-grid
+	 * (4 mV step) extrapolations of the measured curve (~0.7 mV/MHz
+	 * above 964 mV @ 750 MHz): 800 -> 1000 mV, 850 -> 1036 mV,
+	 * 900 -> 1072 mV (rail max 1100 mV).
+	 *
+	 * CAUTION: the highest OPP becomes fast_rate, so every GPU
+	 * resume runs the TOP corner. With 900 in the table, a PLL
+	 * no-lock at 5.4 GHz VCO fails the GPU/DRM probe for the whole
+	 * session (SSH still reachable via USB networking; RAM-only,
+	 * fully recoverable). This is the empirical ceiling test.
+	 */
+	opp-900000000 {
+		opp-hz = /bits/ 64 <900000000>;
+		opp-microvolt = <1072000>;
+		opp-supported-hw = <0xff>;
+	};
+
+	opp-850000000 {
+		opp-hz = /bits/ 64 <850000000>;
+		opp-microvolt = <1036000>;
+		opp-supported-hw = <0xff>;
+	};
+
+	opp-800000000 {
+		opp-hz = /bits/ 64 <800000000>;
+		opp-microvolt = <1000000>;
+		opp-supported-hw = <0xff>;
+	};
+
 	opp-710000097 {
 		opp-hz = /bits/ 64 <710000097>;
 		opp-microvolt = <936000>;
