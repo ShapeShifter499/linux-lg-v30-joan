@@ -751,17 +751,14 @@
 	 * 900 -> 1072 mV (rail max 1100 mV).
 	 *
 	 * CAUTION: the highest OPP becomes fast_rate, so every GPU
-	 * resume runs the TOP corner. With 900 in the table, a PLL
-	 * no-lock at 5.4 GHz VCO fails the GPU/DRM probe for the whole
-	 * session (SSH still reachable via USB networking; RAM-only,
-	 * fully recoverable). This is the empirical ceiling test.
+	 * resume runs the TOP corner. 900 MHz was device-tested
+	 * (G6-OC-RX) and REJECTED: the PLL cannot lock at the ~5.4 GHz
+	 * VCO during probe ("gpupll0 failed to enable!" twice in
+	 * clk-alpha-pll wait_for_pll), which wedges the GPU/DRM device
+	 * for the whole session. Since msm always runs fast_rate on
+	 * resume, 900 is unusable as a corner and is dropped; 850 MHz
+	 * is now the top corner and the empirical ceiling question.
 	 */
-	opp-900000000 {
-		opp-hz = /bits/ 64 <900000000>;
-		opp-microvolt = <1072000>;
-		opp-supported-hw = <0xff>;
-	};
-
 	opp-850000000 {
 		opp-hz = /bits/ 64 <850000000>;
 		opp-microvolt = <1036000>;
