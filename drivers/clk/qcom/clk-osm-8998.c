@@ -28,6 +28,7 @@
  * in this form.
  */
 
+#include <linux/clk.h>
 #include <linux/clk-provider.h>
 #include <linux/io.h>
 #include <linux/module.h>
@@ -41,6 +42,7 @@
 #define OSM_TABLE_SIZE		40
 #define MAX_VIRTUAL_CORNER	(OSM_TABLE_SIZE - 1)
 #define OSM_REG_SIZE		32	/* bytes per LUT row */
+#define OSM_CORE_TABLE_SIZE	8192	/* per-cluster LUT stride */
 
 /* OSM registers (relative to OSM base) */
 #define OSM_ENABLE_REG		0x1004
@@ -95,6 +97,7 @@ struct clk_osm {
 	int num_entries;
 	int cluster_num;
 	struct regulator *vdd_reg;
+	struct clk *aux_clk;
 };
 
 #define to_clk_osm(_hw) container_of(_hw, struct clk_osm, hw)
@@ -320,23 +323,29 @@ static int osm_probe(struct platform_device *pdev)
 	struct device *dev = &pdev->dev;
 	struct device_node *of = dev->of_node;
 	struct clk_init_data init = { };
+	struct clk_hw_onecell_data *data;
 	const char *prop;
 	u32 speedbin = 0;
-	int rc, i;
+	int rc;
 
 	pwrcl = devm_kzalloc(dev, sizeof(*pwrcl), GFP_KERNEL);
 	perfcl = devm_kzalloc(dev, sizeof(*perfcl), GFP_KERNEL);
 	if (!pwrcl || !perfcl)
 		return -ENOMEM;
 
-	/* Map the three regions we need: osm, pwrcl_pll, perfcl_pll */
-	for (i = 0; i < NUM_BASES; i++)
-		pwrcl->vbases[i] = NULL;
+	pwrcl->cluster_num = 0;
+	perfcl->cluster_num = 1;
 
+	/*
+	 * The OSM block contains a per-cluster LUT: cluster 1's LUT
+	 * starts 8 KiB above the base (downstream clk_osm_resources_init:
+	 * perfcl OSM base = pwrcl base + cluster_num * OSM_CORE_TABLE_SIZE).
+	 */
 	pwrcl->vbases[OSM_BASE] = devm_platform_ioremap_resource_byname(pdev, "osm");
 	if (IS_ERR(pwrcl->vbases[OSM_BASE]))
 		return PTR_ERR(pwrcl->vbases[OSM_BASE]);
-	perfcl->vbases[OSM_BASE] = pwrcl->vbases[OSM_BASE];
+	perfcl->vbases[OSM_BASE] = pwrcl->vbases[OSM_BASE] +
+				  perfcl->cluster_num * OSM_CORE_TABLE_SIZE;
 
 	pwrcl->vbases[PLL_BASE] = devm_platform_ioremap_resource_byname(pdev, "pwrcl_pll");
 	if (IS_ERR(pwrcl->vbases[PLL_BASE]))
@@ -346,8 +355,35 @@ static int osm_probe(struct platform_device *pdev)
 	if (IS_ERR(perfcl->vbases[PLL_BASE]))
 		return PTR_ERR(perfcl->vbases[PLL_BASE]);
 
-	pwrcl->cluster_num = 0;
-	perfcl->cluster_num = 1;
+	/*
+	 * The APCS/OSM register domain must be clocked before ANY
+	 * access. Downstream drives hmss_gpll0 (aux_clk) at 300 MHz
+	 * and enables it before touching OSM or PLL registers
+	 * (clk_osm_probe: clk_set_rate(&sys_apcsaux_clk_gcc.c, 300MHz)).
+	 * LUT index 0 is sourced from this clock, so set it first.
+	 * (The cluster PLLs themselves are programmed by the OSM
+	 * hardware from each LUT row's PLL_OVERRIDES field — no raw
+	 * PLL register writes here; writing unclocked PLL blocks on
+	 * msm8998 raises an imprecise external abort.)
+	 */
+	pwrcl->aux_clk = devm_clk_get(dev, "aux_clk");
+	if (IS_ERR(pwrcl->aux_clk)) {
+		rc = PTR_ERR(pwrcl->aux_clk);
+		dev_err(dev, "failed to get aux_clk: %d\n", rc);
+		return rc;
+	}
+	perfcl->aux_clk = pwrcl->aux_clk;
+
+	rc = clk_set_rate(pwrcl->aux_clk, 300000000);
+	if (rc) {
+		dev_err(dev, "failed to set aux_clk rate: %d\n", rc);
+		return rc;
+	}
+	rc = clk_prepare_enable(pwrcl->aux_clk);
+	if (rc) {
+		dev_err(dev, "failed to enable aux_clk: %d\n", rc);
+		return rc;
+	}
 
 	pwrcl->vdd_reg = devm_regulator_get_optional(dev, "vdd-pwrcl");
 	if (IS_ERR(pwrcl->vdd_reg))
@@ -385,14 +421,11 @@ static int osm_probe(struct platform_device *pdev)
 	if (rc)
 		return rc;
 
-	/* Configure both cluster PLLs */
-	osm_setup_cluster_pll(pwrcl);
-	osm_setup_cluster_pll(perfcl);
-
-	/* Register the clocks */
-	init.name = devm_kasprintf(dev, GFP_KERNEL, "pwrcl_clk");
+	/* Register the clocks + provider (cpufreq-dt consumes via DT) */
 	init.ops = &osm_clk_ops;
 	init.num_parents = 0;
+
+	init.name = "pwrcl_clk";
 	pwrcl->hw.init = &init;
 	rc = devm_clk_hw_register(dev, &pwrcl->hw);
 	if (rc) {
@@ -400,13 +433,36 @@ static int osm_probe(struct platform_device *pdev)
 		return rc;
 	}
 
-	init.name = devm_kasprintf(dev, GFP_KERNEL, "perfcl_clk");
+	init.name = "perfcl_clk";
 	perfcl->hw.init = &init;
 	rc = devm_clk_hw_register(dev, &perfcl->hw);
 	if (rc) {
 		dev_err(dev, "failed to register perfcl_clk: %d\n", rc);
 		return rc;
 	}
+
+	data = devm_kzalloc(dev, struct_size(data, hws, 2), GFP_KERNEL);
+	if (!data)
+		return -ENOMEM;
+	data->num = 2;
+	data->hws[0] = &pwrcl->hw;
+	data->hws[1] = &perfcl->hw;
+	rc = devm_of_clk_add_hw_provider(dev, of_clk_hw_onecell_get, data);
+	if (rc) {
+		dev_err(dev, "failed to add hw provider: %d\n", rc);
+		return rc;
+	}
+
+	/*
+	 * Enable OSM. Nothing in mainline calls clk_prepare_enable on
+	 * the CPU clock (cpufreq-dt only sets rates), so do it here —
+	 * the LUT is programmed and index 0 (sourced from the aux
+	 * clock) is the safe initial state.
+	 */
+	osm_write_reg(pwrcl, 1, OSM_ENABLE_REG);
+	/* make sure the write goes through */
+	readl_relaxed(pwrcl->vbases[OSM_BASE] + OSM_ENABLE_REG);
+	udelay(5);
 
 	dev_info(dev, "OSM driver inited: pwrcl %d entries, perfcl %d entries\n",
 		 pwrcl->num_entries, perfcl->num_entries);
