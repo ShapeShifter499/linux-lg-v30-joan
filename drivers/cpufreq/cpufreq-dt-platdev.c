@@ -155,7 +155,9 @@ static const struct of_device_id blocklist[] __initconst = {
 	{ .compatible = "qcom,apq8096", },
 	{ .compatible = "qcom,msm8909", },
 	{ .compatible = "qcom,msm8996", },
-	{ .compatible = "qcom,msm8998", },
+	/* msm8998 removed: OSM clock driver + cpufreq-dt used for CPU DVFS
+	 * (qcom-cpufreq-hw register layout incompatible with the msm8998
+	 * OSM; device-proven 2026-08-05) */
 	{ .compatible = "qcom,qcm2290", },
 	{ .compatible = "qcom,qcm6490", },
 	{ .compatible = "qcom,qcs404", },
