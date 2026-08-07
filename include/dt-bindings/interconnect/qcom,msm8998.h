@@ -95,4 +95,24 @@
 #define SLV_VMEM			10
 #define SLV_SRVC_MNOC			11
 
+
+/* A1NOC */
+#define MAS_PCIE_0                  	0
+#define MAS_UFS                     	1
+#define MAS_USB3                    	2
+#define MAS_BLSP_2                  	3
+#define SLV_A1NOC_SNOC              	4
+
+/* A2NOC */
+#define MAS_IPA                     	0
+#define MAS_CNOC_A2NOC              	1
+#define MAS_SDCC_2                  	2
+#define MAS_SDCC_4                  	3
+#define MAS_BLSP_1                  	4
+#define MAS_TSIF                    	5
+#define MAS_CRYPTO_C0               	6
+#define MAS_CR_VIRT_A2NOC           	7
+#define SLV_CR_VIRT_A2NOC           	8
+#define SLV_A2NOC_SNOC              	9
+
 #endif
