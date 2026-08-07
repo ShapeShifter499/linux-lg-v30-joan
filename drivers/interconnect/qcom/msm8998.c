@@ -891,7 +891,10 @@ static struct qcom_icc_node mas_hmss = {
 	.mas_rpm_id = 118,
 	.slv_rpm_id = -1,
 	.qos.ap_owned = true,
-	.qos.qos_mode = NOC_QOS_MODE_INVALID,
+	.qos.qos_mode = NOC_QOS_MODE_FIXED,
+	.qos.areq_prio = 1,
+	.qos.prio_level = 1,
+	.qos.qos_port = 3,
 	.num_links = 3,
 	.links = mas_hmss_links
 };
@@ -904,7 +907,10 @@ static struct qcom_icc_node mas_qdss_bam = {
 	.mas_rpm_id = 19,
 	.slv_rpm_id = -1,
 	.qos.ap_owned = true,
-	.qos.qos_mode = NOC_QOS_MODE_INVALID,
+	.qos.qos_mode = NOC_QOS_MODE_FIXED,
+	.qos.areq_prio = 1,
+	.qos.prio_level = 1,
+	.qos.qos_port = 1,
 	.num_links = 4,
 	.links = mas_qdss_bam_links
 };
@@ -982,7 +988,10 @@ static struct qcom_icc_node mas_qdss_etr = {
 	.mas_rpm_id = 31,
 	.slv_rpm_id = -1,
 	.qos.ap_owned = true,
-	.qos.qos_mode = NOC_QOS_MODE_INVALID,
+	.qos.qos_mode = NOC_QOS_MODE_FIXED,
+	.qos.areq_prio = 1,
+	.qos.prio_level = 1,
+	.qos.qos_port = 2,
 	.num_links = 4,
 	.links = mas_qdss_etr_links
 };
@@ -1683,7 +1692,17 @@ static const struct qcom_icc_desc msm8998_cnoc = {
 	.keep_alive = true,
 };
 
+static const struct regmap_config msm8998_snoc_regmap_config = {
+	.reg_bits	= 32,
+	.reg_stride	= 4,
+	.val_bits	= 32,
+	.max_register	= 0x3fffc,
+	.fast_io	= true,
+};
+
 static const struct qcom_icc_desc msm8998_snoc = {
+	.regmap_cfg = &msm8998_snoc_regmap_config,
+	.qos_offset = 0x5000,
 	.type = QCOM_ICC_NOC,
 	.nodes = snoc_nodes,
 	.num_nodes = ARRAY_SIZE(snoc_nodes),
