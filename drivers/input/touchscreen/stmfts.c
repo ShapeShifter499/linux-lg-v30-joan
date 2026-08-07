@@ -255,8 +255,6 @@ static void stmfts_report_contact_event(struct stmfts_data *sdata,
 	input_report_abs(sdata->input, ABS_MT_TOUCH_MINOR, min);
 	input_report_abs(sdata->input, ABS_MT_PRESSURE, pressure);
 	input_report_abs(sdata->input, ABS_MT_ORIENTATION, orientation);
-
-	input_sync(sdata->input);
 }
 
 static void stmfts_report_contact_release(struct stmfts_data *sdata,
@@ -266,8 +264,6 @@ static void stmfts_report_contact_release(struct stmfts_data *sdata,
 
 	input_mt_slot(sdata->input, slot_id);
 	input_mt_report_slot_inactive(sdata->input);
-
-	input_sync(sdata->input);
 }
 
 static void stmfts_report_hover_event(struct stmfts_data *sdata,
@@ -311,6 +307,7 @@ static void stmfts_report_key_event(struct stmfts_data *sdata, const u8 event[])
 
 static void stmfts_parse_events(struct stmfts_data *sdata)
 {
+	bool mt_event = false;
 	int i;
 
 	for (i = 0; i < STMFTS_STACK_DEPTH; i++) {
@@ -325,17 +322,19 @@ static void stmfts_parse_events(struct stmfts_data *sdata)
 
 		case STMFTS_EV_NO_EVENT:
 		case STMFTS_EV_DEBUG:
-			return;
+			goto out;
 		}
 
 		switch (event[0] & STMFTS_MASK_EVENT_ID) {
 		case STMFTS_EV_MULTI_TOUCH_ENTER:
 		case STMFTS_EV_MULTI_TOUCH_MOTION:
 			stmfts_report_contact_event(sdata, event);
+			mt_event = true;
 			break;
 
 		case STMFTS_EV_MULTI_TOUCH_LEAVE:
 			stmfts_report_contact_release(sdata, event);
+			mt_event = true;
 			break;
 
 		case STMFTS_EV_HOVER_ENTER:
@@ -366,6 +365,18 @@ static void stmfts_parse_events(struct stmfts_data *sdata)
 			dev_err(&sdata->client->dev,
 				"unknown event %#02x\n", event[0]);
 		}
+	}
+
+out:
+	if (mt_event) {
+		/*
+		 * input_mt_init_slots() advertises BTN_TOUCH and the ABS_X/
+		 * ABS_Y pointer emulation, but they are only ever emitted
+		 * from the frame sync. Without this the device claims a
+		 * capability it never delivers.
+		 */
+		input_mt_sync_frame(sdata->input);
+		input_sync(sdata->input);
 	}
 }
 
