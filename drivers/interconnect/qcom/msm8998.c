@@ -280,7 +280,8 @@ static struct qcom_icc_node mas_oxili = {
 	.mas_rpm_id = 6,
 	.slv_rpm_id = -1,
 	.qos.ap_owned = true,
-	.qos.qos_mode = NOC_QOS_MODE_INVALID,
+	.qos.qos_mode = NOC_QOS_MODE_BYPASS,
+	.qos.qos_port = 1,
 	.num_links = 4,
 	.links = mas_oxili_links
 };
@@ -293,7 +294,8 @@ static struct qcom_icc_node mas_mnoc_bimc = {
 	.mas_rpm_id = 2,
 	.slv_rpm_id = -1,
 	.qos.ap_owned = true,
-	.qos.qos_mode = NOC_QOS_MODE_INVALID,
+	.qos.qos_mode = NOC_QOS_MODE_BYPASS,
+	.qos.qos_port = 2,
 	.num_links = 4,
 	.links = mas_mnoc_bimc_links
 };
@@ -1676,7 +1678,20 @@ static struct qcom_icc_node * const mnoc_nodes[] = {
 	[11] = &slv_srvc_mnoc,
 };
 
+static const struct regmap_config msm8998_bimc_regmap_config = {
+	.reg_bits	= 32,
+	.reg_stride	= 4,
+	.val_bits	= 32,
+	.max_register	= 0x7fffc,
+	.fast_io	= true,
+};
+
+/*
+ * No .qos_offset: downstream's fab_bimc declares neither qcom,base-offset
+ * nor qcom,qos-off, so the M_BKE block starts at 0. msm8996 does the same.
+ */
 static const struct qcom_icc_desc msm8998_bimc = {
+	.regmap_cfg = &msm8998_bimc_regmap_config,
 	.type = QCOM_ICC_BIMC,
 	.nodes = bimc_nodes,
 	.num_nodes = ARRAY_SIZE(bimc_nodes),
