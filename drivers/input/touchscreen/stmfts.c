@@ -222,21 +222,27 @@ static void stmfts_report_contact_event(struct stmfts_data *sdata,
 					const u8 event[])
 {
 	u8 slot_id = (event[0] & STMFTS_MASK_TOUCH_ID) >> 4;
-	u8 maj, min, pressure, orientation;
+	int maj, min, orientation;
+	u8 pressure;
 	u16 x, y;
 
 	if (sdata->variant->fts3670_contact_layout) {
 		/*
 		 * Byte 3 carries the low nibble of both coordinates, with
-		 * bytes 1 and 2 holding the high bytes, and the trailing
-		 * fields run pressure, orientation, width, height.
+		 * bytes 1 and 2 holding the high bytes.
+		 *
+		 * The trailing fields are pressure, a *signed* orientation,
+		 * and a 10-bit major axis whose two least significant bits
+		 * live in the top of byte 7. The remaining six bits of byte 7
+		 * are a fraction that scales the minor axis against the major
+		 * one - they are not a standalone value.
 		 */
 		x = (event[1] << 4) | ((event[3] & 0xf0) >> 4);
 		y = (event[2] << 4) | (event[3] & 0x0f);
 		pressure = event[4];
-		orientation = event[5];
-		maj = event[6];
-		min = event[7];
+		orientation = (s8)event[5];
+		maj = (event[6] << 2) | ((event[7] >> 6) & 0x03);
+		min = (event[7] & 0x3f) * maj / 63;
 	} else {
 		x = event[1] | ((event[2] & STMFTS_MASK_X_MSB) << 8);
 		y = (event[2] >> 4) | (event[3] << 4);
@@ -963,9 +969,19 @@ static int stmfts_probe(struct i2c_client *client)
 	input_set_capability(sdata->input, EV_ABS, ABS_MT_POSITION_Y);
 	touchscreen_parse_properties(sdata->input, true, &sdata->prop);
 
-	input_set_abs_params(sdata->input, ABS_MT_TOUCH_MAJOR, 0, 255, 0, 0);
-	input_set_abs_params(sdata->input, ABS_MT_TOUCH_MINOR, 0, 255, 0, 0);
-	input_set_abs_params(sdata->input, ABS_MT_ORIENTATION, 0, 255, 0, 0);
+	if (sdata->variant->fts3670_contact_layout) {
+		/*
+		 * This layout reports a 10-bit major axis, a minor axis
+		 * scaled against it, and a signed orientation.
+		 */
+		input_set_abs_params(sdata->input, ABS_MT_TOUCH_MAJOR, 0, 1023, 0, 0);
+		input_set_abs_params(sdata->input, ABS_MT_TOUCH_MINOR, 0, 1023, 0, 0);
+		input_set_abs_params(sdata->input, ABS_MT_ORIENTATION, -128, 127, 0, 0);
+	} else {
+		input_set_abs_params(sdata->input, ABS_MT_TOUCH_MAJOR, 0, 255, 0, 0);
+		input_set_abs_params(sdata->input, ABS_MT_TOUCH_MINOR, 0, 255, 0, 0);
+		input_set_abs_params(sdata->input, ABS_MT_ORIENTATION, 0, 255, 0, 0);
+	}
 	input_set_abs_params(sdata->input, ABS_MT_PRESSURE, 0, 255, 0, 0);
 	input_set_abs_params(sdata->input, ABS_DISTANCE, 0, 255, 0, 0);
 
