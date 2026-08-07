@@ -267,7 +267,10 @@ static struct qcom_icc_node mas_gnoc_bimc = {
 	.mas_rpm_id = 144,
 	.slv_rpm_id = -1,
 	.qos.ap_owned = true,
-	.qos.qos_mode = NOC_QOS_MODE_INVALID,
+	.qos.qos_mode = NOC_QOS_MODE_FIXED,
+	.qos.qos_port = 0,
+	.qos.areq_prio = 0,
+	.qos.prio_level = 0,
 	.num_links = 2,
 	.links = mas_gnoc_bimc_links
 };
@@ -1687,11 +1690,20 @@ static const struct regmap_config msm8998_bimc_regmap_config = {
 };
 
 /*
- * No .qos_offset: downstream's fab_bimc declares neither qcom,base-offset
- * nor qcom,qos-off, so the M_BKE block starts at 0. msm8996 does the same.
+ * The M_BKE block sits 0x8000 into the BIMC window. Downstream hardcodes
+ * this in its register macros rather than declaring it in DT:
+ *
+ *	#define M_REG_BASE(b)		((b) + 0x00008000)
+ *	#define M_BKE_EN_ADDR(b, n)	(M_REG_BASE(b) + (0x4000 * (n)) + 0x300)
+ *
+ * which is why fab_bimc has no qcom,base-offset to copy. msm8916, msm8953
+ * and msm8976 all encode it as .qos_offset = 0x8000; msm8996 instead folds
+ * it into its DT reg base (0x00408000), so its missing .qos_offset is not
+ * a precedent for leaving ours unset -- our reg base is the raw 0x1000000.
  */
 static const struct qcom_icc_desc msm8998_bimc = {
 	.regmap_cfg = &msm8998_bimc_regmap_config,
+	.qos_offset = 0x8000,
 	.type = QCOM_ICC_BIMC,
 	.nodes = bimc_nodes,
 	.num_nodes = ARRAY_SIZE(bimc_nodes),
