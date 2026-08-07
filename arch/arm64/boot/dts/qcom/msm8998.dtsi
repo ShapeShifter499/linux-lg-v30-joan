@@ -3613,12 +3613,19 @@
 			compatible = "qcom,cpu-clock-osm-msm8998";
 			reg = <0x179c0000 0x4000>,
 			      <0x17916000 0x1000>,
-			      <0x17816000 0x1000>,
-			      <0x179d1000 0x1000>,
-			      <0x00784130 0x8>,
-			      <0x1791101c 0x8>;
-			reg-names = "osm", "pwrcl_pll", "perfcl_pll",
-				    "apcs_common", "perfcl_efuse", "debug";
+			      <0x17816000 0x1000>;
+			/*
+			 * Only these three are mapped. The apcs_common,
+			 * perfcl_efuse and debug regions this node used to
+			 * declare were never ioremapped, and two of them
+			 * overlapped live devices - perfcl_efuse sat inside
+			 * qfprom@784000 and apcs_common inside
+			 * mailbox@17911000. Harmless while unmapped, but a
+			 * -EBUSY trap for anyone who later adds a byname
+			 * mapping. Efuse reads should go through qfprom
+			 * nvmem and APCS through its own node instead.
+			 */
+			reg-names = "osm", "pwrcl_pll", "perfcl_pll";
 
 			interrupts = <GIC_SPI 35 IRQ_TYPE_EDGE_RISING>,
 				     <GIC_SPI 36 IRQ_TYPE_EDGE_RISING>;
