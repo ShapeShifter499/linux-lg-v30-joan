@@ -1856,15 +1856,15 @@
 			#interconnect-cells = <1>;
 		};
 
-		snoc: interconnect@1740000 {
+		snoc: interconnect@1620000 {
 			compatible = "qcom,msm8998-snoc";
-			reg = <0x01740000 0x10000>;
+			reg = <0x01620000 0x40000>;
 			#interconnect-cells = <1>;
 		};
 
-		mnoc: interconnect@1660000 {
+		mnoc: interconnect@1740000 {
 			compatible = "qcom,msm8998-mnoc";
-			reg = <0x01660000 0x60000>;
+			reg = <0x01740000 0x10000>;
 			#interconnect-cells = <1>;
 		};
 
