@@ -124,6 +124,18 @@ config INTERCONNECT_QCOM_MSM8996
 	  This is a driver for the Qualcomm Network-on-Chip on msm8996-based
 	  platforms.
 
+config INTERCONNECT_QCOM_MSM8998
+	tristate "Qualcomm MSM8998 interconnect driver"
+	depends on INTERCONNECT_QCOM
+	depends on QCOM_SMD_RPM
+	depends on ARM64 || COMPILE_TEST
+	select INTERCONNECT_QCOM_SMD_RPM
+	help
+	  This is a driver for the Qualcomm Network-on-Chip on msm8998-based
+	  platforms. Covers the BIMC, CNOC, SNOC and MNOC fabrics with
+	  RPM-based bus clock voting (topology from downstream
+	  msm8998-bus.dtsi).
+
 config INTERCONNECT_QCOM_NORD
 	tristate "Qualcomm Nord interconnect driver"
 	depends on INTERCONNECT_QCOM_RPMH_POSSIBLE
