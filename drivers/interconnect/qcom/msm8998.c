@@ -1682,6 +1682,7 @@ static const struct qcom_icc_desc msm8998_bimc = {
 	.num_nodes = ARRAY_SIZE(bimc_nodes),
 	.bus_clk_desc = &bimc_clk,
 	.keep_alive = true,
+	.ab_coeff = 153,
 };
 
 static const struct qcom_icc_desc msm8998_cnoc = {
