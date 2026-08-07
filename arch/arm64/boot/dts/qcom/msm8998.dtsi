@@ -1872,6 +1872,11 @@
 			compatible = "qcom,msm8998-a2noc";
 			reg = <0x01700000 0x60000>;
 			#interconnect-cells = <1>;
+
+			clocks = <&gcc GCC_SDCC2_AHB_CLK>,
+				 <&gcc GCC_SDCC4_AHB_CLK>,
+				 <&gcc GCC_BLSP1_AHB_CLK>;
+			clock-names = "sdcc2_ahb", "sdcc4_ahb", "blsp1_ahb";
 		};
 
 		mnoc: interconnect@1740000 {

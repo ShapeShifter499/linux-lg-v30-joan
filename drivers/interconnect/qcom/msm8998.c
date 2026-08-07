@@ -25,6 +25,7 @@
 #include <linux/interconnect-provider.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
+#include <linux/regmap.h>
 
 #include <dt-bindings/interconnect/qcom,msm8998.h>
 
@@ -1403,7 +1404,10 @@ static struct qcom_icc_node mas_sdcc_2 = {
 	.mas_rpm_id = 35,
 	.slv_rpm_id = -1,
 	.qos.ap_owned = false,
-	.qos.qos_mode = NOC_QOS_MODE_INVALID,
+	.qos.qos_mode = NOC_QOS_MODE_FIXED,
+	.qos.areq_prio = 1,
+	.qos.prio_level = 1,
+	.qos.qos_port = 6,
 	.num_links = 1,
 	.links = mas_sdcc_2_links
 };
@@ -1420,7 +1424,10 @@ static struct qcom_icc_node mas_sdcc_4 = {
 	.mas_rpm_id = 36,
 	.slv_rpm_id = -1,
 	.qos.ap_owned = false,
-	.qos.qos_mode = NOC_QOS_MODE_INVALID,
+	.qos.qos_mode = NOC_QOS_MODE_FIXED,
+	.qos.areq_prio = 1,
+	.qos.prio_level = 1,
+	.qos.qos_port = 7,
 	.num_links = 1,
 	.links = mas_sdcc_4_links
 };
@@ -1437,7 +1444,10 @@ static struct qcom_icc_node mas_blsp_1 = {
 	.mas_rpm_id = 41,
 	.slv_rpm_id = -1,
 	.qos.ap_owned = false,
-	.qos.qos_mode = NOC_QOS_MODE_INVALID,
+	.qos.qos_mode = NOC_QOS_MODE_FIXED,
+	.qos.areq_prio = 1,
+	.qos.prio_level = 1,
+	.qos.qos_port = 8,
 	.num_links = 1,
 	.links = mas_blsp_1_links
 };
@@ -1687,7 +1697,33 @@ static const struct qcom_icc_desc msm8998_a1noc = {
 	.keep_alive = true,
 };
 
+static const struct regmap_config msm8998_a2noc_regmap_config = {
+	.reg_bits	= 32,
+	.reg_stride	= 4,
+	.val_bits	= 32,
+	.max_register	= 0x5fffc,
+	.fast_io	= true,
+};
+
+/*
+ * Downstream enables these before writing any a2noc QoS register
+ * (qcom,node-qos-clks on fab-a2noc). icc-rpm wraps the QoS loop in
+ * clk_bulk_prepare_enable() of desc->intf_clocks, so listing them
+ * here is what makes those writes safe. Its fourth entry, the IPA
+ * clock, has no mainline equivalent on msm8998 - only GCC_IPA_BCR,
+ * a reset - so mas_ipa keeps qos_mode INVALID.
+ */
+static const char * const msm8998_a2noc_intf_clocks[] = {
+	"sdcc2_ahb",
+	"sdcc4_ahb",
+	"blsp1_ahb",
+};
+
 static const struct qcom_icc_desc msm8998_a2noc = {
+	.regmap_cfg = &msm8998_a2noc_regmap_config,
+	.qos_offset = 0x5000,
+	.intf_clocks = msm8998_a2noc_intf_clocks,
+	.num_intf_clocks = ARRAY_SIZE(msm8998_a2noc_intf_clocks),
 	.type = QCOM_ICC_NOC,
 	.nodes = a2noc_nodes,
 	.num_nodes = ARRAY_SIZE(a2noc_nodes),
