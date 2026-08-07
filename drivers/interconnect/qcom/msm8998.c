@@ -1272,6 +1272,282 @@ static struct qcom_icc_node slv_srvc_mnoc = {
 	.links = NULL
 };
 
+static const u16 mas_pcie_0_links[] = {
+	MSM8998_SLV_A1NOC_SNOC,
+};
+
+static struct qcom_icc_node mas_pcie_0 = {
+	.name = "mas-pcie-0",
+	.id = MSM8998_MAS_PCIE_0,
+	.buswidth = 16,
+	.channels = 1,
+	.mas_rpm_id = 65,
+	.slv_rpm_id = -1,
+	.qos.ap_owned = true,
+	.qos.qos_mode = NOC_QOS_MODE_INVALID,
+	.num_links = 1,
+	.links = mas_pcie_0_links
+};
+
+static const u16 mas_ufs_links[] = {
+	MSM8998_SLV_A1NOC_SNOC,
+};
+
+static struct qcom_icc_node mas_ufs = {
+	.name = "mas-ufs",
+	.id = MSM8998_MAS_UFS,
+	.buswidth = 16,
+	.channels = 1,
+	.mas_rpm_id = 68,
+	.slv_rpm_id = -1,
+	.qos.ap_owned = true,
+	.qos.qos_mode = NOC_QOS_MODE_INVALID,
+	.num_links = 1,
+	.links = mas_ufs_links
+};
+
+static const u16 mas_usb3_links[] = {
+	MSM8998_SLV_A1NOC_SNOC,
+};
+
+static struct qcom_icc_node mas_usb3 = {
+	.name = "mas-usb3",
+	.id = MSM8998_MAS_USB3,
+	.buswidth = 16,
+	.channels = 1,
+	.mas_rpm_id = 32,
+	.slv_rpm_id = -1,
+	.qos.ap_owned = true,
+	.qos.qos_mode = NOC_QOS_MODE_INVALID,
+	.num_links = 1,
+	.links = mas_usb3_links
+};
+
+static const u16 mas_blsp_2_links[] = {
+	MSM8998_SLV_A1NOC_SNOC,
+};
+
+static struct qcom_icc_node mas_blsp_2 = {
+	.name = "mas-blsp-2",
+	.id = MSM8998_MAS_BLSP_2,
+	.buswidth = 16,
+	.channels = 1,
+	.mas_rpm_id = 39,
+	.slv_rpm_id = -1,
+	.qos.ap_owned = false,
+	.qos.qos_mode = NOC_QOS_MODE_INVALID,
+	.num_links = 1,
+	.links = mas_blsp_2_links
+};
+
+static const u16 slv_a1noc_snoc_links[] = {
+	MSM8998_MAS_A1NOC_SNOC,
+};
+
+static struct qcom_icc_node slv_a1noc_snoc = {
+	.name = "slv-a1noc-snoc",
+	.id = MSM8998_SLV_A1NOC_SNOC,
+	.buswidth = 16,
+	.channels = 1,
+	.mas_rpm_id = -1,
+	.slv_rpm_id = 142,
+	.qos.ap_owned = false,
+	.qos.qos_mode = NOC_QOS_MODE_INVALID,
+	.num_links = 1,
+	.links = slv_a1noc_snoc_links
+};
+
+static const u16 mas_ipa_links[] = {
+	MSM8998_SLV_A2NOC_SNOC,
+};
+
+static struct qcom_icc_node mas_ipa = {
+	.name = "mas-ipa",
+	.id = MSM8998_MAS_IPA,
+	.buswidth = 8,
+	.channels = 1,
+	.mas_rpm_id = 59,
+	.slv_rpm_id = -1,
+	.qos.ap_owned = true,
+	.qos.qos_mode = NOC_QOS_MODE_INVALID,
+	.num_links = 1,
+	.links = mas_ipa_links
+};
+
+static const u16 mas_cnoc_a2noc_links[] = {
+	MSM8998_SLV_A2NOC_SNOC,
+};
+
+static struct qcom_icc_node mas_cnoc_a2noc = {
+	.name = "mas-cnoc-a2noc",
+	.id = MSM8998_MAS_CNOC_A2NOC,
+	.buswidth = 8,
+	.channels = 1,
+	.mas_rpm_id = 146,
+	.slv_rpm_id = -1,
+	.qos.ap_owned = true,
+	.qos.qos_mode = NOC_QOS_MODE_INVALID,
+	.num_links = 1,
+	.links = mas_cnoc_a2noc_links
+};
+
+static const u16 mas_sdcc_2_links[] = {
+	MSM8998_SLV_A2NOC_SNOC,
+};
+
+static struct qcom_icc_node mas_sdcc_2 = {
+	.name = "mas-sdcc-2",
+	.id = MSM8998_MAS_SDCC_2,
+	.buswidth = 8,
+	.channels = 1,
+	.mas_rpm_id = 35,
+	.slv_rpm_id = -1,
+	.qos.ap_owned = false,
+	.qos.qos_mode = NOC_QOS_MODE_INVALID,
+	.num_links = 1,
+	.links = mas_sdcc_2_links
+};
+
+static const u16 mas_sdcc_4_links[] = {
+	MSM8998_SLV_A2NOC_SNOC,
+};
+
+static struct qcom_icc_node mas_sdcc_4 = {
+	.name = "mas-sdcc-4",
+	.id = MSM8998_MAS_SDCC_4,
+	.buswidth = 8,
+	.channels = 1,
+	.mas_rpm_id = 36,
+	.slv_rpm_id = -1,
+	.qos.ap_owned = false,
+	.qos.qos_mode = NOC_QOS_MODE_INVALID,
+	.num_links = 1,
+	.links = mas_sdcc_4_links
+};
+
+static const u16 mas_blsp_1_links[] = {
+	MSM8998_SLV_A2NOC_SNOC,
+};
+
+static struct qcom_icc_node mas_blsp_1 = {
+	.name = "mas-blsp-1",
+	.id = MSM8998_MAS_BLSP_1,
+	.buswidth = 16,
+	.channels = 1,
+	.mas_rpm_id = 41,
+	.slv_rpm_id = -1,
+	.qos.ap_owned = false,
+	.qos.qos_mode = NOC_QOS_MODE_INVALID,
+	.num_links = 1,
+	.links = mas_blsp_1_links
+};
+
+static const u16 mas_tsif_links[] = {
+	MSM8998_SLV_A2NOC_SNOC,
+};
+
+static struct qcom_icc_node mas_tsif = {
+	.name = "mas-tsif",
+	.id = MSM8998_MAS_TSIF,
+	.buswidth = 4,
+	.channels = 1,
+	.mas_rpm_id = 37,
+	.slv_rpm_id = -1,
+	.qos.ap_owned = true,
+	.qos.qos_mode = NOC_QOS_MODE_INVALID,
+	.num_links = 1,
+	.links = mas_tsif_links
+};
+
+static const u16 mas_crypto_c0_links[] = {
+	MSM8998_SLV_CR_VIRT_A2NOC,
+};
+
+static struct qcom_icc_node mas_crypto_c0 = {
+	.name = "mas-crypto-c0",
+	.id = MSM8998_MAS_CRYPTO_C0,
+	.buswidth = 8,
+	.channels = 1,
+	.mas_rpm_id = 23,
+	.slv_rpm_id = -1,
+	.qos.ap_owned = false,
+	.qos.qos_mode = NOC_QOS_MODE_INVALID,
+	.num_links = 1,
+	.links = mas_crypto_c0_links
+};
+
+static const u16 mas_cr_virt_a2noc_links[] = {
+	MSM8998_SLV_A2NOC_SNOC,
+};
+
+static struct qcom_icc_node mas_cr_virt_a2noc = {
+	.name = "mas-cr-virt-a2noc",
+	.id = MSM8998_MAS_CR_VIRT_A2NOC,
+	.buswidth = 8,
+	.channels = 1,
+	.mas_rpm_id = 145,
+	.slv_rpm_id = -1,
+	.qos.ap_owned = false,
+	.qos.qos_mode = NOC_QOS_MODE_INVALID,
+	.num_links = 1,
+	.links = mas_cr_virt_a2noc_links
+};
+
+static const u16 slv_cr_virt_a2noc_links[] = {
+	MSM8998_MAS_CR_VIRT_A2NOC,
+};
+
+static struct qcom_icc_node slv_cr_virt_a2noc = {
+	.name = "slv-cr-virt-a2noc",
+	.id = MSM8998_SLV_CR_VIRT_A2NOC,
+	.buswidth = 8,
+	.channels = 1,
+	.mas_rpm_id = -1,
+	.slv_rpm_id = 207,
+	.qos.ap_owned = true,
+	.qos.qos_mode = NOC_QOS_MODE_INVALID,
+	.num_links = 1,
+	.links = slv_cr_virt_a2noc_links
+};
+
+static const u16 slv_a2noc_snoc_links[] = {
+	MSM8998_MAS_A2NOC_SNOC,
+};
+
+static struct qcom_icc_node slv_a2noc_snoc = {
+	.name = "slv-a2noc-snoc",
+	.id = MSM8998_SLV_A2NOC_SNOC,
+	.buswidth = 16,
+	.channels = 1,
+	.mas_rpm_id = -1,
+	.slv_rpm_id = 143,
+	.qos.ap_owned = false,
+	.qos.qos_mode = NOC_QOS_MODE_INVALID,
+	.num_links = 1,
+	.links = slv_a2noc_snoc_links
+};
+
+static struct qcom_icc_node * const a1noc_nodes[] = {
+	[0] = &mas_pcie_0,
+	[1] = &mas_ufs,
+	[2] = &mas_usb3,
+	[3] = &mas_blsp_2,
+	[4] = &slv_a1noc_snoc,
+};
+
+static struct qcom_icc_node * const a2noc_nodes[] = {
+	[0] = &mas_ipa,
+	[1] = &mas_cnoc_a2noc,
+	[2] = &mas_sdcc_2,
+	[3] = &mas_sdcc_4,
+	[4] = &mas_blsp_1,
+	[5] = &mas_tsif,
+	[6] = &mas_crypto_c0,
+	[7] = &mas_cr_virt_a2noc,
+	[8] = &slv_cr_virt_a2noc,
+	[9] = &slv_a2noc_snoc,
+};
+
 static struct qcom_icc_node * const bimc_nodes[] = {
 	[0] = &mas_gnoc_bimc,
 	[1] = &mas_oxili,
@@ -1394,11 +1670,38 @@ static const struct qcom_icc_desc msm8998_mnoc = {
 	.keep_alive = true,
 };
 
+/*
+ * a1noc is registered but UNEXERCISED: nothing in DT consumes it yet.
+ * It carries UFS, USB3, PCIe and BLSP2, and none of those declare
+ * interconnects, so no consumer votes on it and keep_alive's floor is
+ * the only rate it ever asks for. It is here for topology completeness
+ * and because UFS becomes a real consumer if the rootfs ever moves to
+ * internal flash. Its sibling a2noc is what carries the SD card and is
+ * device-validated; a1noc is not.
+ */
+static const struct qcom_icc_desc msm8998_a1noc = {
+	.type = QCOM_ICC_NOC,
+	.nodes = a1noc_nodes,
+	.num_nodes = ARRAY_SIZE(a1noc_nodes),
+	.bus_clk_desc = &aggre1_branch_clk,
+	.keep_alive = true,
+};
+
+static const struct qcom_icc_desc msm8998_a2noc = {
+	.type = QCOM_ICC_NOC,
+	.nodes = a2noc_nodes,
+	.num_nodes = ARRAY_SIZE(a2noc_nodes),
+	.bus_clk_desc = &aggre2_branch_clk,
+	.keep_alive = true,
+};
+
 static const struct of_device_id qnoc_of_match[] = {
 	{ .compatible = "qcom,msm8998-bimc", .data = &msm8998_bimc },
 	{ .compatible = "qcom,msm8998-cnoc", .data = &msm8998_cnoc },
 	{ .compatible = "qcom,msm8998-snoc", .data = &msm8998_snoc },
 	{ .compatible = "qcom,msm8998-mnoc", .data = &msm8998_mnoc },
+	{ .compatible = "qcom,msm8998-a1noc", .data = &msm8998_a1noc },
+	{ .compatible = "qcom,msm8998-a2noc", .data = &msm8998_a2noc },
 	{ }
 };
 MODULE_DEVICE_TABLE(of, qnoc_of_match);

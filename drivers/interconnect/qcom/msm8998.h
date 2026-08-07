@@ -97,4 +97,20 @@
 #define MSM8998_SLV_VMEM				77
 #define MSM8998_SLV_SRVC_MNOC				78
 
+#define MSM8998_MAS_PCIE_0                          	79
+#define MSM8998_MAS_UFS                             	80
+#define MSM8998_MAS_USB3                            	81
+#define MSM8998_MAS_BLSP_2                          	82
+#define MSM8998_SLV_A1NOC_SNOC                      	83
+#define MSM8998_MAS_IPA                             	84
+#define MSM8998_MAS_CNOC_A2NOC                      	85
+#define MSM8998_MAS_SDCC_2                          	86
+#define MSM8998_MAS_SDCC_4                          	87
+#define MSM8998_MAS_BLSP_1                          	88
+#define MSM8998_MAS_TSIF                            	89
+#define MSM8998_MAS_CRYPTO_C0                       	90
+#define MSM8998_MAS_CR_VIRT_A2NOC                   	91
+#define MSM8998_SLV_CR_VIRT_A2NOC                   	92
+#define MSM8998_SLV_A2NOC_SNOC                      	93
+
 #endif
