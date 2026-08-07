@@ -1864,20 +1864,57 @@
 
 		a1noc: interconnect@1660000 {
 			compatible = "qcom,msm8998-a1noc";
-			reg = <0x01660000 0x60000>;
+			/*
+			 * 0x20000, not downstream's 0x60000: that window
+			 * swallows the ANOC1 SMMU at 0x1680000, and mainline
+			 * gives each fabric its own platform device whose
+			 * request_mem_region() then fails -EBUSY. 0x20000
+			 * stops at the SMMU boundary and still covers the QoS
+			 * block, which ends at 0xd00c.
+			 */
+			reg = <0x01660000 0x20000>;
 			#interconnect-cells = <1>;
+
+			clocks = <&gcc GCC_UFS_AXI_CLK>,
+				 <&gcc GCC_AGGRE1_UFS_AXI_CLK>,
+				 <&gcc GCC_AGGRE1_USB3_AXI_CLK>,
+				 <&gcc GCC_BLSP2_AHB_CLK>;
+			clock-names = "ufs_axi", "aggre1_ufs_axi",
+				      "aggre1_usb3_axi", "blsp2_ahb";
 		};
 
 		a2noc: interconnect@1700000 {
 			compatible = "qcom,msm8998-a2noc";
-			reg = <0x01700000 0x60000>;
+			/*
+			 * 0x10000, not downstream's 0x60000: that window runs
+			 * to 0x175ffff and swallows mnoc at 0x1740000, so
+			 * mnoc's request_mem_region() fails -EBUSY. a2noc's
+			 * QoS block ends at 0xe00c.
+			 */
+			reg = <0x01700000 0x10000>;
 			#interconnect-cells = <1>;
+
+			clocks = <&gcc GCC_SDCC2_AHB_CLK>,
+				 <&gcc GCC_SDCC4_AHB_CLK>,
+				 <&gcc GCC_BLSP1_AHB_CLK>;
+			clock-names = "sdcc2_ahb", "sdcc4_ahb", "blsp1_ahb";
 		};
 
 		mnoc: interconnect@1740000 {
 			compatible = "qcom,msm8998-mnoc";
 			reg = <0x01740000 0x10000>;
 			#interconnect-cells = <1>;
+
+			clocks = <&gcc GCC_MMSS_NOC_CFG_AHB_CLK>,
+				 <&mmcc MNOC_AHB_CLK>,
+				 <&mmcc CAMSS_AHB_CLK>,
+				 <&mmcc VIDEO_AHB_CLK>,
+				 <&mmcc VIDEO_AXI_CLK>,
+				 <&mmcc MDSS_AHB_CLK>,
+				 <&mmcc MDSS_AXI_CLK>;
+			clock-names = "noc_cfg_ahb", "mnoc_ahb",
+				      "camss_ahb", "video_ahb", "video_axi",
+				      "mdss_ahb", "mdss_axi";
 		};
 
 		lpass_q6_smmu: iommu@5100000 {
@@ -3576,12 +3613,19 @@
 			compatible = "qcom,cpu-clock-osm-msm8998";
 			reg = <0x179c0000 0x4000>,
 			      <0x17916000 0x1000>,
-			      <0x17816000 0x1000>,
-			      <0x179d1000 0x1000>,
-			      <0x00784130 0x8>,
-			      <0x1791101c 0x8>;
-			reg-names = "osm", "pwrcl_pll", "perfcl_pll",
-				    "apcs_common", "perfcl_efuse", "debug";
+			      <0x17816000 0x1000>;
+			/*
+			 * Only these three are mapped. The apcs_common,
+			 * perfcl_efuse and debug regions this node used to
+			 * declare were never ioremapped, and two of them
+			 * overlapped live devices - perfcl_efuse sat inside
+			 * qfprom@784000 and apcs_common inside
+			 * mailbox@17911000. Harmless while unmapped, but a
+			 * -EBUSY trap for anyone who later adds a byname
+			 * mapping. Efuse reads should go through qfprom
+			 * nvmem and APCS through its own node instead.
+			 */
+			reg-names = "osm", "pwrcl_pll", "perfcl_pll";
 
 			interrupts = <GIC_SPI 35 IRQ_TYPE_EDGE_RISING>,
 				     <GIC_SPI 36 IRQ_TYPE_EDGE_RISING>;
