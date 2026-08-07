@@ -1367,6 +1367,7 @@ static const struct qcom_icc_desc msm8998_bimc = {
 	.nodes = bimc_nodes,
 	.num_nodes = ARRAY_SIZE(bimc_nodes),
 	.bus_clk_desc = &bimc_clk,
+	.keep_alive = true,
 };
 
 static const struct qcom_icc_desc msm8998_cnoc = {
@@ -1374,6 +1375,7 @@ static const struct qcom_icc_desc msm8998_cnoc = {
 	.nodes = cnoc_nodes,
 	.num_nodes = ARRAY_SIZE(cnoc_nodes),
 	.bus_clk_desc = &bus_0_clk,
+	.keep_alive = true,
 };
 
 static const struct qcom_icc_desc msm8998_snoc = {
@@ -1381,6 +1383,7 @@ static const struct qcom_icc_desc msm8998_snoc = {
 	.nodes = snoc_nodes,
 	.num_nodes = ARRAY_SIZE(snoc_nodes),
 	.bus_clk_desc = &bus_1_clk,
+	.keep_alive = true,
 };
 
 static const struct qcom_icc_desc msm8998_mnoc = {
@@ -1388,6 +1391,7 @@ static const struct qcom_icc_desc msm8998_mnoc = {
 	.nodes = mnoc_nodes,
 	.num_nodes = ARRAY_SIZE(mnoc_nodes),
 	.bus_clk_desc = &mmaxi_0_clk,
+	.keep_alive = true,
 };
 
 static const struct of_device_id qnoc_of_match[] = {
