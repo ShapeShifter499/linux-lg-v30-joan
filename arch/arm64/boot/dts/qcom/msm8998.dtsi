@@ -1909,9 +1909,12 @@
 				 <&mmcc MNOC_AHB_CLK>,
 				 <&mmcc CAMSS_AHB_CLK>,
 				 <&mmcc VIDEO_AHB_CLK>,
-				 <&mmcc VIDEO_AXI_CLK>;
+				 <&mmcc VIDEO_AXI_CLK>,
+				 <&mmcc MDSS_AHB_CLK>,
+				 <&mmcc MDSS_AXI_CLK>;
 			clock-names = "noc_cfg_ahb", "mnoc_ahb",
-				      "camss_ahb", "video_ahb", "video_axi";
+				      "camss_ahb", "video_ahb", "video_axi",
+				      "mdss_ahb", "mdss_axi";
 		};
 
 		lpass_q6_smmu: iommu@5100000 {

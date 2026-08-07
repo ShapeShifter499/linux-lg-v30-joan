@@ -1166,7 +1166,8 @@ static struct qcom_icc_node mas_mdp_p0 = {
 	.mas_rpm_id = 8,
 	.slv_rpm_id = -1,
 	.qos.ap_owned = true,
-	.qos.qos_mode = NOC_QOS_MODE_INVALID,
+	.qos.qos_mode = NOC_QOS_MODE_BYPASS,
+	.qos.qos_port = 1,
 	.num_links = 1,
 	.links = mas_mdp_p0_links
 };
@@ -1179,7 +1180,8 @@ static struct qcom_icc_node mas_mdp_p1 = {
 	.mas_rpm_id = 61,
 	.slv_rpm_id = -1,
 	.qos.ap_owned = true,
-	.qos.qos_mode = NOC_QOS_MODE_INVALID,
+	.qos.qos_mode = NOC_QOS_MODE_BYPASS,
+	.qos.qos_port = 2,
 	.num_links = 1,
 	.links = mas_mdp_p1_links
 };
@@ -1192,7 +1194,8 @@ static struct qcom_icc_node mas_rotator = {
 	.mas_rpm_id = 120,
 	.slv_rpm_id = -1,
 	.qos.ap_owned = true,
-	.qos.qos_mode = NOC_QOS_MODE_INVALID,
+	.qos.qos_mode = NOC_QOS_MODE_BYPASS,
+	.qos.qos_port = 0,
 	.num_links = 1,
 	.links = mas_rotator_links
 };
@@ -1702,6 +1705,8 @@ static const char * const msm8998_mnoc_intf_clocks[] = {
 	"camss_ahb",
 	"video_ahb",
 	"video_axi",
+	"mdss_ahb",
+	"mdss_axi",
 };
 
 static const struct qcom_icc_desc msm8998_mnoc = {
