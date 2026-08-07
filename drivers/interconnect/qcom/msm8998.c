@@ -1138,7 +1138,8 @@ static struct qcom_icc_node mas_cpp = {
 	.mas_rpm_id = 115,
 	.slv_rpm_id = -1,
 	.qos.ap_owned = true,
-	.qos.qos_mode = NOC_QOS_MODE_INVALID,
+	.qos.qos_mode = NOC_QOS_MODE_BYPASS,
+	.qos.qos_port = 5,
 	.num_links = 1,
 	.links = mas_cpp_links
 };
@@ -1151,7 +1152,8 @@ static struct qcom_icc_node mas_jpeg = {
 	.mas_rpm_id = 7,
 	.slv_rpm_id = -1,
 	.qos.ap_owned = true,
-	.qos.qos_mode = NOC_QOS_MODE_INVALID,
+	.qos.qos_mode = NOC_QOS_MODE_BYPASS,
+	.qos.qos_port = 7,
 	.num_links = 1,
 	.links = mas_jpeg_links
 };
@@ -1203,7 +1205,8 @@ static struct qcom_icc_node mas_venus = {
 	.mas_rpm_id = 9,
 	.slv_rpm_id = -1,
 	.qos.ap_owned = true,
-	.qos.qos_mode = NOC_QOS_MODE_INVALID,
+	.qos.qos_mode = NOC_QOS_MODE_BYPASS,
+	.qos.qos_port = 3,
 	.num_links = 1,
 	.links = mas_venus_links
 };
@@ -1216,7 +1219,8 @@ static struct qcom_icc_node mas_vfe = {
 	.mas_rpm_id = 11,
 	.slv_rpm_id = -1,
 	.qos.ap_owned = true,
-	.qos.qos_mode = NOC_QOS_MODE_INVALID,
+	.qos.qos_mode = NOC_QOS_MODE_BYPASS,
+	.qos.qos_port = 6,
 	.num_links = 1,
 	.links = mas_vfe_links
 };
@@ -1684,7 +1688,27 @@ static const struct qcom_icc_desc msm8998_snoc = {
 	.keep_alive = true,
 };
 
+static const struct regmap_config msm8998_mnoc_regmap_config = {
+	.reg_bits	= 32,
+	.reg_stride	= 4,
+	.val_bits	= 32,
+	.max_register	= 0xfffc,
+	.fast_io	= true,
+};
+
+static const char * const msm8998_mnoc_intf_clocks[] = {
+	"noc_cfg_ahb",
+	"mnoc_ahb",
+	"camss_ahb",
+	"video_ahb",
+	"video_axi",
+};
+
 static const struct qcom_icc_desc msm8998_mnoc = {
+	.regmap_cfg = &msm8998_mnoc_regmap_config,
+	.qos_offset = 0x4000,
+	.intf_clocks = msm8998_mnoc_intf_clocks,
+	.num_intf_clocks = ARRAY_SIZE(msm8998_mnoc_intf_clocks),
 	.type = QCOM_ICC_NOC,
 	.nodes = mnoc_nodes,
 	.num_nodes = ARRAY_SIZE(mnoc_nodes),
@@ -1732,7 +1756,7 @@ static const struct regmap_config msm8998_a2noc_regmap_config = {
 	.reg_bits	= 32,
 	.reg_stride	= 4,
 	.val_bits	= 32,
-	.max_register	= 0x5fffc,
+	.max_register	= 0xfffc,
 	.fast_io	= true,
 };
 

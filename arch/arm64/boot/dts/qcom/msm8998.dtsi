@@ -1885,7 +1885,13 @@
 
 		a2noc: interconnect@1700000 {
 			compatible = "qcom,msm8998-a2noc";
-			reg = <0x01700000 0x60000>;
+			/*
+			 * 0x10000, not downstream's 0x60000: that window runs
+			 * to 0x175ffff and swallows mnoc at 0x1740000, so
+			 * mnoc's request_mem_region() fails -EBUSY. a2noc's
+			 * QoS block ends at 0xe00c.
+			 */
+			reg = <0x01700000 0x10000>;
 			#interconnect-cells = <1>;
 
 			clocks = <&gcc GCC_SDCC2_AHB_CLK>,
@@ -1898,6 +1904,14 @@
 			compatible = "qcom,msm8998-mnoc";
 			reg = <0x01740000 0x10000>;
 			#interconnect-cells = <1>;
+
+			clocks = <&gcc GCC_MMSS_NOC_CFG_AHB_CLK>,
+				 <&mmcc MNOC_AHB_CLK>,
+				 <&mmcc CAMSS_AHB_CLK>,
+				 <&mmcc VIDEO_AHB_CLK>,
+				 <&mmcc VIDEO_AXI_CLK>;
+			clock-names = "noc_cfg_ahb", "mnoc_ahb",
+				      "camss_ahb", "video_ahb", "video_axi";
 		};
 
 		lpass_q6_smmu: iommu@5100000 {
