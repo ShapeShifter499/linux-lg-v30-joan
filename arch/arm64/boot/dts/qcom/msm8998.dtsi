@@ -3071,6 +3071,11 @@
 				      "core";
 
 			power-domains = <&mmcc MDSS_GDSC>;
+
+			interconnects = <&mnoc MAS_MDP_P0 &bimc SLV_EBI>,
+					<&mnoc MAS_MDP_P1 &bimc SLV_EBI>;
+			interconnect-names = "mdp0-mem", "mdp1-mem";
+
 			iommus = <&mmss_smmu 0>;
 
 			#address-cells = <1>;
