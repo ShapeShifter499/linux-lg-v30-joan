@@ -54,11 +54,6 @@
 #define OSM_DCVS_PERF_STATE	0x1F10
 
 /* PLL registers (relative to per-cluster PLL base) */
-#define PLL_MODE		0x0
-#define PLL_L_VAL		0x4
-#define PLL_USER_CTRL		0xC
-#define PLL_CONFIG_CTL_LO	0x10
-#define PLL_WAIT_LOCK_TIME_US	10
 
 /* efuse speedbin */
 #define PWRCL_EFUSE_SHIFT	0
@@ -184,24 +179,6 @@ static const struct clk_ops osm_clk_ops = {
 	.enable = osm_enable,
 	.disable = osm_disable,
 };
-
-static void osm_setup_cluster_pll(struct clk_osm *c)
-{
-	/* Same init sequence as downstream clk_osm_setup_cluster_pll */
-	writel_relaxed(0x0, c->vbases[PLL_BASE] + PLL_MODE);
-	writel_relaxed(0x20, c->vbases[PLL_BASE] + PLL_L_VAL);
-	writel_relaxed(0x01000008, c->vbases[PLL_BASE] + PLL_USER_CTRL);
-	writel_relaxed(0x20004AA8, c->vbases[PLL_BASE] + PLL_CONFIG_CTL_LO);
-	writel_relaxed(0x2, c->vbases[PLL_BASE] + PLL_MODE);
-	/* barrier */
-	readl_relaxed(c->vbases[PLL_BASE] + PLL_MODE);
-	udelay(PLL_WAIT_LOCK_TIME_US);
-	writel_relaxed(0x6, c->vbases[PLL_BASE] + PLL_MODE);
-	readl_relaxed(c->vbases[PLL_BASE] + PLL_MODE);
-	udelay(PLL_WAIT_LOCK_TIME_US);
-	writel_relaxed(0x7, c->vbases[PLL_BASE] + PLL_MODE);
-	readl_relaxed(c->vbases[PLL_BASE] + PLL_MODE);
-}
 
 static int osm_setup_hw_table(struct clk_osm *c)
 {
