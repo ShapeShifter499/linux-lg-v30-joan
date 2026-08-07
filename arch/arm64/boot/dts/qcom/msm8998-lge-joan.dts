@@ -148,6 +148,15 @@
 		regulator-min-microvolt = <524000>;
 		regulator-max-microvolt = <1100000>;
 		regulator-enable-ramp-delay = <500>;
+		/*
+		 * Kept always-on: with no consumer holding the rail at boot,
+		 * the regulator framework disables it during late cleanup,
+		 * and the GPU_GX GDSC cannot power on without VDD_GFX
+		 * (gpu_gx status stuck at off on device). OPP voltage
+		 * scaling (opp-microvolt) still adjusts the rail; always-on
+		 * only prevents the framework from dropping it.
+		 */
+		regulator-always-on;
 	};
 };
 
