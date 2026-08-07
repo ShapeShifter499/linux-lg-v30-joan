@@ -1864,8 +1864,23 @@
 
 		a1noc: interconnect@1660000 {
 			compatible = "qcom,msm8998-a1noc";
-			reg = <0x01660000 0x60000>;
+			/*
+			 * 0x20000, not downstream's 0x60000: that window
+			 * swallows the ANOC1 SMMU at 0x1680000, and mainline
+			 * gives each fabric its own platform device whose
+			 * request_mem_region() then fails -EBUSY. 0x20000
+			 * stops at the SMMU boundary and still covers the QoS
+			 * block, which ends at 0xd00c.
+			 */
+			reg = <0x01660000 0x20000>;
 			#interconnect-cells = <1>;
+
+			clocks = <&gcc GCC_UFS_AXI_CLK>,
+				 <&gcc GCC_AGGRE1_UFS_AXI_CLK>,
+				 <&gcc GCC_AGGRE1_USB3_AXI_CLK>,
+				 <&gcc GCC_BLSP2_AHB_CLK>;
+			clock-names = "ufs_axi", "aggre1_ufs_axi",
+				      "aggre1_usb3_axi", "blsp2_ahb";
 		};
 
 		a2noc: interconnect@1700000 {
