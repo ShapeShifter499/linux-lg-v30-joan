@@ -175,6 +175,10 @@
 	status = "okay";
 };
 
+&pmi8998_charger {
+	status = "okay";
+};
+
 &soc {
 	/*
 	 * APSS watchdog, missing from mainline msm8998.dtsi (address
