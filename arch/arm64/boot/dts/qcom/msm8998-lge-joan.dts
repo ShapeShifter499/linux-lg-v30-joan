@@ -835,3 +835,57 @@
 		opp-supported-hw = <0xff>;
 	};
 };
+
+/*
+ * Modem (MSS) bring-up.
+ *
+ * LG's firmware is signed for its own physical addresses and the MBA
+ * authenticates the modem image in place, so the regions the modem
+ * chain touches are transcribed from the vendor kernel's
+ * reserved-memory node rather than chosen. The generic msm8998.dtsi
+ * layout is a different packing of the same DDR and does not match:
+ *
+ *   region      mainline generic        LG stock
+ *   mpss_mem    0x8cc00000 + 0x7000000  0x8b400000 + 0x7700000
+ *   adsp_mem    0x8b200000 + 0x1a00000  0x92b00000 + 0x1b00000
+ *   mba_mem     0x94100000 + 0x200000   0x94b00000 + 0x200000
+ *   venus_mem   0x93c00000 + 0x500000   0x94600000 + 0x500000
+ *
+ * Note the generic adsp_mem at 0x8b200000 lies inside the range LG
+ * gives the modem (0x8b400000-0x92afffff), so the layout cannot be
+ * changed one region at a time -- it moves as a chain.
+ *
+ * slpi_mem is the exception. LG gives SLPI 0x94d00000 + 0xf00000, but
+ * that range covers ipa_fw_mem, ipa_gsi_mem and wlan_msa_mem, which sit
+ * at their mainline addresses and are working: WiFi is up on those and
+ * the GPU zap shader already uses LG's 0x95c00000 for gpu_mem. SLPI
+ * itself is not enabled here, so it is given only the 5 MB it needs to
+ * clear adsp_mem rather than LG's full extent. Revisit if SLPI is ever
+ * brought up -- and note IPA will need its own look, since LG lumps IPA
+ * and GPU firmware into one 1 MB pil_ipa_gpu_mem at 0x95c00000.
+ */
+&mpss_mem {
+	reg = <0x0 0x8b400000 0x0 0x7700000>;
+};
+
+&adsp_mem {
+	reg = <0x0 0x92b00000 0x0 0x1b00000>;
+};
+
+&venus_mem {
+	reg = <0x0 0x94600000 0x0 0x500000>;
+};
+
+&mba_mem {
+	reg = <0x0 0x94b00000 0x0 0x200000>;
+};
+
+&slpi_mem {
+	reg = <0x0 0x94d00000 0x0 0x500000>;
+};
+
+&remoteproc_mss {
+	firmware-name = "qcom/msm8998/joan/mba.mbn",
+			"qcom/msm8998/joan/modem.mdt";
+	status = "okay";
+};
