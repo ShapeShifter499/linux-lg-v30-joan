@@ -831,7 +831,8 @@ static int ispif_set_stream(struct v4l2_subdev *sd, int enable)
 		ispif_config_irq(ispif, intf, vfe, 1);
 		if (camss->res->version == CAMSS_8x96 ||
 		    camss->res->version == CAMSS_8x53 ||
-		    camss->res->version == CAMSS_660)
+		    camss->res->version == CAMSS_660 ||
+		    camss->res->version == CAMSS_8998)
 			ispif_config_pack(ispif,
 					  line->fmt[MSM_ISPIF_PAD_SINK].code,
 					  intf, cid, vfe, 1);
@@ -850,7 +851,8 @@ static int ispif_set_stream(struct v4l2_subdev *sd, int enable)
 		mutex_lock(&ispif->config_lock);
 		if (camss->res->version == CAMSS_8x96 ||
 		    camss->res->version == CAMSS_8x53 ||
-		    camss->res->version == CAMSS_660)
+		    camss->res->version == CAMSS_660 ||
+		    camss->res->version == CAMSS_8998)
 			ispif_config_pack(ispif,
 					  line->fmt[MSM_ISPIF_PAD_SINK].code,
 					  intf, cid, vfe, 0);
@@ -1116,7 +1118,8 @@ int msm_ispif_subdev_init(struct camss *camss,
 		ispif->line_num = 3;
 	else if (camss->res->version == CAMSS_8x96 ||
 		 camss->res->version == CAMSS_8x53 ||
-		 camss->res->version == CAMSS_660)
+		 camss->res->version == CAMSS_660 ||
+		 camss->res->version == CAMSS_8998)
 		ispif->line_num = 4;
 	else
 		return -EINVAL;
@@ -1137,7 +1140,8 @@ int msm_ispif_subdev_init(struct camss *camss,
 					ARRAY_SIZE(ispif_formats_8x16);
 		} else if (camss->res->version == CAMSS_8x96 ||
 			   camss->res->version == CAMSS_8x53 ||
-			   camss->res->version == CAMSS_660) {
+			   camss->res->version == CAMSS_660 ||
+			   camss->res->version == CAMSS_8998) {
 			ispif->line[i].formats = ispif_formats_8x96;
 			ispif->line[i].nformats =
 					ARRAY_SIZE(ispif_formats_8x96);
@@ -1171,7 +1175,8 @@ int msm_ispif_subdev_init(struct camss *camss,
 			       IRQF_TRIGGER_RISING, ispif->irq_name, ispif);
 	else if (camss->res->version == CAMSS_8x96 ||
 		 camss->res->version == CAMSS_8x53 ||
-		 camss->res->version == CAMSS_660)
+		 camss->res->version == CAMSS_660 ||
+		 camss->res->version == CAMSS_8998)
 		ret = devm_request_irq(dev, ispif->irq, ispif_isr_8x96,
 			       IRQF_TRIGGER_RISING, ispif->irq_name, ispif);
 	else
