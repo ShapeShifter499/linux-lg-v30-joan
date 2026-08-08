@@ -262,6 +262,14 @@ static inline void vfe_reg_set(struct vfe_device *vfe, u32 reg, u32 set_bits)
 	writel_relaxed(bits | set_bits, vfe->base + reg);
 }
 
+/*
+ * VFE 4.8 does not reset the AXI bus bridge along with the rest of the core:
+ * the vendor driver picks 0x3f7 here where 4.7 uses 0x3ff, the one bit of
+ * difference being BUS_BDG. A bridge reset issued while its clocks and the
+ * VBIF are up comes back refusing grants, so the write masters latch their
+ * configuration and take pixel data but never issue a beat and never
+ * acknowledge a halt.
+ */
 static void vfe_global_reset(struct vfe_device *vfe)
 {
 	u32 reset_bits = VFE_0_GLOBAL_RESET_CMD_IDLE_CGC	|
@@ -270,7 +278,6 @@ static void vfe_global_reset(struct vfe_device *vfe)
 			 VFE_0_GLOBAL_RESET_CMD_BUS_MISR	|
 			 VFE_0_GLOBAL_RESET_CMD_PM		|
 			 VFE_0_GLOBAL_RESET_CMD_REGISTER	|
-			 VFE_0_GLOBAL_RESET_CMD_BUS_BDG		|
 			 VFE_0_GLOBAL_RESET_CMD_BUS		|
 			 VFE_0_GLOBAL_RESET_CMD_CAMIF		|
 			 VFE_0_GLOBAL_RESET_CMD_CORE;
