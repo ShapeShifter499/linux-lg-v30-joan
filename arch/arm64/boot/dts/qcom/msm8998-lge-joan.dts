@@ -180,6 +180,11 @@
 	status = "okay";
 };
 
+&pmi8998_fg {
+	monitored-battery = <&battery>;
+	status = "okay";
+};
+
 / {
 	battery: battery {
 		compatible = "simple-battery";
