@@ -598,8 +598,8 @@ static void smb_status_change_work(struct work_struct *work)
 		break;
 	}
 
-	/* DT override wins over the type default (e.g. LG 1.8 A) */
-	if (chip->usb_icl_ua)
+	/* DT override applies to charging sources only, never SDP (PC port) */
+	if (chip->usb_icl_ua && charger_type != POWER_SUPPLY_USB_TYPE_SDP)
 		current_ua = chip->usb_icl_ua;
 
 	smb_set_current_limit(chip, current_ua);
