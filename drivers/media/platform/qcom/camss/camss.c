@@ -5385,10 +5385,7 @@ static int camss_probe(struct platform_device *pdev)
 	if (!camss->csid)
 		return -ENOMEM;
 
-	if (camss->res->version == CAMSS_8x16 ||
-	    camss->res->version == CAMSS_8x39 ||
-	    camss->res->version == CAMSS_8x53 ||
-	    camss->res->version == CAMSS_8x96) {
+	if (camss->res->ispif_res) {
 		camss->ispif = devm_kcalloc(dev, 1, sizeof(*camss->ispif), GFP_KERNEL);
 		if (!camss->ispif)
 			return -ENOMEM;
