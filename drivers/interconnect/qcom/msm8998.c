@@ -1403,7 +1403,10 @@ static struct qcom_icc_node mas_ipa = {
 	.mas_rpm_id = 59,
 	.slv_rpm_id = -1,
 	.qos.ap_owned = true,
-	.qos.qos_mode = NOC_QOS_MODE_INVALID,
+	.qos.qos_mode = NOC_QOS_MODE_FIXED,
+	.qos.qos_port = 1,
+	.qos.areq_prio = 1,
+	.qos.prio_level = 1,
 	.num_links = 1,
 	.links = mas_ipa_links
 };
@@ -1816,11 +1819,13 @@ static const struct regmap_config msm8998_a2noc_regmap_config = {
  * Downstream enables these before writing any a2noc QoS register
  * (qcom,node-qos-clks on fab-a2noc). icc-rpm wraps the QoS loop in
  * clk_bulk_prepare_enable() of desc->intf_clocks, so listing them
- * here is what makes those writes safe. Its fourth entry, the IPA
- * clock, has no mainline equivalent on msm8998 - only GCC_IPA_BCR,
- * a reset - so mas_ipa keeps qos_mode INVALID.
+ * here is what makes those writes safe. The first, the IPA clock,
+ * is RPM_SMD_IPA_CLK from rpmcc - it exists in mainline (an earlier
+ * search for it in gcc-msm8998 found only the GCC_IPA_BCR reset and
+ * wrongly concluded it did not exist).
  */
 static const char * const msm8998_a2noc_intf_clocks[] = {
+	"ipa",
 	"sdcc2_ahb",
 	"sdcc4_ahb",
 	"blsp1_ahb",
