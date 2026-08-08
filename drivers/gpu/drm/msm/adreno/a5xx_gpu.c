@@ -6,6 +6,7 @@
 #include <linux/types.h>
 #include <linux/cpumask.h>
 #include <linux/firmware/qcom/qcom_scm.h>
+#include <linux/moduleparam.h>
 #include <linux/pm_opp.h>
 #include <linux/nvmem-consumer.h>
 #include <linux/slab.h>
@@ -15,6 +16,47 @@
 
 extern bool hang_debug;
 static void a5xx_dump(struct msm_gpu *gpu);
+
+/*
+ * Preemption and per-process pagetables are mutually exclusive on a5xx, and
+ * this tree enables both -- so preemption is off by default.
+ *
+ * a5xx_preempt_hw_init() programs CP_CONTEXT_SWITCH_SMMU_INFO = 0, i.e. "we
+ * aren't switching pagetables". Upstream a5xx has no per-process pagetables,
+ * so its preemption code may assume a single TTBR0 across every ring. Here,
+ * the msm8998 denylist in qcom_adreno_can_do_ttbr1() (drivers/iommu/arm/
+ * arm-smmu/arm-smmu-qcom.c) is commented out, so IO_PGTABLE_QUIRK_ARM_TTBR1
+ * is available and a5xx_set_pagetable() emits a CP_SMMU_TABLE_UPDATE per
+ * submit whenever a private (per-process) vm is in use. A ring restored by
+ * preemption resumes mid-ring without replaying that packet, and the
+ * preemption record carries no SMMU info to restore it -- so it runs against
+ * whichever TTBR0 the ring it preempted away from happened to leave
+ * installed.
+ *
+ * Measured 2026-07-27. With preemption on, opening any GL app strands a
+ * submit: the CP stops a submit short (rb0 rptr 94 / wptr 131, fence
+ * 205/206) and the compositor blocks forever in DRM_IOCTL_MSM_WAIT_FENCE.
+ * With preemption off the same phosh session -- Settings, gedit, on-screen
+ * keyboard -- is fully usable.
+ *
+ * That is upstream a0bee0086c47 ("Skip the TTBR1 quirk for MSM8998 and
+ * SDM630", "Adreno 5xx doesn't have separate pagetables support") reached
+ * from the other side: it disables the pagetables, we disable the
+ * preemption. Restoring that denylist instead was tried and regressed
+ * badly, so this is the cheaper half to give up. Re-enabling preemption
+ * requires teaching the preemption record to carry SMMU info first.
+ *
+ * Named a5xx_enable_preemption rather than enable_preemption: 6.18 already
+ * has a global "enable_preemption" module param in adreno_device.c that is
+ * A7xx-only (tri-state int: 1=on, 0=off, -1=auto). Reusing that name here
+ * would register two "enable_preemption" kernel parameters for the msm
+ * module -- different types, different chips, same sysfs node -- so this
+ * gets its own name instead of colliding with it.
+ */
+static bool a5xx_enable_preemption;
+MODULE_PARM_DESC(a5xx_enable_preemption,
+		 "Enable preemption (A5XX only; broken while per-process pagetables are on)");
+module_param(a5xx_enable_preemption, bool, 0600);
 
 #define GPU_PAS_ID 13
 
@@ -1800,6 +1842,9 @@ static struct msm_gpu *a5xx_gpu_init(struct drm_device *dev)
 	nr_rings = 4;
 
 	if (config->info->revn == 510)
+		nr_rings = 1;
+
+	if (!a5xx_enable_preemption)
 		nr_rings = 1;
 
 	ret = adreno_gpu_init(dev, pdev, adreno_gpu, config->info->funcs, nr_rings);
