@@ -59,7 +59,8 @@
 #define CHARGING_ENABLE_CMD				0x42
 #define CHARGING_ENABLE_CMD_BIT				BIT(0)
 
-#define CHGR_CFG2					0x51
+#define CHGR_CFG2				0x51
+#define CHGR_FCC_CFG				0x40
 #define CHG_EN_SRC_BIT					BIT(7)
 #define CHG_EN_POLARITY_BIT				BIT(6)
 #define PRETOFAST_TRANSITION_CFG_BIT			BIT(5)
@@ -391,6 +392,8 @@ struct smb_chip {
 	unsigned int base;
 	struct regmap *regmap;
 	struct power_supply_battery_info *batt_info;
+	u32 usb_icl_ua;
+	u32 fcc_max_ua;
 
 	struct delayed_work status_change_work;
 	int cable_irq;
@@ -594,6 +597,10 @@ static void smb_status_change_work(struct work_struct *work)
 		current_ua = SDP_CURRENT_UA;
 		break;
 	}
+
+	/* DT override wins over the type default (e.g. LG 1.8 A) */
+	if (chip->usb_icl_ua)
+		current_ua = chip->usb_icl_ua;
 
 	smb_set_current_limit(chip, current_ua);
 	power_supply_changed(chip->chg_psy);
@@ -1005,6 +1012,20 @@ static int smb_probe(struct platform_device *pdev)
 				FLOAT_VOLTAGE_SETTING_MASK, rc);
 	if (rc < 0)
 		return dev_err_probe(chip->dev, rc, "Couldn't set vbat max\n");
+
+	device_property_read_u32(chip->dev, "qcom,usb-icl-ua", &chip->usb_icl_ua);
+
+	rc = device_property_read_u32(chip->dev, "qcom,fcc-max-ua",
+				      &chip->fcc_max_ua);
+	if (!rc && chip->fcc_max_ua) {
+		u16 fcc_ma = chip->fcc_max_ua / 1000;
+
+		rc = regmap_bulk_write(chip->regmap, chip->base + CHGR_FCC_CFG,
+				       &fcc_ma, sizeof(fcc_ma));
+		if (rc < 0)
+			return dev_err_probe(chip->dev, rc,
+					     "Couldn't set fast charge current\n");
+	}
 
 	rc = smb_init_irq(chip, &irq, "bat-ov", smb_handle_batt_overvoltage);
 	if (rc < 0)

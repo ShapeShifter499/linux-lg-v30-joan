@@ -176,11 +176,14 @@
 };
 
 &pmi8998_charger {
+	qcom,usb-icl-ua = <1800000>;
+	qcom,fcc-max-ua = <3300000>;
 	monitored-battery = <&battery>;
 	status = "okay";
 };
 
 &pmi8998_fg {
+	power-supplies = <&pmi8998_charger>;
 	monitored-battery = <&battery>;
 	status = "okay";
 };
