@@ -1124,30 +1124,6 @@ static u8 csiphy_get_lane_mask(struct csiphy_lanes_cfg *lane_cfg)
 	return lane_mask;
 }
 
-static bool csiphy_is_gen2(u32 version)
-{
-	bool ret = false;
-
-	switch (version) {
-	case CAMSS_2290:
-	case CAMSS_6150:
-	case CAMSS_6350:
-	case CAMSS_7280:
-	case CAMSS_8250:
-	case CAMSS_8280XP:
-	case CAMSS_8300:
-	case CAMSS_845:
-	case CAMSS_8550:
-	case CAMSS_8650:
-	case CAMSS_8775P:
-	case CAMSS_X1E80100:
-		ret = true;
-		break;
-	}
-
-	return ret;
-}
-
 static void csiphy_lanes_enable(struct csiphy_device *csiphy,
 				struct csiphy_config *cfg,
 				s64 link_freq, u8 lane_mask)
@@ -1179,7 +1155,8 @@ static void csiphy_lanes_enable(struct csiphy_device *csiphy,
 	writel_relaxed(val, csiphy->base +
 		       CSIPHY_3PH_CMN_CSI_COMMON_CTRLn(regs->offset, 0));
 
-	if (csiphy_is_gen2(csiphy->camss->res->version))
+	/* A lane register table is what makes a PHY gen2 */
+	if (regs->lane_regs)
 		csiphy_gen2_config_lanes(csiphy, settle_cnt);
 	else
 		csiphy_gen1_config_lanes(csiphy, cfg, settle_cnt);
@@ -1208,7 +1185,7 @@ static int csiphy_init(struct csiphy_device *csiphy)
 	struct device *dev = csiphy->camss->dev;
 	struct csiphy_device_regs *regs;
 
-	regs = devm_kmalloc(dev, sizeof(*regs), GFP_KERNEL);
+	regs = devm_kzalloc(dev, sizeof(*regs), GFP_KERNEL);
 	if (!regs)
 		return -ENOMEM;
 
