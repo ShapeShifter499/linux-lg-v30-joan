@@ -83,6 +83,12 @@ properties:
     minItems: 1
     maxItems: 64
 
+  vdd-supply:
+    description: GPU core power supply
+
+  vddcx-supply:
+    description: GPU core logic power supply
+
   sram:
     minItems: 1
     maxItems: 4
@@ -276,7 +282,6 @@ allOf:
               - pattern: '^qcom,adreno-508\.[0-9]+$'
               - pattern: '^qcom,adreno-509\.[0-9]+$'
               - pattern: '^qcom,adreno-512\.[0-9]+$'
-              - pattern: '^qcom,adreno-540\.[0-9]+$'
     then:
       properties:
         clocks:
@@ -292,6 +297,33 @@ allOf:
               description: GPU Memory clock
             - const: mem_iface
               description: GPU Memory Interface clock
+            - const: rbcpr
+              description: GPU RB Core Power Reduction clock
+            - const: core
+              description: GPU Core clock
+
+  - if:
+      properties:
+        compatible:
+          contains:
+            pattern: '^qcom,adreno-540\.[0-9]+$'
+    then:
+      properties:
+        clocks:
+          minItems: 7
+          maxItems: 7
+        clock-names:
+          items:
+            - const: iface
+              description: GPU Interface clock
+            - const: rbbmtimer
+              description: GPU RBBM Timer for Adreno 5xx series
+            - const: mem
+              description: GPU Memory clock
+            - const: mem_iface
+              description: GPU Memory Interface clock
+            - const: mem_src
+              description: GPU Memory source clock
             - const: rbcpr
               description: GPU RB Core Power Reduction clock
             - const: core

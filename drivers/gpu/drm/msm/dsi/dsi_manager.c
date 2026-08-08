@@ -488,6 +488,51 @@ int msm_dsi_manager_connector_init(struct msm_dsi *msm_dsi,
 	return 0;
 }
 
+/*
+ * A command-mode panel shares one DSI link between pixel data and DCS traffic.
+ * The DPU owns the link for the duration of a frame; a DCS command injected
+ * mid-frame corrupts the transfer, which on a DSC panel shows up as a
+ * scrambled screen -- e.g. dragging a brightness slider while the compositor
+ * is animating.
+ *
+ * Reserve the link, wait for the current frame, and hold the reservation until
+ * the command finishes. This closes both sides of the race: the command cannot
+ * start during a frame, and a new frame cannot start during the command.
+ */
+static int dsi_mgr_acquire_link(struct msm_dsi *msm_dsi)
+{
+	struct msm_drm_private *priv;
+	struct msm_kms *kms;
+
+	if (!msm_dsi_is_cmd_mode(msm_dsi) ||
+	    !msm_dsi->dev || !msm_dsi->encoder)
+		return 0;
+
+	priv = msm_dsi->dev->dev_private;
+	kms = priv->kms;
+
+	if (!kms || !kms->funcs->acquire_link || !kms->funcs->release_link)
+		return 0;
+
+	return kms->funcs->acquire_link(kms, msm_dsi->encoder);
+}
+
+static void dsi_mgr_release_link(struct msm_dsi *msm_dsi)
+{
+	struct msm_drm_private *priv;
+	struct msm_kms *kms;
+
+	if (!msm_dsi_is_cmd_mode(msm_dsi) ||
+	    !msm_dsi->dev || !msm_dsi->encoder)
+		return;
+
+	priv = msm_dsi->dev->dev_private;
+	kms = priv->kms;
+
+	if (kms && kms->funcs->acquire_link && kms->funcs->release_link)
+		kms->funcs->release_link(kms, msm_dsi->encoder);
+}
+
 int msm_dsi_manager_cmd_xfer(int id, const struct mipi_dsi_msg *msg)
 {
 	struct msm_dsi *msm_dsi = dsi_mgr_get_dsi(id);
@@ -508,12 +553,16 @@ int msm_dsi_manager_cmd_xfer(int id, const struct mipi_dsi_msg *msg)
 	if (need_sync && (id == DSI_0))
 		return is_read ? msg->rx_len : msg->tx_len;
 
+	ret = dsi_mgr_acquire_link(msm_dsi);
+	if (ret)
+		return ret;
+
 	if (need_sync && msm_dsi0) {
 		ret = msm_dsi_host_xfer_prepare(msm_dsi0->host, msg);
 		if (ret) {
 			pr_err("%s: failed to prepare non-trigger host, %d\n",
 				__func__, ret);
-			return ret;
+			goto release_link;
 		}
 	}
 	ret = msm_dsi_host_xfer_prepare(host, msg);
@@ -530,6 +579,9 @@ int msm_dsi_manager_cmd_xfer(int id, const struct mipi_dsi_msg *msg)
 restore_host0:
 	if (need_sync && msm_dsi0)
 		msm_dsi_host_xfer_restore(msm_dsi0->host, msg);
+
+release_link:
+	dsi_mgr_release_link(msm_dsi);
 
 	return ret;
 }

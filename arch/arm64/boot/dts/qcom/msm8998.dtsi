@@ -8,6 +8,7 @@
 #include <dt-bindings/clock/qcom,mmcc-msm8998.h>
 #include <dt-bindings/clock/qcom,rpmcc.h>
 #include <dt-bindings/firmware/qcom,scm.h>
+#include <dt-bindings/interconnect/qcom,msm8998.h>
 #include <dt-bindings/power/qcom-rpmpd.h>
 #include <dt-bindings/gpio/gpio.h>
 
@@ -133,6 +134,169 @@
 		};
 	};
 
+	cpu0_opp_table: cpu0-opp-table {
+		compatible = "operating-points-v2";
+		opp-300-000000000 {
+			opp-hz = /bits/ 64 <300000000>;
+		};
+		opp-364-000000000 {
+			opp-hz = /bits/ 64 <364800000>;
+		};
+		opp-441-000000000 {
+			opp-hz = /bits/ 64 <441600000>;
+		};
+		opp-518-000000000 {
+			opp-hz = /bits/ 64 <518400000>;
+		};
+		opp-595-000000000 {
+			opp-hz = /bits/ 64 <595200000>;
+		};
+		opp-672-000000000 {
+			opp-hz = /bits/ 64 <672000000>;
+		};
+		opp-748-000000000 {
+			opp-hz = /bits/ 64 <748800000>;
+		};
+		opp-825-000000000 {
+			opp-hz = /bits/ 64 <825600000>;
+		};
+		opp-883-000000000 {
+			opp-hz = /bits/ 64 <883200000>;
+		};
+		opp-960-000000000 {
+			opp-hz = /bits/ 64 <960000000>;
+		};
+		opp-1036-000000000 {
+			opp-hz = /bits/ 64 <1036800000>;
+		};
+		opp-1094-000000000 {
+			opp-hz = /bits/ 64 <1094400000>;
+		};
+		opp-1171-000000000 {
+			opp-hz = /bits/ 64 <1171200000>;
+		};
+		opp-1248-000000000 {
+			opp-hz = /bits/ 64 <1248000000>;
+		};
+		opp-1324-000000000 {
+			opp-hz = /bits/ 64 <1324800000>;
+		};
+		opp-1401-000000000 {
+			opp-hz = /bits/ 64 <1401600000>;
+		};
+		opp-1478-000000000 {
+			opp-hz = /bits/ 64 <1478400000>;
+		};
+		opp-1555-000000000 {
+			opp-hz = /bits/ 64 <1555200000>;
+		};
+		opp-1670-000000000 {
+			opp-hz = /bits/ 64 <1670400000>;
+		};
+		opp-1747-000000000 {
+			opp-hz = /bits/ 64 <1747200000>;
+		};
+		opp-1824-000000000 {
+			opp-hz = /bits/ 64 <1824000000>;
+		};
+		opp-1900-000000000 {
+			opp-hz = /bits/ 64 <1900800000>;
+		};
+	};
+
+	cpu4_opp_table: cpu4-opp-table {
+		compatible = "operating-points-v2";
+		opp-300-000000000 {
+			opp-hz = /bits/ 64 <300000000>;
+		};
+		opp-345-000000000 {
+			opp-hz = /bits/ 64 <345600000>;
+		};
+		opp-422-000000000 {
+			opp-hz = /bits/ 64 <422400000>;
+		};
+		opp-499-000000000 {
+			opp-hz = /bits/ 64 <499200000>;
+		};
+		opp-576-000000000 {
+			opp-hz = /bits/ 64 <576000000>;
+		};
+		opp-652-000000000 {
+			opp-hz = /bits/ 64 <652800000>;
+		};
+		opp-729-000000000 {
+			opp-hz = /bits/ 64 <729600000>;
+		};
+		opp-806-000000000 {
+			opp-hz = /bits/ 64 <806400000>;
+		};
+		opp-902-000000000 {
+			opp-hz = /bits/ 64 <902400000>;
+		};
+		opp-979-000000000 {
+			opp-hz = /bits/ 64 <979200000>;
+		};
+		opp-1056-000000000 {
+			opp-hz = /bits/ 64 <1056000000>;
+		};
+		opp-1132-000000000 {
+			opp-hz = /bits/ 64 <1132800000>;
+		};
+		opp-1190-000000000 {
+			opp-hz = /bits/ 64 <1190400000>;
+		};
+		opp-1267-000000000 {
+			opp-hz = /bits/ 64 <1267200000>;
+		};
+		opp-1344-000000000 {
+			opp-hz = /bits/ 64 <1344000000>;
+		};
+		opp-1420-000000000 {
+			opp-hz = /bits/ 64 <1420800000>;
+		};
+		opp-1497-000000000 {
+			opp-hz = /bits/ 64 <1497600000>;
+		};
+		opp-1574-000000000 {
+			opp-hz = /bits/ 64 <1574400000>;
+		};
+		opp-1651-000000000 {
+			opp-hz = /bits/ 64 <1651200000>;
+		};
+		opp-1728-000000000 {
+			opp-hz = /bits/ 64 <1728000000>;
+		};
+		opp-1804-000000000 {
+			opp-hz = /bits/ 64 <1804800000>;
+		};
+		opp-1881-000000000 {
+			opp-hz = /bits/ 64 <1881600000>;
+		};
+		opp-1958-000000000 {
+			opp-hz = /bits/ 64 <1958400000>;
+		};
+		opp-2035-000000000 {
+			opp-hz = /bits/ 64 <2035200000>;
+		};
+		opp-2112-000000000 {
+			opp-hz = /bits/ 64 <2112000000>;
+		};
+		opp-2208-000000000 {
+			opp-hz = /bits/ 64 <2208000000>;
+		};
+		opp-2265-000000000 {
+			opp-hz = /bits/ 64 <2265600000>;
+		};
+		opp-2342-000000000 {
+			opp-hz = /bits/ 64 <2342400000>;
+		};
+		opp-2419-000000000 {
+			opp-hz = /bits/ 64 <2419200000>;
+		};
+		opp-2476-000000000 {
+			opp-hz = /bits/ 64 <2476800000>;
+		};
+	};
 	cpus {
 		#address-cells = <2>;
 		#size-cells = <0>;
@@ -142,6 +306,8 @@
 			compatible = "qcom,kryo280";
 			reg = <0x0 0x0>;
 			enable-method = "psci";
+			clocks = <&clock_cpu 0>;
+			operating-points-v2 = <&cpu0_opp_table>;
 			capacity-dmips-mhz = <1024>;
 			cpu-idle-states = <&little_cpu_sleep_0 &little_cpu_sleep_1>;
 			next-level-cache = <&l2_0>;
@@ -157,6 +323,8 @@
 			compatible = "qcom,kryo280";
 			reg = <0x0 0x1>;
 			enable-method = "psci";
+			clocks = <&clock_cpu 0>;
+			operating-points-v2 = <&cpu0_opp_table>;
 			capacity-dmips-mhz = <1024>;
 			cpu-idle-states = <&little_cpu_sleep_0 &little_cpu_sleep_1>;
 			next-level-cache = <&l2_0>;
@@ -167,6 +335,8 @@
 			compatible = "qcom,kryo280";
 			reg = <0x0 0x2>;
 			enable-method = "psci";
+			clocks = <&clock_cpu 0>;
+			operating-points-v2 = <&cpu0_opp_table>;
 			capacity-dmips-mhz = <1024>;
 			cpu-idle-states = <&little_cpu_sleep_0 &little_cpu_sleep_1>;
 			next-level-cache = <&l2_0>;
@@ -177,6 +347,8 @@
 			compatible = "qcom,kryo280";
 			reg = <0x0 0x3>;
 			enable-method = "psci";
+			clocks = <&clock_cpu 0>;
+			operating-points-v2 = <&cpu0_opp_table>;
 			capacity-dmips-mhz = <1024>;
 			cpu-idle-states = <&little_cpu_sleep_0 &little_cpu_sleep_1>;
 			next-level-cache = <&l2_0>;
@@ -187,6 +359,8 @@
 			compatible = "qcom,kryo280";
 			reg = <0x0 0x100>;
 			enable-method = "psci";
+			clocks = <&clock_cpu 1>;
+			operating-points-v2 = <&cpu4_opp_table>;
 			capacity-dmips-mhz = <1536>;
 			cpu-idle-states = <&big_cpu_sleep_0 &big_cpu_sleep_1>;
 			next-level-cache = <&l2_1>;
@@ -202,6 +376,8 @@
 			compatible = "qcom,kryo280";
 			reg = <0x0 0x101>;
 			enable-method = "psci";
+			clocks = <&clock_cpu 1>;
+			operating-points-v2 = <&cpu4_opp_table>;
 			capacity-dmips-mhz = <1536>;
 			cpu-idle-states = <&big_cpu_sleep_0 &big_cpu_sleep_1>;
 			next-level-cache = <&l2_1>;
@@ -212,6 +388,8 @@
 			compatible = "qcom,kryo280";
 			reg = <0x0 0x102>;
 			enable-method = "psci";
+			clocks = <&clock_cpu 1>;
+			operating-points-v2 = <&cpu4_opp_table>;
 			capacity-dmips-mhz = <1536>;
 			cpu-idle-states = <&big_cpu_sleep_0 &big_cpu_sleep_1>;
 			next-level-cache = <&l2_1>;
@@ -222,6 +400,8 @@
 			compatible = "qcom,kryo280";
 			reg = <0x0 0x103>;
 			enable-method = "psci";
+			clocks = <&clock_cpu 1>;
+			operating-points-v2 = <&cpu4_opp_table>;
 			capacity-dmips-mhz = <1536>;
 			cpu-idle-states = <&big_cpu_sleep_0 &big_cpu_sleep_1>;
 			next-level-cache = <&l2_1>;
@@ -658,6 +838,19 @@
 					hysteresis = <2000>;
 					type = "hot";
 				};
+
+				gpu1_alert1: trip-point1 {
+					temperature = <80000>;
+					hysteresis = <2000>;
+					type = "passive";
+				};
+			};
+
+			cooling-maps {
+				map0 {
+					trip = <&gpu1_alert1>;
+					cooling-device = <&adreno_gpu 0 6>;
+				};
 			};
 		};
 
@@ -671,6 +864,19 @@
 					temperature = <90000>;
 					hysteresis = <2000>;
 					type = "hot";
+				};
+
+				gpu2_alert1: trip-point1 {
+					temperature = <80000>;
+					hysteresis = <2000>;
+					type = "passive";
+				};
+			};
+
+			cooling-maps {
+				map0 {
+					trip = <&gpu2_alert1>;
+					cooling-device = <&adreno_gpu 0 6>;
 				};
 			};
 		};
@@ -1528,16 +1734,22 @@
 			reg = <0x05000000 0x40000>;
 			reg-names = "kgsl_3d0_reg_memory";
 
+			interconnects = <&bimc MAS_OXILI &bimc SLV_EBI>,
+					<&bimc MAS_OXILI &bimc SLV_HMSS_L3>;
+			interconnect-names = "gfx-mem", "gfx-l3";
+
 			clocks = <&gcc GCC_GPU_CFG_AHB_CLK>,
 				<&gpucc RBBMTIMER_CLK>,
 				<&gcc GCC_BIMC_GFX_CLK>,
 				<&gcc GCC_GPU_BIMC_GFX_CLK>,
+				<&gcc GCC_GPU_BIMC_GFX_SRC_CLK>,
 				<&gpucc RBCPR_CLK>,
 				<&gpucc GFX3D_CLK>;
 			clock-names = "iface",
 				"rbbmtimer",
 				"mem",
 				"mem_iface",
+				"mem_src",
 				"rbcpr",
 				"core";
 
@@ -1545,6 +1757,7 @@
 			iommus = <&adreno_smmu 0>;
 			operating-points-v2 = <&gpu_opp_table>;
 			power-domains = <&rpmpd RPMPD_VDDMX>;
+			#cooling-cells = <2>;
 			status = "disabled";
 
 			gpu_opp_table: opp-table {
@@ -1629,6 +1842,79 @@
 				 <&gcc GCC_GPU_GPLL0_CLK>;
 			clock-names = "xo",
 				      "gpll0";
+		};
+
+		bimc: interconnect@1000000 {
+			compatible = "qcom,msm8998-bimc";
+			reg = <0x01000000 0x80000>;
+			#interconnect-cells = <1>;
+		};
+
+		cnoc: interconnect@1500000 {
+			compatible = "qcom,msm8998-cnoc";
+			reg = <0x01500000 0x10000>;
+			#interconnect-cells = <1>;
+		};
+
+		snoc: interconnect@1620000 {
+			compatible = "qcom,msm8998-snoc";
+			reg = <0x01620000 0x40000>;
+			#interconnect-cells = <1>;
+		};
+
+		a1noc: interconnect@1660000 {
+			compatible = "qcom,msm8998-a1noc";
+			/*
+			 * 0x20000, not downstream's 0x60000: that window
+			 * swallows the ANOC1 SMMU at 0x1680000, and mainline
+			 * gives each fabric its own platform device whose
+			 * request_mem_region() then fails -EBUSY. 0x20000
+			 * stops at the SMMU boundary and still covers the QoS
+			 * block, which ends at 0xd00c.
+			 */
+			reg = <0x01660000 0x20000>;
+			#interconnect-cells = <1>;
+
+			clocks = <&gcc GCC_UFS_AXI_CLK>,
+				 <&gcc GCC_AGGRE1_UFS_AXI_CLK>,
+				 <&gcc GCC_AGGRE1_USB3_AXI_CLK>,
+				 <&gcc GCC_BLSP2_AHB_CLK>;
+			clock-names = "ufs_axi", "aggre1_ufs_axi",
+				      "aggre1_usb3_axi", "blsp2_ahb";
+		};
+
+		a2noc: interconnect@1700000 {
+			compatible = "qcom,msm8998-a2noc";
+			/*
+			 * 0x10000, not downstream's 0x60000: that window runs
+			 * to 0x175ffff and swallows mnoc at 0x1740000, so
+			 * mnoc's request_mem_region() fails -EBUSY. a2noc's
+			 * QoS block ends at 0xe00c.
+			 */
+			reg = <0x01700000 0x10000>;
+			#interconnect-cells = <1>;
+
+			clocks = <&gcc GCC_SDCC2_AHB_CLK>,
+				 <&gcc GCC_SDCC4_AHB_CLK>,
+				 <&gcc GCC_BLSP1_AHB_CLK>;
+			clock-names = "sdcc2_ahb", "sdcc4_ahb", "blsp1_ahb";
+		};
+
+		mnoc: interconnect@1740000 {
+			compatible = "qcom,msm8998-mnoc";
+			reg = <0x01740000 0x10000>;
+			#interconnect-cells = <1>;
+
+			clocks = <&gcc GCC_MMSS_NOC_CFG_AHB_CLK>,
+				 <&mmcc MNOC_AHB_CLK>,
+				 <&mmcc CAMSS_AHB_CLK>,
+				 <&mmcc VIDEO_AHB_CLK>,
+				 <&mmcc VIDEO_AXI_CLK>,
+				 <&mmcc MDSS_AHB_CLK>,
+				 <&mmcc MDSS_AXI_CLK>;
+			clock-names = "noc_cfg_ahb", "mnoc_ahb",
+				      "camss_ahb", "video_ahb", "video_axi",
+				      "mdss_ahb", "mdss_axi";
 		};
 
 		lpass_q6_smmu: iommu@5100000 {
@@ -2278,8 +2564,28 @@
 			clocks = <&gcc GCC_SDCC2_AHB_CLK>,
 				 <&gcc GCC_SDCC2_APPS_CLK>,
 				 <&rpmcc RPM_SMD_XO_CLK_SRC>;
+
+			interconnects = <&a2noc MAS_SDCC_2 &bimc SLV_EBI>;
+			interconnect-names = "sdhc-ddr";
+			operating-points-v2 = <&sdhc2_opp_table>;
+
 			bus-width = <4>;
 			status = "disabled";
+
+			sdhc2_opp_table: opp-table {
+				compatible = "operating-points-v2";
+
+				opp-100000000 {
+					opp-hz = /bits/ 64 <100000000>;
+					opp-peak-kBps = <200000>;
+				};
+
+				opp-200000000 {
+					opp-hz = /bits/ 64 <200000000>;
+					opp-peak-kBps = <4096000>;
+				};
+			};
+
 		};
 
 		blsp1_dma: dma-controller@c144000 {
@@ -2834,6 +3140,11 @@
 				      "core";
 
 			power-domains = <&mmcc MDSS_GDSC>;
+
+			interconnects = <&mnoc MAS_MDP_P0 &bimc SLV_EBI>,
+					<&mnoc MAS_MDP_P1 &bimc SLV_EBI>;
+			interconnect-names = "mdp0-mem", "mdp1-mem";
+
 			iommus = <&mmss_smmu 0>;
 
 			#address-cells = <1>;
@@ -3297,6 +3608,99 @@
 
 			#mbox-cells = <1>;
 		};
+
+		clock_cpu: clock-controller@179c0000 {
+			compatible = "qcom,cpu-clock-osm-msm8998";
+			reg = <0x179c0000 0x4000>,
+			      <0x17916000 0x1000>,
+			      <0x17816000 0x1000>;
+			/*
+			 * Only these three are mapped. The apcs_common,
+			 * perfcl_efuse and debug regions this node used to
+			 * declare were never ioremapped, and two of them
+			 * overlapped live devices - perfcl_efuse sat inside
+			 * qfprom@784000 and apcs_common inside
+			 * mailbox@17911000. Harmless while unmapped, but a
+			 * -EBUSY trap for anyone who later adds a byname
+			 * mapping. Efuse reads should go through qfprom
+			 * nvmem and APCS through its own node instead.
+			 */
+			reg-names = "osm", "pwrcl_pll", "perfcl_pll";
+
+			interrupts = <GIC_SPI 35 IRQ_TYPE_EDGE_RISING>,
+				     <GIC_SPI 36 IRQ_TYPE_EDGE_RISING>;
+			interrupt-names = "pwrcl-irq", "perfcl-irq";
+
+			#clock-cells = <1>;
+
+			clocks = <&gcc GPLL0>;
+			clock-names = "aux_clk";
+
+			qcom,pwrcl-speedbin0-v0 =
+			<   300000000 0x0004000f 0x01200020 0x1  1>,
+			<   364800000 0x05040013 0x01200020 0x1  2>,
+			<   441600000 0x05040017 0x02200020 0x1  3>,
+			<   518400000 0x0504001b 0x02200020 0x1  4>,
+			<   595200000 0x0504001f 0x02200020 0x1  5>,
+			<   672000000 0x05040023 0x03200020 0x1  6>,
+			<   748800000 0x05040027 0x03200020 0x1  7>,
+			<   825600000 0x0404002b 0x03220022 0x1  8>,
+			<   883200000 0x0404002e 0x04250025 0x1  9>,
+			<   960000000 0x04040032 0x04280028 0x1 10>,
+			<  1036800000 0x04040036 0x042b002b 0x1 11>,
+			<  1094400000 0x04040039 0x052e002e 0x2 12>,
+			<  1171200000 0x0404003d 0x05310031 0x2 13>,
+			<  1248000000 0x04040041 0x05340034 0x2 14>,
+			<  1324800000 0x04040045 0x06370037 0x2 15>,
+			<  1401600000 0x04040049 0x063a003a 0x2 16>,
+			<  1478400000 0x0404004d 0x073e003e 0x2 17>,
+			<  1555200000 0x04040051 0x07410041 0x2 18>,
+			<  1670400000 0x04040057 0x08460046 0x2 19>,
+			<  1747200000 0x0404005b 0x08490049 0x2 20>,
+			<  1824000000 0x0404005f 0x084c004c 0x3 21>,
+			<  1900800000 0x04040063 0x094f004f 0x3 22>;
+			qcom,perfcl-speedbin0-v0 =
+			<   300000000 0x0004000f 0x01200020 0x1  1>,
+			<   345600000 0x05040012 0x01200020 0x1  2>,
+			<   422400000 0x05040016 0x02200020 0x1  3>,
+			<   499200000 0x0504001a 0x02200020 0x1  4>,
+			<   576000000 0x0504001e 0x02200020 0x1  5>,
+			<   652800000 0x05040022 0x03200020 0x1  6>,
+			<   729600000 0x05040026 0x03200020 0x1  7>,
+			<   806400000 0x0504002a 0x03220022 0x1  8>,
+			<   902400000 0x0404002f 0x04260026 0x1  9>,
+			<   979200000 0x04040033 0x04290029 0x1 10>,
+			<  1056000000 0x04040037 0x052c002c 0x1 11>,
+			<  1132800000 0x0404003b 0x052f002f 0x1 12>,
+			<  1190400000 0x0404003e 0x05320032 0x2 13>,
+			<  1267200000 0x04040042 0x06350035 0x2 14>,
+			<  1344000000 0x04040046 0x06380038 0x2 15>,
+			<  1420800000 0x0404004a 0x063b003b 0x2 16>,
+			<  1497600000 0x0404004e 0x073e003e 0x2 17>,
+			<  1574400000 0x04040052 0x07420042 0x2 18>,
+			<  1651200000 0x04040056 0x07450045 0x2 19>,
+			<  1728000000 0x0404005a 0x08480048 0x2 20>,
+			<  1804800000 0x0404005e 0x084b004b 0x2 21>,
+			<  1881600000 0x04040062 0x094e004e 0x2 22>,
+			<  1958400000 0x04040066 0x09520052 0x2 23>,
+			<  2035200000 0x0404006a 0x09550055 0x3 24>,
+			<  2112000000 0x0404006e 0x0a580058 0x3 25>,
+			<  2208000000 0x04040073 0x0a5c005c 0x3 26>,
+			<  2265600000 0x04040076 0x0a5e005e 0x3 26>,
+			<  2265600000 0x04040076 0x0a5e005e 0x3 27>,
+			<  2342400000 0x0401007a 0x0a620062 0x3 27>,
+			<  2342400000 0x0404007a 0x0a620062 0x3 28>,
+			<  2419200000 0x0401007e 0x0a650065 0x3 28>,
+			<  2419200000 0x0404007e 0x0a650065 0x3 29>,
+			<  2496000000 0x04010082 0x0a680068 0x3 29>,
+			<  2457600000 0x04040080 0x0a660066 0x3 30>,
+			<  2553600000 0x04010085 0x0a6a006a 0x3 30>,
+			<  2476800000 0x04040081 0x0a670067 0x3 31>,
+			<  2572800000 0x04010086 0x0a6b006b 0x3 31>,
+			<  2496000000 0x04040082 0x0a680068 0x3 32>,
+			<  2592000000 0x04010087 0x0a6c006c 0x3 32>;
+		};
+
 
 		timer@17920000 {
 			#address-cells = <1>;

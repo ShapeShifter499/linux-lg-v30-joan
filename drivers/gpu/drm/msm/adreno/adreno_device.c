@@ -120,6 +120,17 @@ struct msm_gpu *adreno_load_gpu(struct drm_device *dev)
 		goto err_put_rpm;
 	}
 
+	/*
+	 * Runtime power collapse leaves the A540 interconnect wedged on MSM8998.
+	 * Hold a device-managed reference until the collapse sequence is fixed.
+	 * System sleep still reaches the runtime callbacks through force suspend.
+	 */
+	if (adreno_is_a540(adreno_gpu)) {
+		ret = devm_pm_runtime_get_noresume(&pdev->dev);
+		if (ret)
+			goto err_put_rpm;
+	}
+
 	pm_runtime_put_autosuspend(&pdev->dev);
 
 #ifdef CONFIG_DEBUG_FS

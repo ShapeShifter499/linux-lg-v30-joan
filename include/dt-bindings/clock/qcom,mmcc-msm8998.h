@@ -152,6 +152,8 @@
 #define MNOC_MAXI_CLK					143
 #define VMEM_MAXI_CLK					144
 #define VMEM_AHB_CLK					145
+#define MDSS_BYTE0_INTF_DIV_CLK				146
+#define MDSS_BYTE1_INTF_DIV_CLK				147
 
 #define SPDM_BCR					0
 #define SPDM_RM_BCR					1

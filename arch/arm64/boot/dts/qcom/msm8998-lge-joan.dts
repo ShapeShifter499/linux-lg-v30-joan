@@ -1,0 +1,851 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/*
+ * LG V30 (US998, joan) device tree source based on msm8998-oneplus-common.dtsi
+ * and the downstream LG msm8998-joan device trees (LineageOS kernel/lge/msm8998).
+ *
+ * Copyright (c) 2026, Lance <Gero3977@gmail.com>
+ */
+
+/dts-v1/;
+
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/input/input.h>
+#include <dt-bindings/pinctrl/qcom,pmic-gpio.h>
+#include "msm8998.dtsi"
+#include "pm8005.dtsi"
+#include "pm8998.dtsi"
+#include "pmi8998.dtsi"
+
+/ {
+	model = "LG V30 (US998)";
+	compatible = "lge,joan", "qcom,msm8998";
+	chassis-type = "handset";
+
+	/* Required for bootloader to select correct board */
+	qcom,msm-id = <292 0x20001>; /* 8998 v2.1 */
+	/*
+	 * LG aboot matches the appended DTB against the unit's hardware
+	 * revision. Downstream ships one DTB per rev (rev_a .. rev_1_3);
+	 * list every US998 (joan_nao_us) board id so a single DTB matches
+	 * any revision. Trim to the real rev once read from the device.
+	 */
+	qcom,board-id = <0x308 0>, <0x608 0>, <0x708 0>,
+			<0x808 0>, <0x908 0>, <0xa08 0>,
+			<0xc08 0>, <0xd08 0>, <0xe08 0>,
+			<0xf08 0>;
+
+	/*
+	 * No chosen/simple-framebuffer node: the SW43402 panel runs DSI
+	 * command mode with DSC, so the splash image persists in panel
+	 * GRAM but CPU writes to the splash buffer are never scanned out
+	 * again after the bootloader stops kicking off frames. A simplefb
+	 * console would be silently invisible; USB gadget + ramoops are
+	 * the bring-up debug channels instead.
+	 */
+
+	reserved-memory {
+		/* Bootloader display framebuffer region, same as downstream */
+		cont_splash_mem: memory@9d400000 {
+			reg = <0x0 0x9d400000 0x0 0x2400000>;
+			no-map;
+		};
+
+		/*
+		 * Byte-compatible with the downstream ramoops layout
+		 * (msm8998-joan_*.dtsi: mem-size 0x80000, console @0,
+		 * ftrace @0x40000, no dump/pmsg space): after a crashed
+		 * mainline boot falls back to the LG 4.4 kernel, Android
+		 * parses our console log and drops it in
+		 * /data/system/dropbox as SYSTEM_LAST_KMSG. Any other
+		 * split leaves the log invisible to downstream.
+		 */
+		ramoops@b0000000 {
+			compatible = "ramoops";
+			reg = <0x0 0xb0000000 0x0 0x80000>;
+			record-size = <0x1000>;
+			console-size = <0x40000>;
+			ftrace-size = <0x40000>;
+		};
+
+		/* rest of downstream's 1 MiB ramoops carve-out */
+		reserved@b0080000 {
+			reg = <0x0 0xb0080000 0x0 0x80000>;
+			no-map;
+		};
+
+		/*
+		 * LG's firmware memory map (downstream msm8998.dtsi +
+		 * joan dtsi) protects more RAM than mainline msm8998.dtsi
+		 * reserves. These nodes plug exactly the holes where the
+		 * mainline allocator could hand out firmware-owned pages
+		 * (instant silent XPU reset). Deltas: tail of LG's
+		 * removed_regions, tail of pil_slpi (LG SLPI ends at
+		 * 0x95c00000, not 0x95200000) split around mainline's
+		 * gpu_mem/wlan_msa nodes, pil_ipa_gpu, and LG's crash_fb.
+		 * Note mainline gpu_mem/wlan_msa (0x95600000/0x95700000)
+		 * lie inside LG's SLPI range and must move before zap
+		 * shader / wifi bringup.
+		 */
+		reserved@85f00000 {
+			reg = <0x0 0x85f00000 0x0 0x100000>;
+			no-map;
+		};
+
+		reserved@95215000 {
+			/*
+			 * Extended to 0x95700000 so it also covers mainline's
+			 * default gpu_mem spot (0x95600000), which lies inside
+			 * LG's SLPI range; gpu_mem moves to LG's pil_ipa_gpu
+			 * address below.
+			 */
+			reg = <0x0 0x95215000 0x0 0x4eb000>;
+			no-map;
+		};
+
+		reserved@95800000 {
+			/* Ends at 0x95c00000: LG's pil_ipa_gpu starts there. */
+			reg = <0x0 0x95800000 0x0 0x400000>;
+			no-map;
+		};
+
+		crash_fb_mem: reserved@b0100000 {
+			reg = <0x0 0xb0100000 0x0 0x1800000>;
+			no-map;
+		};
+	};
+
+	gpio-keys {
+		compatible = "gpio-keys";
+		label = "Volume up";
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&vol_up_default>;
+
+		button-vol-up {
+			label = "Volume up";
+			gpios = <&pm8998_gpios 6 GPIO_ACTIVE_LOW>;
+			linux,code = <KEY_VOLUMEUP>;
+			debounce-interval = <15>;
+			wakeup-source;
+		};
+	};
+
+	vph_pwr: vph-pwr-regulator {
+		compatible = "regulator-fixed";
+		regulator-name = "vph_pwr";
+		regulator-always-on;
+		regulator-boot-on;
+	};
+};
+
+&blsp2_uart1 {
+	status = "okay";
+};
+
+&blsp1_uart3 {
+	status = "okay";
+
+	bluetooth {
+		compatible = "qcom,wcn3990-bt";
+		firmware-name = "crnv21.bin";
+		vddio-supply = <&vreg_s3a_1p35>;
+		vddxo-supply = <&vreg_s5a_2p04>;
+		vddrf-supply = <&vreg_l17a_1p3>;
+		vddch0-supply = <&vreg_l25a_3p3>;
+		max-speed = <3200000>;
+	};
+};
+
+&pm8005_regulators {
+	/* VDD_GFX supply; managed by the OPP framework + msm_gpu (vdd) */
+	pm8005_s1: s1 {
+		regulator-min-microvolt = <524000>;
+		regulator-max-microvolt = <1100000>;
+		regulator-enable-ramp-delay = <500>;
+		/*
+		 * Kept always-on: with no consumer holding the rail at boot,
+		 * the regulator framework disables it during late cleanup,
+		 * and the GPU_GX GDSC cannot power on without VDD_GFX
+		 * (gpu_gx status stuck at off on device). OPP voltage
+		 * scaling (opp-microvolt) still adjusts the rail; always-on
+		 * only prevents the framework from dropping it.
+		 */
+		regulator-always-on;
+	};
+};
+
+&pm8998_gpios {
+	vol_up_default: vol-up-state {
+		pins = "gpio6";
+		function = "normal";
+		bias-pull-up;
+		input-enable;
+		qcom,drive-strength = <PMIC_GPIO_STRENGTH_NO>;
+	};
+};
+
+&pm8998_resin {
+	linux,code = <KEY_VOLUMEDOWN>;
+	status = "okay";
+};
+
+&pmi8998_charger {
+	qcom,usb-icl-ua = <1800000>;
+	qcom,fcc-max-ua = <3300000>;
+	monitored-battery = <&battery>;
+	status = "okay";
+};
+
+&pmi8998_fg {
+	power-supplies = <&pmi8998_charger>;
+	monitored-battery = <&battery>;
+	status = "okay";
+};
+
+/ {
+	battery: battery {
+		compatible = "simple-battery";
+		voltage-min-design-microvolt = <3200000>;
+		voltage-max-design-microvolt = <4400000>;
+		charge-full-design-microamp-hours = <3312000>;
+	};
+};
+
+&soc {
+	/*
+	 * APSS watchdog, missing from mainline msm8998.dtsi (address
+	 * from downstream qcom,wdt@17817000). LG's boot chain leaves
+	 * it armed, so a kernel that never pets it resets ~30s in
+	 * even when otherwise healthy.
+	 */
+	watchdog@17817000 {
+		compatible = "qcom,apss-wdt-msm8998", "qcom,kpss-wdt";
+		reg = <0x17817000 0x1000>;
+		clocks = <&sleep_clk>;
+	};
+};
+
+&qusb2phy {
+	status = "okay";
+
+	vdd-supply = <&vreg_l1a_0p875>;
+	vdda-pll-supply = <&vreg_l12a_1p8>;
+	vdda-phy-dpdm-supply = <&vreg_l24a_3p075>;
+};
+
+&rpm_requests {
+	/*
+	 * Rail voltages copied from msm8998-oneplus-common (standard 8998
+	 * MTP wiring). Cross-check against downstream
+	 * msm8998-joan-common-pm.dtsi before enabling more peripherals.
+	 */
+	regulators-0 {
+		compatible = "qcom,rpm-pm8998-regulators";
+
+		vdd_s1-supply = <&vph_pwr>;
+		vdd_s2-supply = <&vph_pwr>;
+		vdd_s3-supply = <&vph_pwr>;
+		vdd_s4-supply = <&vph_pwr>;
+		vdd_s5-supply = <&vph_pwr>;
+		vdd_s6-supply = <&vph_pwr>;
+		vdd_s7-supply = <&vph_pwr>;
+		vdd_s8-supply = <&vph_pwr>;
+		vdd_s9-supply = <&vph_pwr>;
+		vdd_s10-supply = <&vph_pwr>;
+		vdd_s11-supply = <&vph_pwr>;
+		vdd_s12-supply = <&vph_pwr>;
+		vdd_s13-supply = <&vph_pwr>;
+		vdd_l1_l27-supply = <&vreg_s7a_1p025>;
+		vdd_l2_l8_l17-supply = <&vreg_s3a_1p35>;
+		vdd_l3_l11-supply = <&vreg_s7a_1p025>;
+		vdd_l4_l5-supply = <&vreg_s7a_1p025>;
+		vdd_l6-supply = <&vreg_s5a_2p04>;
+		vdd_l7_l12_l14_l15-supply = <&vreg_s5a_2p04>;
+		vdd_l9-supply = <&vreg_bob>;
+		vdd_l10_l23_l25-supply = <&vreg_bob>;
+		vdd_l13_l19_l21-supply = <&vreg_bob>;
+		vdd_l16_l28-supply = <&vreg_bob>;
+		vdd_l18_l22-supply = <&vreg_bob>;
+		vdd_l20_l24-supply = <&vreg_bob>;
+		vdd_l26-supply = <&vreg_s3a_1p35>;
+		vdd_lvs1_lvs2-supply = <&vreg_s4a_1p8>;
+
+		vreg_s3a_1p35: s3 {
+			regulator-min-microvolt = <1352000>;
+			regulator-max-microvolt = <1352000>;
+		};
+
+		vreg_s4a_1p8: s4 {
+			regulator-min-microvolt = <1800000>;
+			regulator-max-microvolt = <1800000>;
+			regulator-allow-set-load;
+		};
+
+		vreg_s5a_2p04: s5 {
+			regulator-min-microvolt = <1904000>;
+			regulator-max-microvolt = <2040000>;
+		};
+
+		vreg_s7a_1p025: s7 {
+			regulator-min-microvolt = <900000>;
+			regulator-max-microvolt = <1028000>;
+		};
+
+		vreg_l1a_0p875: l1 {
+			regulator-min-microvolt = <880000>;
+			regulator-max-microvolt = <880000>;
+		};
+
+		vreg_l2a_1p2: l2 {
+			regulator-min-microvolt = <1200000>;
+			regulator-max-microvolt = <1200000>;
+		};
+
+		vreg_l3a_1p0: l3 {
+			regulator-min-microvolt = <1000000>;
+			regulator-max-microvolt = <1000000>;
+		};
+
+		vreg_l5a_0p8: l5 {
+			regulator-min-microvolt = <800000>;
+			regulator-max-microvolt = <800000>;
+		};
+
+		vreg_l6a_1p8: l6 {
+			regulator-min-microvolt = <1808000>;
+			regulator-max-microvolt = <1808000>;
+		};
+
+		vreg_l7a_1p8: l7 {
+			regulator-min-microvolt = <1800000>;
+			regulator-max-microvolt = <1800000>;
+		};
+
+		vreg_l8a_1p2: l8 {
+			regulator-min-microvolt = <1200000>;
+			regulator-max-microvolt = <1200000>;
+		};
+
+		vreg_l9a_1p8: l9 {
+			regulator-min-microvolt = <1808000>;
+			regulator-max-microvolt = <2960000>;
+		};
+
+		vreg_l10a_1p8: l10 {
+			regulator-min-microvolt = <1808000>;
+			regulator-max-microvolt = <2960000>;
+		};
+
+		vreg_l11a_1p0: l11 {
+			regulator-min-microvolt = <1000000>;
+			regulator-max-microvolt = <1000000>;
+		};
+
+		vreg_l12a_1p8: l12 {
+			regulator-min-microvolt = <1800000>;
+			regulator-max-microvolt = <1800000>;
+		};
+
+		vreg_l13a_2p95: l13 {
+			regulator-min-microvolt = <1808000>;
+			regulator-max-microvolt = <2960000>;
+		};
+
+		vreg_l14a_1p88: l14 {
+			regulator-min-microvolt = <1880000>;
+			regulator-max-microvolt = <1880000>;
+		};
+
+		vreg_l15a_1p8: l15 {
+			regulator-min-microvolt = <1800000>;
+			regulator-max-microvolt = <1800000>;
+		};
+
+		vreg_l16a_2p7: l16 {
+			regulator-min-microvolt = <2704000>;
+			regulator-max-microvolt = <2704000>;
+		};
+
+		vreg_l17a_1p3: l17 {
+			regulator-min-microvolt = <1304000>;
+			regulator-max-microvolt = <1304000>;
+		};
+
+		vreg_l18a_2p7: l18 {
+			regulator-min-microvolt = <2704000>;
+			regulator-max-microvolt = <2704000>;
+		};
+
+		vreg_l19a_3p0: l19 {
+			regulator-min-microvolt = <3008000>;
+			regulator-max-microvolt = <3008000>;
+		};
+
+		vreg_l20a_2p95: l20 {
+			regulator-min-microvolt = <2960000>;
+			regulator-max-microvolt = <2960000>;
+			regulator-allow-set-load;
+		};
+
+		vreg_l21a_2p95: l21 {
+			regulator-min-microvolt = <2960000>;
+			regulator-max-microvolt = <2960000>;
+			regulator-system-load = <800000>;
+			regulator-allow-set-load;
+		};
+
+		vreg_l22a_2p85: l22 {
+			regulator-min-microvolt = <2864000>;
+			regulator-max-microvolt = <2864000>;
+		};
+
+		vreg_l23a_3p3: l23 {
+			regulator-min-microvolt = <3312000>;
+			regulator-max-microvolt = <3312000>;
+		};
+
+		vreg_l24a_3p075: l24 {
+			regulator-min-microvolt = <3088000>;
+			regulator-max-microvolt = <3088000>;
+		};
+
+		vreg_l25a_3p3: l25 {
+			regulator-min-microvolt = <3104000>;
+			regulator-max-microvolt = <3312000>;
+		};
+
+		vreg_l26a_1p2: l26 {
+			regulator-min-microvolt = <1200000>;
+			regulator-max-microvolt = <1200000>;
+			regulator-allow-set-load;
+		};
+
+		vreg_l28_3p0: l28 {
+			regulator-min-microvolt = <3008000>;
+			regulator-max-microvolt = <3008000>;
+		};
+
+		vreg_lvs1a_1p8: lvs1 { };
+		vreg_lvs2a_1p8: lvs2 { };
+	};
+
+	regulators-1 {
+		compatible = "qcom,rpm-pmi8998-regulators";
+
+		vdd_bob-supply = <&vph_pwr>;
+
+		vreg_bob: bob {
+			regulator-min-microvolt = <3312000>;
+			regulator-max-microvolt = <3600000>;
+		};
+	};
+};
+
+&sdhc2 {
+	status = "okay";
+
+	cd-gpios = <&tlmm 40 GPIO_ACTIVE_LOW>;
+
+	vmmc-supply = <&vreg_l21a_2p95>;
+	vqmmc-supply = <&vreg_l13a_2p95>;
+
+	pinctrl-names = "default", "sleep";
+	pinctrl-0 = <&sdc2_on &sdc2_cd_joan>;
+	pinctrl-1 = <&sdc2_off &sdc2_cd_joan>;
+};
+
+&tlmm {
+	gpio-reserved-ranges = <0 4>, <49 4>, <81 4>;
+
+	/*
+	 * The SoC-level sdc2_cd state uses the MTP's GPIO 95; joan routes
+	 * SD card-detect to GPIO 40 (downstream msm8998-joan_*.dtsi,
+	 * cd-gpios = <&tlmm 40 0x1>).
+	 */
+	sdc2_cd_joan: sdc2-cd-state {
+		pins = "gpio40";
+		function = "gpio";
+		bias-pull-up;
+		drive-strength = <2>;
+	};
+
+	/*
+	 * Panel tear-effect input. Downstream routes the SW43402's TE
+	 * output to TLMM GPIO 10 muxed as mdp_vsync_a
+	 * (msm8998-joan-common-pinctrl.dtsi, mdss_te_active) and leaves
+	 * MDP_VSYNC_SEL at its reset default, i.e. vsync source 0
+	 * ("mdp_vsync_p" in mainline terms).
+	 */
+	mdss_te_default: mdss-te-default-state {
+		pins = "gpio10";
+		function = "mdp_vsync_a";
+		drive-strength = <2>;
+		bias-pull-down;
+	};
+
+	touch_int_default: touch-int-default-state {
+		pins = "gpio125";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-pull-up;
+	};
+
+	touch_reset_default: touch-reset-default-state {
+		pins = "gpio89";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-pull-up;
+	};
+};
+
+&ufshc {
+	status = "okay";
+
+	vcc-supply = <&vreg_l20a_2p95>;
+	vccq-supply = <&vreg_l26a_1p2>;
+	vccq2-supply = <&vreg_s4a_1p8>;
+	vdd-hba-supply = <&vreg_l26a_1p2>;
+	vcc-max-microamp = <750000>;
+	vccq-max-microamp = <560000>;
+	vccq2-max-microamp = <750000>;
+};
+
+&ufsphy {
+	status = "okay";
+
+	vdda-phy-supply = <&vreg_l1a_0p875>;
+	vdda-pll-supply = <&vreg_l2a_1p2>;
+};
+
+&usb3 {
+	status = "okay";
+
+	/* Run USB 2 only for bring-up */
+	qcom,select-utmi-as-pipe-clk;
+};
+
+&usb3_dwc3 {
+	/* Drop the unused USB 3 PHY */
+	phys = <&qusb2phy>;
+	phy-names = "usb2-phy";
+
+	/* Fastest mode for USB 2 */
+	maximum-speed = "high-speed";
+
+	/* Force to peripheral until we can switch modes */
+	dr_mode = "peripheral";
+};
+
+&wifi {
+	vdd-0.8-cx-mx-supply = <&vreg_l5a_0p8>;
+	vdd-1.8-xo-supply = <&vreg_l7a_1p8>;
+	vdd-1.3-rfa-supply = <&vreg_l17a_1p3>;
+	vdd-3.3-ch0-supply = <&vreg_l25a_3p3>;
+	status = "okay";
+};
+
+/*
+ * Display: SW43402 DSC command-mode panel.
+ * NOTE: bringup-stage, not yet validated on device. The MDSS blocks sit
+ * behind the mmss SMMU (cd00000.iommu), which currently fails deferred
+ * probe (-110) — this chain will not light up until that is resolved.
+ * Panel rails are board GPIO-enabled fixed supplies (downstream uses
+ * lge,gpio-vddio = TLMM 92, lge,gpio-vpnl = TLMM 69).
+ */
+/ {
+	vreg_panel_vddio: regulator-panel-vddio {
+		compatible = "regulator-fixed";
+		regulator-name = "panel_vddio";
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		gpio = <&tlmm 92 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		regulator-boot-on;
+	};
+
+	vreg_panel_vpnl: regulator-panel-vpnl {
+		compatible = "regulator-fixed";
+		regulator-name = "panel_vpnl";
+		regulator-min-microvolt = <3000000>;
+		regulator-max-microvolt = <3000000>;
+		gpio = <&tlmm 69 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		regulator-boot-on;
+	};
+};
+
+&mdss {
+	status = "okay";
+	/*
+	 * Hard-reset the whole MDSS complex at probe: the bootloader
+	 * leaves the display pipeline live (splash/fastboot screen), and
+	 * programming the first modeset onto running hardware wedges the
+	 * HS pixel path until a full disable/enable cycle. The BCR pulse
+	 * gives the kernel cold silicon instead.
+	 */
+	resets = <&mmcc MDSS_BCR>;
+};
+
+&mdss_mdp {
+	status = "okay";
+};
+
+&mdss_dsi0 {
+	vdd-supply = <&vreg_l1a_0p875>;
+	vdda-supply = <&vreg_l2a_1p2>;
+	status = "okay";
+
+	panel@0 {
+		compatible = "lg,sw43402";
+		reg = <0>;
+
+		vddio-supply = <&vreg_panel_vddio>;
+		vpnl-supply = <&vreg_panel_vpnl>;
+
+		reset-gpios = <&tlmm 35 GPIO_ACTIVE_LOW>;
+
+		pinctrl-0 = <&mdss_te_default>;
+		pinctrl-names = "default";
+
+		port {
+			panel_in: endpoint {
+				remote-endpoint = <&mdss_dsi0_out>;
+			};
+		};
+	};
+};
+
+&mdss_dsi0_out {
+	data-lanes = <0 1 2 3>;
+	remote-endpoint = <&panel_in>;
+	qcom,te-source = "mdp_vsync_p";
+};
+
+&mdss_dsi0_phy {
+	vdds-supply = <&vreg_l1a_0p875>;
+	status = "okay";
+};
+
+/*
+ * Touch: STMicro FingerTipS on blsp1_i2c5 at 0x49. Downstream binds its
+ * own "stm,ftm4" driver (lge_touch); mainline's stmfts speaks the same
+ * FingerTipS command set, so try it first. The controller keeps its
+ * firmware in on-chip flash — downstream only pushes L0S59P1_1_11.ftb
+ * for updates — so no firmware file is needed to bring it up.
+ *
+ * Both rails are GPIO load switches, not programmable regulators, so
+ * the voltages below are nominal descriptors only. Downstream names
+ * them vdd-gpio (TLMM 85) and vio-gpio (TLMM 86); the mapping onto
+ * stmfts's "avdd" (analog) and "vdd" (digital I/O) is inferred from the
+ * usual FingerTipS wiring and is unverified on this board.
+ */
+/ {
+	vreg_touch_avdd: regulator-touch-avdd {
+		compatible = "regulator-fixed";
+		regulator-name = "touch_avdd";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		gpio = <&tlmm 85 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+	};
+
+	vreg_touch_vdd: regulator-touch-vdd {
+		compatible = "regulator-fixed";
+		regulator-name = "touch_vdd";
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		gpio = <&tlmm 86 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+	};
+};
+
+&blsp1_i2c5 {
+	status = "okay";
+
+	touchscreen@49 {
+		compatible = "st,fts3670";
+		reg = <0x49>;
+
+		interrupt-parent = <&tlmm>;
+		interrupts = <125 IRQ_TYPE_LEVEL_LOW>;
+
+		vdd-supply = <&vreg_touch_vdd>;
+		avdd-supply = <&vreg_touch_avdd>;
+
+		reset-gpios = <&tlmm 89 GPIO_ACTIVE_LOW>;
+
+		touchscreen-size-x = <1440>;
+		touchscreen-size-y = <2880>;
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&touch_int_default &touch_reset_default>;
+	};
+};
+
+/*
+ * GPU (Adreno 540).
+ *
+ * gpu_mem moves to 0x95c00000, matching LG's pil_ipa_gpu region. This is
+ * required because mainline's default 0x95600000 lies inside LG's SLPI
+ * carve-out (0x94d00000-0x95c00000): letting the allocator hand out
+ * firmware-owned pages there causes an immediate silent XPU reset. The
+ * a540 zap blob itself is RELOCATABLE (QCOM_MDT_RELOCATABLE), so it does
+ * not require any particular address -- an earlier comment claiming it was
+ * address-locked was wrong; the move is about LG's memory map, not the blob.
+ *
+ * A540 reuses the redistributable A530 PM4/PFP command firmware supplied by
+ * linux-firmware. The A540 GPMU and signed LG ZAP payload remain
+ * owner-extracted, device-specific inputs. All four firmware roles must be
+ * available under qcom/ in the firmware search path (the initramfs for the
+ * early-probe images used here).
+ */
+&gpu_mem {
+	reg = <0x0 0x95c00000 0x0 0x100000>;
+};
+
+&adreno_gpu {
+	status = "okay";
+
+	/*
+	 * msm8998.dtsi points power-domains at the RPM VDDMX voltage domain,
+	 * which drives opp-level but does NOT switch the GPU on. The binding
+	 * allows a single power-domain, and every other Adreno 5xx in tree
+	 * (e.g. msm8996: power-domains = <&mmcc GPU_GX_GDSC>) attaches the GX
+	 * GDSC instead. With the RPM domain in that slot the GPUCC gpu_gx /
+	 * gpu_cx GDSCs have no consumer, never power up, and the clocks that
+	 * depend on them never produce a rate -- so the first register write
+	 * lands on an unpowered, unclocked block and hangs the AHB bus.
+	 * gpu_gx is a child of gpu_cx, so enabling GX brings CX up with it.
+	 */
+	power-domains = <&gpucc GPU_GX_GDSC>;
+
+	vdd-supply = <&pm8005_s1>;
+
+	zap-shader {
+		memory-region = <&gpu_mem>;
+		firmware-name = "qcom/a540_zap.mdt";
+	};
+};
+
+/*
+ * GPU OPP levels and voltages.
+ *
+ * msm_gpu's enable_clk() sets the core clock to gpu->fast_rate -- the
+ * HIGHEST OPP -- as part of every resume, before any register access.
+ * The original bring-up capped the table at 257 MHz (MIN_SVS) because
+ * VDD_GFX (pm8005_s1) sat at the boot voltage (~752 mV) with no scaling
+ * in place, and turbo on a low-SVS voltage is not survivable.
+ *
+ * The stock Android kernel was swept on this exact device (2026-08-04;
+ * pm8005_s1 readback per kgsl pwrlevel) and the measured curve is used
+ * here as opp-microvolt. adreno_get_pwrlevels() registers the vdd
+ * supply with the OPP framework, so every dev_pm_opp_set_rate() scales
+ * the rail BEFORE raising the core clock; the resume fast_rate jump is
+ * therefore exactly the stock turbo corner (710 MHz @ 936 mV), which
+ * the device runs routinely. opp-level is intentionally omitted: the
+ * GPU's power domain is the GPU_GX GDSC (see above), which has no
+ * performance states.
+ */
+&gpu_opp_table {
+	/delete-node/ opp-710000097;
+	/delete-node/ opp-670000048;
+	/delete-node/ opp-596000097;
+	/delete-node/ opp-515000097;
+	/delete-node/ opp-414000000;
+	/delete-node/ opp-342000000;
+	/delete-node/ opp-257000000;
+
+	/*
+	 * EXPERIMENTAL overclock OPP (local-only, never upstream):
+	 * 750 MHz is a Qualcomm-shipped GPU rate for this SoC family
+	 * (downstream clock-gpu-8998.c carries a 180-750 MHz table for
+	 * higher-binned parts; the V30 bin ships the 710 MHz table).
+	 * Voltage: the first device test used 965 mV, which the OPP core
+	 * REJECTED ("OPP not supported by regulators") because the
+	 * pm8005_s1 rail (SPMI ftsmps426) steps in 4 mV — 965000 is
+	 * off-grid. 964000 is on-grid (964/4=241) and matches the linear
+	 * extrapolation of the measured curve (936 mV @ 710 MHz,
+	 * ~0.7 mV/MHz -> ~964 mV @ 750 MHz), under the 1.1 V rail max.
+	 * This OPP becomes fast_rate, so every GPU resume runs the 750
+	 * corner. If the PLL cannot lock at the higher VCO, GPU probe
+	 * fails or renders hang - RAM-only and fully reversible (revert
+	 * this commit).
+	 */
+	opp-750000000 {
+		opp-hz = /bits/ 64 <750000000>;
+		opp-microvolt = <964000>;
+		opp-supported-hw = <0xff>;
+	};
+
+	/*
+	 * EXPERIMENTAL sweep OPPs above the device-proven 750 MHz corner
+	 * (G5-OC2 PASS). Frequencies beyond 750 are NOT Qualcomm-validated
+	 * for this SoC family — this is true overclocking past the
+	 * shipped envelope, tested empirically. Voltages are on-grid
+	 * (4 mV step) extrapolations of the measured curve (~0.7 mV/MHz
+	 * above 964 mV @ 750 MHz): 800 -> 1000 mV, 850 -> 1036 mV,
+	 * 900 -> 1072 mV (rail max 1100 mV).
+	 *
+	 * CAUTION: the highest OPP becomes fast_rate, so every GPU
+	 * resume runs the TOP corner. 900 MHz was device-tested
+	 * (G6-OC-RX) and REJECTED: the PLL cannot lock at the ~5.4 GHz
+	 * VCO during probe ("gpupll0 failed to enable!" twice in
+	 * clk-alpha-pll wait_for_pll), which wedges the GPU/DRM device
+	 * for the whole session. Since msm always runs fast_rate on
+	 * resume, 900 is unusable as a corner and is dropped; 850 MHz
+	 * is now the top corner and the empirical ceiling question.
+	 */
+	opp-850000000 {
+		opp-hz = /bits/ 64 <850000000>;
+		opp-microvolt = <1036000>;
+		opp-supported-hw = <0xff>;
+	};
+
+	opp-800000000 {
+		opp-hz = /bits/ 64 <800000000>;
+		opp-microvolt = <1000000>;
+		opp-supported-hw = <0xff>;
+	};
+
+	opp-710000097 {
+		opp-hz = /bits/ 64 <710000097>;
+		opp-microvolt = <936000>;
+		opp-supported-hw = <0xff>;
+	};
+
+	opp-670000048 {
+		opp-hz = /bits/ 64 <670000048>;
+		opp-microvolt = <908000>;
+		opp-supported-hw = <0xff>;
+	};
+
+	opp-596000097 {
+		opp-hz = /bits/ 64 <596000097>;
+		opp-microvolt = <856000>;
+		opp-supported-hw = <0xff>;
+	};
+
+	opp-515000097 {
+		opp-hz = /bits/ 64 <515000097>;
+		opp-microvolt = <792000>;
+		opp-supported-hw = <0xff>;
+	};
+
+	opp-414000000 {
+		opp-hz = /bits/ 64 <414000000>;
+		opp-microvolt = <704000>;
+		opp-supported-hw = <0xff>;
+	};
+
+	opp-342000000 {
+		opp-hz = /bits/ 64 <342000000>;
+		opp-microvolt = <644000>;
+		opp-supported-hw = <0xff>;
+	};
+
+	opp-257000000 {
+		opp-hz = /bits/ 64 <257000000>;
+		opp-microvolt = <628000>;
+		opp-supported-hw = <0xff>;
+	};
+};

@@ -56,6 +56,10 @@ int dpu_encoder_wait_for_commit_done(struct drm_encoder *drm_encoder);
 
 int dpu_encoder_wait_for_tx_complete(struct drm_encoder *drm_encoder);
 
+int dpu_encoder_acquire_link(struct drm_encoder *drm_encoder);
+
+void dpu_encoder_release_link(struct drm_encoder *drm_encoder);
+
 enum dpu_intf_mode dpu_encoder_get_intf_mode(struct drm_encoder *encoder);
 
 void dpu_encoder_virt_runtime_resume(struct drm_encoder *encoder);
