@@ -239,6 +239,30 @@ adreno_iommu_create_vm(struct msm_gpu *gpu,
 	if (start + size < start)
 		size = U64_MAX - start;
 
+	/*
+	 * The GPU issues 48-bit VAs. Within the TTBR1 aperture the SMMU
+	 * reconstructs the full 64-bit VA by sign-extending the top bit of the
+	 * upstream address (SEP), so the only TTBR1 VAs a 48-bit master can
+	 * actually form are the ones whose bit 47 is set:
+	 * 0xffff800000000000 and up. The aperture's lower half
+	 * (0xffff000000000000..0xffff7fffffffffff) is unreachable -- a buffer
+	 * placed there is issued with bit 47 clear, sign-extends to a LOW
+	 * address, gets looked up in TTBR0 where nothing maps it, and faults.
+	 *
+	 * That unreachable half is exactly where this vm used to start, and is
+	 * why running the crashdumper (GPU recovery, or any read of
+	 * debugfs/dri/0/gpu, which allocates its 1 MB scratch here) reliably
+	 * wedged the A540: the recovery path itself faulted, a5xx_hw_init()
+	 * returned -22, and the device looped to fastboot.
+	 *
+	 * Base the vm in the reachable half. The clamp above already keeps
+	 * start + size from wrapping.
+	 */
+	if (start == 0xffff000000000000ULL) {
+		start = 0xffff800000000000ULL;
+		size = U64_MAX - start;
+	}
+
 	DRM_DEV_INFO(&pdev->dev,
 		     "gpu aspace: aperture %#llx-%#llx, base %#llx, size %#llx\n",
 		     geometry->aperture_start, geometry->aperture_end,
