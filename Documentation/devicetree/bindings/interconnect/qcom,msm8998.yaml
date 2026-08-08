@@ -1,0 +1,147 @@
+# SPDX-License-Identifier: (GPL-2.0 OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/interconnect/qcom,msm8998.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Qualcomm MSM8998 Network-On-Chip interconnect
+
+maintainers:
+  - Lance <Gero3977@gmail.com>
+
+description: |
+  The Qualcomm MSM8998 interconnect providers support adjusting the
+  bandwidth requirements between the various NoC fabrics. QoS
+  programming is AP-side for the ap_owned masters; the fabrics' own
+  interface clocks are listed per fabric so icc-rpm can enable them
+  before touching QoS registers.
+
+properties:
+  compatible:
+    enum:
+      - qcom,msm8998-a1noc
+      - qcom,msm8998-a2noc
+      - qcom,msm8998-bimc
+      - qcom,msm8998-cnoc
+      - qcom,msm8998-mnoc
+      - qcom,msm8998-snoc
+
+  reg:
+    maxItems: 1
+
+  clock-names:
+    minItems: 1
+    maxItems: 7
+
+  clocks:
+    minItems: 1
+    maxItems: 7
+
+required:
+  - compatible
+  - reg
+
+unevaluatedProperties: false
+
+allOf:
+  - $ref: qcom,rpm-common.yaml#
+  - if:
+      properties:
+        compatible:
+          const: qcom,msm8998-a2noc
+
+    then:
+      properties:
+        clocks:
+          items:
+            - description: IPA Clock.
+            - description: SDCC2 AHB Clock.
+            - description: SDCC4 AHB Clock.
+            - description: BLSP1 AHB Clock.
+
+        clock-names:
+          items:
+            - const: ipa
+            - const: sdcc2_ahb
+            - const: sdcc4_ahb
+            - const: blsp1_ahb
+
+  - if:
+      properties:
+        compatible:
+          const: qcom,msm8998-a1noc
+
+    then:
+      properties:
+        clocks:
+          items:
+            - description: UFS AXI Clock.
+            - description: Aggregate1 UFS AXI Clock.
+            - description: Aggregate1 USB3 AXI Clock.
+            - description: BLSP2 AHB Clock.
+
+        clock-names:
+          items:
+            - const: ufs_axi
+            - const: aggre1_ufs_axi
+            - const: aggre1_usb3_axi
+            - const: blsp2_ahb
+
+  - if:
+      properties:
+        compatible:
+          const: qcom,msm8998-mnoc
+
+    then:
+      properties:
+        clocks:
+          items:
+            - description: NoC Configuration AHB Clock.
+            - description: MNOC AHB Clock.
+            - description: Camera AHB Clock.
+            - description: Video AHB Clock.
+            - description: Video AXI Clock.
+            - description: MDSS AHB Clock.
+            - description: MDSS AXI Clock.
+
+        clock-names:
+          items:
+            - const: noc_cfg_ahb
+            - const: mnoc_ahb
+            - const: camss_ahb
+            - const: video_ahb
+            - const: video_axi
+            - const: mdss_ahb
+            - const: mdss_axi
+
+  - if:
+      properties:
+        compatible:
+          enum:
+            - qcom,msm8998-bimc
+            - qcom,msm8998-cnoc
+            - qcom,msm8998-snoc
+    then:
+      properties:
+        clocks: false
+        clock-names: false
+
+examples:
+  - |
+    #include <dt-bindings/clock/qcom,gcc-msm8998.h>
+    #include <dt-bindings/clock/qcom,mmcc-msm8998.h>
+    #include <dt-bindings/clock/qcom,rpmcc.h>
+
+    a2noc: interconnect@1700000 {
+        compatible = "qcom,msm8998-a2noc";
+        reg = <0x01700000 0x10000>;
+        #interconnect-cells = <1>;
+        clocks = <&rpmcc RPM_SMD_IPA_CLK>,
+                 <&gcc GCC_SDCC2_AHB_CLK>,
+                 <&gcc GCC_SDCC4_AHB_CLK>,
+                 <&gcc GCC_BLSP1_AHB_CLK>;
+        clock-names = "ipa",
+                      "sdcc2_ahb",
+                      "sdcc4_ahb",
+                      "blsp1_ahb";
+    };
