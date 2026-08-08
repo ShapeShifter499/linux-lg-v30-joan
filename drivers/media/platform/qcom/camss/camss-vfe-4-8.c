@@ -29,6 +29,9 @@
 #define VFE_0_GLOBAL_RESET_CMD_DSP	BIT(8)
 #define VFE_0_GLOBAL_RESET_CMD_IDLE_CGC	BIT(9)
 
+#define VFE_0_CGC_OVERRIDE_1		0x03c
+#define VFE_0_CGC_OVERRIDE_1_IMAGE_Mx_CGC_OVERRIDE(x)	BIT(x)
+
 #define VFE_0_MODULE_LENS_EN		0x040
 #define VFE_0_MODULE_LENS_EN_DEMUX		BIT(2)
 #define VFE_0_MODULE_LENS_EN_CHROMA_UPSAMPLE	BIT(3)
@@ -854,7 +857,15 @@ static void vfe_set_clamp_cfg(struct vfe_device *vfe)
 
 static void vfe_set_cgc_override(struct vfe_device *vfe, u8 wm, u8 enable)
 {
-	/* empty */
+	u32 val = VFE_0_CGC_OVERRIDE_1_IMAGE_Mx_CGC_OVERRIDE(wm);
+
+	if (enable)
+		vfe_reg_set(vfe, VFE_0_CGC_OVERRIDE_1, val);
+	else
+		vfe_reg_clr(vfe, VFE_0_CGC_OVERRIDE_1, val);
+
+	/* The clock has to be on before the master is handed any data */
+	wmb();
 }
 
 static void vfe_set_camif_cfg(struct vfe_device *vfe, struct vfe_line *line)
