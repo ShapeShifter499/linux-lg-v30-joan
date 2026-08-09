@@ -1781,12 +1781,17 @@ int drm_atomic_commit(struct drm_atomic_commit *state)
 		drm_atomic_print_new_state(state, &p);
 
 	ret = drm_atomic_check_only(state);
-	if (ret)
+	if (ret) {
+		drm_dbg_atomic(state->dev, "TEMP-DIAG check_only failed: %d\n", ret);
 		return ret;
+	}
 
 	drm_dbg_atomic(state->dev, "committing %p\n", state);
 
-	return config->funcs->atomic_commit(state->dev, state, false);
+	ret = config->funcs->atomic_commit(state->dev, state, false);
+	if (ret)
+		drm_dbg_atomic(state->dev, "TEMP-DIAG atomic_commit failed: %d\n", ret);
+	return ret;
 }
 EXPORT_SYMBOL(drm_atomic_commit);
 
@@ -1810,12 +1815,17 @@ int drm_atomic_nonblocking_commit(struct drm_atomic_commit *state)
 	int ret;
 
 	ret = drm_atomic_check_only(state);
-	if (ret)
+	if (ret) {
+		drm_dbg_atomic(state->dev, "TEMP-DIAG check_only failed: %d\n", ret);
 		return ret;
+	}
 
 	drm_dbg_atomic(state->dev, "committing %p nonblocking\n", state);
 
-	return config->funcs->atomic_commit(state->dev, state, true);
+	ret = config->funcs->atomic_commit(state->dev, state, true);
+	if (ret)
+		drm_dbg_atomic(state->dev, "TEMP-DIAG atomic_commit failed: %d\n", ret);
+	return ret;
 }
 EXPORT_SYMBOL(drm_atomic_nonblocking_commit);
 
