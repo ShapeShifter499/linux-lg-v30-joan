@@ -2075,6 +2075,13 @@ out:
 	else
 		hu->hdev->set_bdaddr = qca_set_bdaddr;
 
+	/* The WCN3990 carries no BD address in its firmware; let the
+	 * HCI core pull "local-bd-address" from the DT (or derive it)
+	 * so the controller is not left HCI_UNCONFIGURED.
+	 */
+	if (qcadev && !qcadev->bdaddr_property_broken)
+		hci_set_quirk(hdev, HCI_QUIRK_USE_BDADDR_PROPERTY);
+
 	if (qcadev && qcadev->support_hfp_hw_offload)
 		qca_configure_hfp_offload(hdev);
 
