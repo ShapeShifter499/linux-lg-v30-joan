@@ -144,6 +144,8 @@
 
 &blsp1_uart3 {
 	status = "okay";
+	assigned-clocks = <&gcc GCC_BLSP1_UART3_APPS_CLK>;
+	assigned-clock-rates = <48000000>;
 
 	bluetooth {
 		compatible = "qcom,wcn3990-bt";
@@ -152,7 +154,7 @@
 		vddxo-supply = <&vreg_s5a_2p04>;
 		vddrf-supply = <&vreg_l17a_1p3>;
 		vddch0-supply = <&vreg_l25a_3p3>;
-		max-speed = <3200000>;
+		max-speed = <3000000>;
 	};
 };
 
