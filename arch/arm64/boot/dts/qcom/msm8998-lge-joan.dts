@@ -912,5 +912,6 @@
  * QMI service set -- but nothing consumes it.
  */
 &ipa {
+	memory-region = <&ipa_fw_mem>;
 	status = "okay";
 };
