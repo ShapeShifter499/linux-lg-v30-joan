@@ -11,9 +11,13 @@
 #include <linux/backlight.h>
 #include <linux/delay.h>
 #include <linux/gpio/consumer.h>
+#include <linux/i2c.h>
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/regulator/consumer.h>
+
+/* joan: touch controller powered together with the display */
+void stmfts_set_power(struct i2c_client *client, bool on);
 
 #include <video/mipi_display.h>
 
@@ -46,6 +50,9 @@ struct sw43402_panel {
 	struct regulator_bulk_data *supplies;
 	struct gpio_desc *reset_gpio;
 	struct drm_dsc_config dsc;
+
+	/* joan: touch controller powered together with the display */
+	struct i2c_client *touch_client;
 };
 
 static inline struct sw43402_panel *to_sw43402(struct drm_panel *panel)
@@ -194,6 +201,18 @@ static int sw43402_prepare(struct drm_panel *panel)
 		regulator_bulk_disable(ARRAY_SIZE(sw43402_supplies),
 				       ctx->supplies);
 
+	/* joan: re-initialize the touch controller now the display is on */
+	if (!ctx->touch_client) {
+		struct device_node *touch_np = of_find_compatible_node(NULL, NULL, "st,stmfts");
+
+		if (touch_np) {
+			ctx->touch_client = of_find_i2c_device_by_node(touch_np);
+			of_node_put(touch_np);
+		}
+	}
+	if (ctx->touch_client)
+		stmfts_set_power(ctx->touch_client, true);
+
 	return dsi_ctx.accum_err;
 }
 
@@ -201,6 +220,12 @@ static int sw43402_unprepare(struct drm_panel *panel)
 {
 	struct sw43402_panel *ctx = to_sw43402(panel);
 	struct mipi_dsi_multi_context dsi_ctx = { .dsi = ctx->link };
+
+	/* joan: power the touch controller off before the display's power
+	 * transition so it cannot emit a spurious touch event that would
+	 * unblank the screen on its own. */
+	if (ctx->touch_client)
+		stmfts_set_power(ctx->touch_client, false);
 
 	/*
 	 * LG OLED ELVSS shutdown-prep sequence, byte-faithful to the
@@ -328,6 +353,18 @@ static int sw43402_probe(struct mipi_dsi_device *dsi)
 
 	ctx->link = dsi;
 	mipi_dsi_set_drvdata(dsi, ctx);
+
+	/* joan: look up the touch controller so it can be powered with the display */
+	{
+		struct device_node *touch_np = of_find_compatible_node(NULL, NULL, "st,stmfts");
+
+		if (touch_np) {
+			ctx->touch_client = of_find_i2c_device_by_node(touch_np);
+			of_node_put(touch_np);
+			if (!ctx->touch_client)
+				dev_dbg(dev, "stmfts not available yet\n");
+		}
+	}
 
 	dsi->lanes = 4;
 	dsi->format = MIPI_DSI_FMT_RGB888;
