@@ -903,3 +903,14 @@
 			"qcom/msm8998/joan/modem.mdt";
 	status = "okay";
 };
+
+/*
+ * IPA. Needed by ModemManager: it reads the QMI bus over QRTR fine but
+ * will not instantiate a modem without IPA's rmnet/wwan netdevs
+ * (pmaports !3531 reports the same on OnePlus 5/5T). The modem itself
+ * works without this -- it boots, authenticates and advertises its full
+ * QMI service set -- but nothing consumes it.
+ */
+&ipa {
+	status = "okay";
+};
