@@ -2462,7 +2462,15 @@ static struct clk_branch fd_ahb_clk = {
 			.parent_hws = (const struct clk_hw *[]){ &ahb_clk_src.clkr.hw },
 			.num_parents = 1,
 			.ops = &clk_branch2_ops,
-			.flags = CLK_SET_RATE_PARENT,
+			/*
+			 * The MMSS config NoC carries every register access
+			 * inside MMSS, including the CBCRs of this controller's
+			 * own branches. With it gated a branch enable writes
+			 * the enable bit and then times out waiting for the
+			 * halt bit, so the consumer sees -EBUSY. Same reason
+			 * gcc_mmss_noc_cfg_ahb_clk is critical one level up.
+			 */
+			.flags = CLK_IS_CRITICAL | CLK_SET_RATE_PARENT,
 		},
 	},
 };
