@@ -103,6 +103,11 @@
 #define MAS_BLSP_2                  	3
 #define SLV_A1NOC_SNOC              	4
 
+/* gnoc */
+#define MAS_APSS_PROC			0
+#define SLV_GNOC_BIMC			1
+
+
 /* A2NOC */
 #define MAS_IPA                     	0
 #define MAS_CNOC_A2NOC              	1

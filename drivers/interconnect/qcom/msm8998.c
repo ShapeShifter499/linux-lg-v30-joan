@@ -259,6 +259,38 @@ static const u16 slv_mnoc_bimc_links[] = {
 };
 
 
+static const u16 mas_apss_proc_links[] = {
+	MSM8998_SLV_GNOC_BIMC
+};
+
+static struct qcom_icc_node mas_apss_proc = {
+	.name = "mas-apss-proc",
+	.id = MSM8998_MAS_APSS_PROC,
+	.buswidth = 32,
+	.mas_rpm_id = 0,
+	.slv_rpm_id = -1,
+	.qos.ap_owned = true,
+	.qos.qos_mode = NOC_QOS_MODE_INVALID,
+	.num_links = ARRAY_SIZE(mas_apss_proc_links),
+	.links = mas_apss_proc_links
+};
+
+static const u16 slv_gnoc_bimc_links[] = {
+	MSM8998_MAS_GNOC_BIMC
+};
+
+static struct qcom_icc_node slv_gnoc_bimc = {
+	.name = "slv-gnoc-bimc",
+	.id = MSM8998_SLV_GNOC_BIMC,
+	.buswidth = 32,
+	.mas_rpm_id = -1,
+	.slv_rpm_id = 210,
+	.qos.ap_owned = true,
+	.qos.qos_mode = NOC_QOS_MODE_INVALID,
+	.num_links = ARRAY_SIZE(slv_gnoc_bimc_links),
+	.links = slv_gnoc_bimc_links
+};
+
 static struct qcom_icc_node mas_gnoc_bimc = {
 	.name = "mas-gnoc-bimc",
 	.id = MSM8998_MAS_GNOC_BIMC,
@@ -1684,6 +1716,24 @@ static struct qcom_icc_node * const mnoc_nodes[] = {
 	[11] = &slv_srvc_mnoc,
 };
 
+static struct qcom_icc_node * const gnoc_nodes[] = {
+	[0] = &mas_apss_proc,
+	[1] = &slv_gnoc_bimc,
+};
+
+/*
+ * gnoc is the CPU cluster's own fabric. It carries no RPM bus clock of
+ * its own -- downstream's fab_gnoc declares none -- so there is no
+ * bus_clk_desc here, and QoS is left alone: neither node has a qport
+ * downstream.
+ */
+static const struct qcom_icc_desc msm8998_gnoc = {
+	.type = QCOM_ICC_NOC,
+	.nodes = gnoc_nodes,
+	.num_nodes = ARRAY_SIZE(gnoc_nodes),
+	.keep_alive = true,
+};
+
 static const struct regmap_config msm8998_bimc_regmap_config = {
 	.reg_bits	= 32,
 	.reg_stride	= 4,
@@ -1850,6 +1900,7 @@ static const struct of_device_id qnoc_of_match[] = {
 	{ .compatible = "qcom,msm8998-mnoc", .data = &msm8998_mnoc },
 	{ .compatible = "qcom,msm8998-a1noc", .data = &msm8998_a1noc },
 	{ .compatible = "qcom,msm8998-a2noc", .data = &msm8998_a2noc },
+	{ .compatible = "qcom,msm8998-gnoc", .data = &msm8998_gnoc },
 	{ }
 };
 MODULE_DEVICE_TABLE(of, qnoc_of_match);
