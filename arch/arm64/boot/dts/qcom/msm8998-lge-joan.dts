@@ -913,5 +913,6 @@
  */
 &ipa {
 	memory-region = <&ipa_fw_mem>;
+	qcom,gsi-loader = "modem";
 	status = "okay";
 };
