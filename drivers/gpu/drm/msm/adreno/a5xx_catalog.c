@@ -141,10 +141,17 @@ static const struct adreno_info a5xx_gpus[] = {
 		},
 		.gmem = SZ_1M,
 		/*
-		 * Increase inactive period to 250 to avoid bouncing
-		 * the GDSC which appears to make it grumpy
+		 * Upstream chooses 250 ms to keep the GDSC from bouncing
+		 * ("makes it grumpy"). On joan that is too eager: the wake's
+		 * first frame after any collapse pays the full resume +
+		 * hw_init, stalling the compositor (observed libinput lags
+		 * of 141-224 ms and a frozen lockscreen keypad whose taps
+		 * land inside the stall window). 300000 ms (5 min) covers
+		 * typical phone lock durations — DIAGNOSTIC value, battery
+		 * cost real (GDSC stays on during locked idle); final value
+		 * TBD (prefer shortening the resume path).
 		 */
-		.inactive_period = 250,
+		.inactive_period = 300000,
 		.quirks = ADRENO_QUIRK_LMLOADKILL_DISABLE,
 		.funcs = &a5xx_gpu_funcs,
 		.zapfw = "a540_zap.mdt",
