@@ -154,6 +154,7 @@ struct stmfts_data {
 	bool led_status;
 	bool hover_enabled;
 	bool running;
+	bool powered;
 };
 
 static int stmfts_brightness_set(struct led_classdev *led_cdev,
@@ -895,6 +896,31 @@ static void stmfts_power_off(void *data)
 	regulator_bulk_disable(ARRAY_SIZE(stmfts_supplies), sdata->supplies);
 }
 
+/*
+ * joan: allow the panel driver to power the touch controller together
+ * with the display. The controller emits a spurious touch event during
+ * the display's power transitions while it stays awake (the evdev open
+ * keeps runtime PM active), which unblanks the screen on its own. With
+ * the controller powered off for the blank and re-initialized on wake,
+ * the spurious event cannot happen and the controller is in a known
+ * good state for the first taps.
+ */
+void stmfts_set_power(struct i2c_client *client, bool on)
+{
+	struct stmfts_data *sdata = i2c_get_clientdata(client);
+
+	if (!sdata || sdata->powered == on)
+		return;
+
+	if (on)
+		stmfts_power_on(sdata);
+	else
+		stmfts_power_off(sdata);
+
+	sdata->powered = on;
+}
+EXPORT_SYMBOL_GPL(stmfts_set_power);
+
 static int stmfts_enable_led(struct stmfts_data *sdata)
 {
 	int err;
@@ -1017,6 +1043,7 @@ static int stmfts_probe(struct i2c_client *client)
 	err = stmfts_power_on(sdata);
 	if (err)
 		return err;
+	sdata->powered = true;
 
 	err = devm_add_action_or_reset(dev, stmfts_power_off, sdata);
 	if (err)
