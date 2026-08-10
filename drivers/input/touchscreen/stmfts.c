@@ -273,6 +273,30 @@ static void stmfts_report_contact_release(struct stmfts_data *sdata,
 	input_mt_report_slot_inactive(sdata->input);
 }
 
+/*
+ * Drop every contact the controller had reported.
+ *
+ * Powering the controller down mid-touch (the panel does this on blank)
+ * means the leave event for anything still down is never sent, so the
+ * slot stays occupied for as long as the input device lives. Userspace
+ * then sees a finger permanently on the screen: gestures still work,
+ * because they are computed from deltas, but taps never register --
+ * every new contact looks like a second finger joining an ongoing
+ * multi-touch gesture rather than a press.
+ */
+static void stmfts_release_all_contacts(struct stmfts_data *sdata)
+{
+	int i;
+
+	for (i = 0; i < STMFTS_MAX_FINGERS; i++) {
+		input_mt_slot(sdata->input, i);
+		input_mt_report_slot_inactive(sdata->input);
+	}
+
+	input_mt_sync_frame(sdata->input);
+	input_sync(sdata->input);
+}
+
 static void stmfts_report_hover_event(struct stmfts_data *sdata,
 				      const u8 event[])
 {
@@ -906,6 +930,12 @@ static void stmfts_power_off(void *data)
 	sdata->powered = false;
 
 	disable_irq(sdata->client->irq);
+
+	/*
+	 * The interrupt is off, so nothing can report a leave event for a
+	 * contact that is still down. Release them here instead.
+	 */
+	stmfts_release_all_contacts(sdata);
 
 	if (sdata->reset_gpio)
 		gpiod_set_value_cansleep(sdata->reset_gpio, 1);
