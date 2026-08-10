@@ -155,6 +155,15 @@
 		vddrf-supply = <&vreg_l17a_1p3>;
 		vddch0-supply = <&vreg_l25a_3p3>;
 		max-speed = <3000000>;
+
+		/*
+		 * joan has no factory BD address: the NVM's address TLV is
+		 * all zeroes and the vendor stack generates a random address
+		 * on first use. The all-zero placeholder is rejected by the
+		 * core, which leaves the controller HCI_UNCONFIGURED so that
+		 * userspace can supply one (MGMT_OP_SET_PUBLIC_ADDRESS).
+		 */
+		local-bd-address = [ 00 00 00 00 00 00 ];
 	};
 };
 
