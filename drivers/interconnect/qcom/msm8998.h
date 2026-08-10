@@ -112,5 +112,7 @@
 #define MSM8998_MAS_CR_VIRT_A2NOC                   	91
 #define MSM8998_SLV_CR_VIRT_A2NOC                   	92
 #define MSM8998_SLV_A2NOC_SNOC                      	93
+#define MSM8998_MAS_APSS_PROC                       	94
+#define MSM8998_SLV_GNOC_BIMC                       	95
 
 #endif
