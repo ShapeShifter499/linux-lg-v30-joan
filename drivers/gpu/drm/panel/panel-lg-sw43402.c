@@ -179,20 +179,6 @@ static int sw43402_prepare(struct drm_panel *panel)
 	mipi_dsi_msleep(&dsi_ctx, 60);
 	mipi_dsi_dcs_set_display_on_multi(&dsi_ctx);
 
-	/*
-	 * Let display-on fully settle before the encoder's first frame is
-	 * kicked after a wake (blank -> unblank). A 20 ms wait let the DPU
-	 * start pushing compressed frames while the panel's DSC/scan-out was
-	 * still stabilizing, which the owner observed as transient rainbow
-	 * garbage on every wake transition (A184/A185). 120 ms is long enough
-	 * for the panel to complete its own post-display-on settle while
-	 * keeping wake latency reasonable for a lock-screen cycle.
-	 *
-	 * Downstream waits nothing at all here, so this delay has no vendor
-	 * counterpart; it is ours. Left at 120 ms for now because changing it
-	 * and the brightness handling together would confound the two.
-	 */
-	mipi_dsi_msleep(&dsi_ctx, 120);
 	sw43402_write_wrctrld(&dsi_ctx, ctx->link);
 	sw43402_bc_dim_init(&dsi_ctx, ctx->link);
 
