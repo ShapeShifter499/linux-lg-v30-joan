@@ -187,15 +187,14 @@ static int sw43402_prepare(struct drm_panel *panel)
 	 * garbage on every wake transition (A184/A185). 120 ms is long enough
 	 * for the panel to complete its own post-display-on settle while
 	 * keeping wake latency reasonable for a lock-screen cycle.
+	 *
+	 * Downstream waits nothing at all here, so this delay has no vendor
+	 * counterpart; it is ours. Left at 120 ms for now because changing it
+	 * and the brightness handling together would confound the two.
 	 */
 	mipi_dsi_msleep(&dsi_ctx, 120);
 	sw43402_write_wrctrld(&dsi_ctx, ctx->link);
-	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, MIPI_DCS_SET_DISPLAY_BRIGHTNESS,
-				     SW43402_DBV_MAX);
 	sw43402_bc_dim_init(&dsi_ctx, ctx->link);
-	mipi_dsi_msleep(&dsi_ctx, 20);
-	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, MIPI_DCS_SET_DISPLAY_BRIGHTNESS,
-				     SW43402_DBV_MAX);
 
 	if (dsi_ctx.accum_err)
 		regulator_bulk_disable(ARRAY_SIZE(sw43402_supplies),
