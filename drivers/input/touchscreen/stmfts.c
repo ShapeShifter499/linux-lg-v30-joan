@@ -1062,8 +1062,15 @@ static int stmfts_probe(struct i2c_client *client)
 		input_set_capability(sdata->input, EV_KEY, KEY_BACK);
 	}
 
-	err = input_mt_init_slots(sdata->input,
-				  STMFTS_MAX_FINGERS, INPUT_MT_DIRECT);
+	/*
+	 * INPUT_MT_DROP_UNUSED: the controller does not always send a leave
+	 * event for every contact it opened, and a slot left occupied is
+	 * indistinguishable from a finger resting on the screen forever. It
+	 * does re-report every live contact on each scan, so letting the frame
+	 * sync drop whatever was not reported reconciles the state safely.
+	 */
+	err = input_mt_init_slots(sdata->input, STMFTS_MAX_FINGERS,
+				  INPUT_MT_DIRECT | INPUT_MT_DROP_UNUSED);
 	if (err)
 		return err;
 
