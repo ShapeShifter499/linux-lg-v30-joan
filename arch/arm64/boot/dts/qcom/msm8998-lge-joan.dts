@@ -142,6 +142,19 @@
 	status = "okay";
 };
 
+&blsp1_uart3 {
+	status = "okay";
+
+	bluetooth {
+		compatible = "qcom,wcn3990-bt";
+		vddio-supply = <&vreg_s3a_1p35>;
+		vddxo-supply = <&vreg_s5a_2p04>;
+		vddrf-supply = <&vreg_l17a_1p3>;
+		vddch0-supply = <&vreg_l25a_3p3>;
+		max-speed = <3200000>;
+	};
+};
+
 &pm8005_regulators {
 	/* VDD_GFX supply; managed by the OPP framework + msm_gpu (vdd) */
 	pm8005_s1: s1 {
