@@ -1066,14 +1066,17 @@ static int stmfts_runtime_suspend(struct device *dev)
 static int stmfts_runtime_resume(struct device *dev)
 {
 	struct stmfts_data *sdata = dev_get_drvdata(dev);
-	struct i2c_client *client = sdata->client;
-	int ret;
 
-	ret = i2c_smbus_write_byte(client, STMFTS_SLEEP_OUT);
-	if (ret)
-		dev_err(dev, "failed to resume device: %d\n", ret);
-
-	return ret;
+	/*
+	 * joan: a bare SLEEP_OUT does not reliably re-arm the controller
+	 * after later blank/wake cycles — it stays silent while runtime PM
+	 * thinks it is active (observed as a frozen keypad after wake #2,
+	 * 0 bytes on the evdev, runtime_status=active). Do the full
+	 * power_on re-init instead. Diagnostic: heavier per wake, TBD
+	 * whether the latency is acceptable vs. finding the exact
+	 * SLEEP_OUT failure mode.
+	 */
+	return stmfts_power_on(sdata);
 }
 
 static int stmfts_suspend(struct device *dev)
