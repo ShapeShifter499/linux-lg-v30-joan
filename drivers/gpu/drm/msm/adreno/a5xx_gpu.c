@@ -1394,8 +1394,37 @@ static int a5xx_pm_suspend(struct msm_gpu *gpu)
 {
 	struct adreno_gpu *adreno_gpu = to_adreno_gpu(gpu);
 	struct a5xx_gpu *a5xx_gpu = to_a5xx_gpu(adreno_gpu);
+	u32 sp_status, rbccu_status;
 	u32 mask = 0xf;
 	int i, ret;
+
+	/*
+	 * Downstream only considers A540 idle after the GPMU has
+	 * collapsed both the SP/TP and RBCCU domains.  Cutting the outer
+	 * power rail while either domain is still on can leave A540's NoC
+	 * path wedged.  Give the GPMU the same bounded 100 usec window used
+	 * downstream, and fail the runtime suspend without touching VBIF,
+	 * clocks or regulators if collapse never completes.
+	 */
+	if (adreno_is_a540(adreno_gpu)) {
+		ret = spin_usecs(gpu, 100, REG_A5XX_GPMU_SP_PWR_CLK_STATUS,
+				 BIT(20), 0);
+		if (!ret)
+			ret = spin_usecs(gpu, 100,
+					 REG_A5XX_GPMU_RBCCU_PWR_CLK_STATUS,
+					 BIT(20), 0);
+
+		if (ret) {
+			sp_status = gpu_read(gpu,
+					     REG_A5XX_GPMU_SP_PWR_CLK_STATUS);
+			rbccu_status = gpu_read(gpu,
+						REG_A5XX_GPMU_RBCCU_PWR_CLK_STATUS);
+			dev_err_ratelimited(gpu->dev->dev,
+					    "aborting suspend: SPTP/RBCCU still on (sp=%08x rbccu=%08x)\n",
+					    sp_status, rbccu_status);
+			return ret;
+		}
+	}
 
 	/* A505, A506, A508, A510 have 3 XIN ports in VBIF */
 	if (adreno_is_a505(adreno_gpu) || adreno_is_a506(adreno_gpu) ||
