@@ -195,6 +195,24 @@
 	};
 };
 
+&pm8998_pwrkey {
+	/*
+	 * joan's power switch chatters. A single press produces extra
+	 * press/release pairs with hold times as short as 3 ms, and the gaps
+	 * between them measure 17-19 ms -- just wide enough to clear the
+	 * 15.625 ms debounce inherited from pm8998.dtsi. The stray edge
+	 * arrives while the screen is blanking, so the display locks and
+	 * immediately wakes again as though the key had been pressed twice.
+	 *
+	 * Use the value the vendor ships for this PMIC: downstream's
+	 * msm-pm8998.dtsi sets qcom,pon-dbc-delay = <31250>, twice the
+	 * generic mainline figure, and the observed chatter falls in the
+	 * window between the two. Hold-to-power-off is measured in seconds
+	 * and is unaffected.
+	 */
+	debounce = <31250>;
+};
+
 &pm8998_resin {
 	linux,code = <KEY_VOLUMEDOWN>;
 	status = "okay";
