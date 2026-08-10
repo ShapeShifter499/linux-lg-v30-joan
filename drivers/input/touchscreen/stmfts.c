@@ -841,6 +841,16 @@ static int stmfts_power_on(struct stmfts_data *sdata)
 {
 	int err;
 
+	/*
+	 * Both runtime PM and the panel driver drive the controller's power,
+	 * and either can get there first. Track the state here so the two
+	 * cannot double up: the bare enable_irq() below underflows the
+	 * interrupt's enable depth if the controller is already on, and each
+	 * extra call would leak a regulator enable reference.
+	 */
+	if (sdata->powered)
+		return 0;
+
 	err = regulator_bulk_enable(ARRAY_SIZE(stmfts_supplies),
 				    sdata->supplies);
 	if (err)
@@ -875,6 +885,8 @@ static int stmfts_power_on(struct stmfts_data *sdata)
 	 */
 	(void)i2c_smbus_write_byte(sdata->client, STMFTS_SLEEP_IN);
 
+	sdata->powered = true;
+
 	return 0;
 
 err_disable_irq:
@@ -887,6 +899,11 @@ err_disable_regulators:
 static void stmfts_power_off(void *data)
 {
 	struct stmfts_data *sdata = data;
+
+	if (!sdata->powered)
+		return;
+
+	sdata->powered = false;
 
 	disable_irq(sdata->client->irq);
 
@@ -909,15 +926,13 @@ void stmfts_set_power(struct i2c_client *client, bool on)
 {
 	struct stmfts_data *sdata = i2c_get_clientdata(client);
 
-	if (!sdata || sdata->powered == on)
+	if (!sdata)
 		return;
 
 	if (on)
 		stmfts_power_on(sdata);
 	else
 		stmfts_power_off(sdata);
-
-	sdata->powered = on;
 }
 EXPORT_SYMBOL_GPL(stmfts_set_power);
 
@@ -1043,7 +1058,6 @@ static int stmfts_probe(struct i2c_client *client)
 	err = stmfts_power_on(sdata);
 	if (err)
 		return err;
-	sdata->powered = true;
 
 	err = devm_add_action_or_reset(dev, stmfts_power_off, sdata);
 	if (err)
