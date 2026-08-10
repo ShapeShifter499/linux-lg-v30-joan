@@ -344,24 +344,6 @@ static void stmfts_parse_events(struct stmfts_data *sdata)
 	for (i = 0; i < STMFTS_STACK_DEPTH; i++) {
 		u8 *event = &sdata->data[i * STMFTS_EVENT_SIZE];
 
-		/* TEMP-DIAG REVERT ME: raw packets for enter/leave only. */
-		switch (event[0] & STMFTS_MASK_EVENT_ID) {
-		case STMFTS_EV_MULTI_TOUCH_ENTER:
-		case STMFTS_EV_MULTI_TOUCH_LEAVE:
-		case STMFTS_EV_MULTI_TOUCH_DETECTED:
-			dev_info(&sdata->client->dev,
-				 "TEMP-DIAG i=%02d %s slot=%u raw=%02x %02x %02x %02x %02x %02x %02x %02x\n",
-				 i,
-				 (event[0] & STMFTS_MASK_EVENT_ID) ==
-					STMFTS_EV_MULTI_TOUCH_ENTER ? "ENTER" :
-				 (event[0] & STMFTS_MASK_EVENT_ID) ==
-					STMFTS_EV_MULTI_TOUCH_LEAVE ? "LEAVE" : "DETECT",
-				 (event[0] & STMFTS_MASK_TOUCH_ID) >> 4,
-				 event[0], event[1], event[2], event[3],
-				 event[4], event[5], event[6], event[7]);
-			break;
-		}
-
 		switch (event[0]) {
 		case STMFTS_EV_CONTROLLER_READY:
 		case STMFTS_EV_SLEEP_OUT_CONTROLLER_READY:
@@ -415,17 +397,6 @@ static void stmfts_parse_events(struct stmfts_data *sdata)
 				"unknown event %#02x\n", event[0]);
 		}
 	}
-
-	/*
-	 * TEMP-DIAG REVERT ME: reaching here means the loop consumed all
-	 * STMFTS_STACK_DEPTH slots without ever seeing a terminator, i.e. it
-	 * ran past the end of the events the controller actually reported and
-	 * parsed whatever was left in the buffer. That would manufacture
-	 * contacts out of stale data.
-	 */
-	dev_warn_ratelimited(&sdata->client->dev,
-			     "TEMP-DIAG parse loop ran to full depth (%d) with no terminator\n",
-			     STMFTS_STACK_DEPTH);
 
 out:
 	if (mt_event) {
