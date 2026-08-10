@@ -273,6 +273,30 @@ static void stmfts_report_contact_release(struct stmfts_data *sdata,
 	input_mt_report_slot_inactive(sdata->input);
 }
 
+/*
+ * Drop every contact the controller had reported.
+ *
+ * Powering the controller down mid-touch (the panel does this on blank)
+ * means the leave event for anything still down is never sent, so the
+ * slot stays occupied for as long as the input device lives. Userspace
+ * then sees a finger permanently on the screen: gestures still work,
+ * because they are computed from deltas, but taps never register --
+ * every new contact looks like a second finger joining an ongoing
+ * multi-touch gesture rather than a press.
+ */
+static void stmfts_release_all_contacts(struct stmfts_data *sdata)
+{
+	int i;
+
+	for (i = 0; i < STMFTS_MAX_FINGERS; i++) {
+		input_mt_slot(sdata->input, i);
+		input_mt_report_slot_inactive(sdata->input);
+	}
+
+	input_mt_sync_frame(sdata->input);
+	input_sync(sdata->input);
+}
+
 static void stmfts_report_hover_event(struct stmfts_data *sdata,
 				      const u8 event[])
 {
@@ -841,6 +865,16 @@ static int stmfts_power_on(struct stmfts_data *sdata)
 {
 	int err;
 
+	/*
+	 * Both runtime PM and the panel driver drive the controller's power,
+	 * and either can get there first. Track the state here so the two
+	 * cannot double up: the bare enable_irq() below underflows the
+	 * interrupt's enable depth if the controller is already on, and each
+	 * extra call would leak a regulator enable reference.
+	 */
+	if (sdata->powered)
+		return 0;
+
 	err = regulator_bulk_enable(ARRAY_SIZE(stmfts_supplies),
 				    sdata->supplies);
 	if (err)
@@ -875,6 +909,8 @@ static int stmfts_power_on(struct stmfts_data *sdata)
 	 */
 	(void)i2c_smbus_write_byte(sdata->client, STMFTS_SLEEP_IN);
 
+	sdata->powered = true;
+
 	return 0;
 
 err_disable_irq:
@@ -888,7 +924,18 @@ static void stmfts_power_off(void *data)
 {
 	struct stmfts_data *sdata = data;
 
+	if (!sdata->powered)
+		return;
+
+	sdata->powered = false;
+
 	disable_irq(sdata->client->irq);
+
+	/*
+	 * The interrupt is off, so nothing can report a leave event for a
+	 * contact that is still down. Release them here instead.
+	 */
+	stmfts_release_all_contacts(sdata);
 
 	if (sdata->reset_gpio)
 		gpiod_set_value_cansleep(sdata->reset_gpio, 1);
@@ -909,15 +956,13 @@ void stmfts_set_power(struct i2c_client *client, bool on)
 {
 	struct stmfts_data *sdata = i2c_get_clientdata(client);
 
-	if (!sdata || sdata->powered == on)
+	if (!sdata)
 		return;
 
 	if (on)
 		stmfts_power_on(sdata);
 	else
 		stmfts_power_off(sdata);
-
-	sdata->powered = on;
 }
 EXPORT_SYMBOL_GPL(stmfts_set_power);
 
@@ -1017,8 +1062,15 @@ static int stmfts_probe(struct i2c_client *client)
 		input_set_capability(sdata->input, EV_KEY, KEY_BACK);
 	}
 
-	err = input_mt_init_slots(sdata->input,
-				  STMFTS_MAX_FINGERS, INPUT_MT_DIRECT);
+	/*
+	 * INPUT_MT_DROP_UNUSED: the controller does not always send a leave
+	 * event for every contact it opened, and a slot left occupied is
+	 * indistinguishable from a finger resting on the screen forever. It
+	 * does re-report every live contact on each scan, so letting the frame
+	 * sync drop whatever was not reported reconciles the state safely.
+	 */
+	err = input_mt_init_slots(sdata->input, STMFTS_MAX_FINGERS,
+				  INPUT_MT_DIRECT | INPUT_MT_DROP_UNUSED);
 	if (err)
 		return err;
 
@@ -1043,7 +1095,6 @@ static int stmfts_probe(struct i2c_client *client)
 	err = stmfts_power_on(sdata);
 	if (err)
 		return err;
-	sdata->powered = true;
 
 	err = devm_add_action_or_reset(dev, stmfts_power_off, sdata);
 	if (err)
