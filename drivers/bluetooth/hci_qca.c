@@ -2075,11 +2075,18 @@ out:
 	else
 		hu->hdev->set_bdaddr = qca_set_bdaddr;
 
-	/* The WCN3990 carries no BD address in its firmware; let the
-	 * HCI core pull "local-bd-address" from the DT (or derive it)
-	 * so the controller is not left HCI_UNCONFIGURED.
+	/* Some QCA controllers carry no BD address of their own; let the
+	 * HCI core pull "local-bd-address" from the DT so they are not
+	 * left HCI_UNCONFIGURED.
+	 *
+	 * Only opt in when the platform actually describes the property.
+	 * The core folds this quirk into its "invalid_bdaddr" decision, so
+	 * setting it unconditionally would also force every controller that
+	 * does carry a usable address in NVM into HCI_UNCONFIGURED, where
+	 * bluetoothd never adopts it.
 	 */
-	if (qcadev && !qcadev->bdaddr_property_broken)
+	if (qcadev && !qcadev->bdaddr_property_broken &&
+	    device_property_present(&hu->serdev->dev, "local-bd-address"))
 		hci_set_quirk(hdev, HCI_QUIRK_USE_BDADDR_PROPERTY);
 
 	if (qcadev && qcadev->support_hfp_hw_offload)
