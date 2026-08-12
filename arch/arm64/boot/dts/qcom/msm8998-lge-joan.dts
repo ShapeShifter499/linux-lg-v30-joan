@@ -782,11 +782,6 @@
 	 * fails or renders hang - RAM-only and fully reversible (revert
 	 * this commit).
 	 */
-	opp-750000000 {
-		opp-hz = /bits/ 64 <750000000>;
-		opp-microvolt = <964000>;
-		opp-supported-hw = <0xff>;
-	};
 
 	/*
 	 * EXPERIMENTAL sweep OPPs above the device-proven 750 MHz corner
@@ -806,17 +801,7 @@
 	 * resume, 900 is unusable as a corner and is dropped; 850 MHz
 	 * is now the top corner and the empirical ceiling question.
 	 */
-	opp-850000000 {
-		opp-hz = /bits/ 64 <850000000>;
-		opp-microvolt = <1036000>;
-		opp-supported-hw = <0xff>;
-	};
 
-	opp-800000000 {
-		opp-hz = /bits/ 64 <800000000>;
-		opp-microvolt = <1000000>;
-		opp-supported-hw = <0xff>;
-	};
 
 	opp-710000097 {
 		opp-hz = /bits/ 64 <710000097>;
