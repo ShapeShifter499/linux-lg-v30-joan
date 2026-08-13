@@ -174,14 +174,11 @@
 		regulator-max-microvolt = <1100000>;
 		regulator-enable-ramp-delay = <500>;
 		/*
-		 * Kept always-on: with no consumer holding the rail at boot,
-		 * the regulator framework disables it during late cleanup,
-		 * and the GPU_GX GDSC cannot power on without VDD_GFX
-		 * (gpu_gx status stuck at off on device). OPP voltage
-		 * scaling (opp-microvolt) still adjusts the rail; always-on
-		 * only prevents the framework from dropping it.
+		 * No always-on: the GPU_GX GDSC now owns this rail via
+		 * vdd-gfx-supply, so it is enabled and disabled together with
+		 * the GX domain. Holding it on unconditionally kept VDD_GFX
+		 * powered even with the GPU idle.
 		 */
-		regulator-always-on;
 	};
 };
 
@@ -234,6 +231,11 @@
 		reg = <0x17817000 0x1000>;
 		clocks = <&sleep_clk>;
 	};
+};
+
+&gpucc {
+	/* The GX GDSC gates VDD_GFX with the GPU's own power domain. */
+	vdd-gfx-supply = <&pm8005_s1>;
 };
 
 &qusb2phy {
