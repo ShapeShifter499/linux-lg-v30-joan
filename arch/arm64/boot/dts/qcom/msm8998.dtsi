@@ -1767,7 +1767,7 @@
 			interrupts = <GIC_SPI 300 IRQ_TYPE_LEVEL_HIGH>;
 			iommus = <&adreno_smmu 0>;
 			operating-points-v2 = <&gpu_opp_table>;
-			power-domains = <&rpmpd RPMPD_VDDMX>;
+			power-domains = <&gpucc GPU_GX_GDSC>;
 			#cooling-cells = <2>;
 			status = "disabled";
 
@@ -1818,7 +1818,8 @@
 		};
 
 		adreno_smmu: iommu@5040000 {
-			compatible = "qcom,msm8998-smmu-v2", "qcom,smmu-v2";
+			compatible = "qcom,msm8998-smmu-v2", "qcom,adreno-smmu",
+				     "qcom,smmu-v2";
 			reg = <0x05040000 0x10000>;
 			clocks = <&gcc GCC_GPU_CFG_AHB_CLK>,
 				 <&gcc GCC_BIMC_GFX_CLK>,
@@ -1832,14 +1833,16 @@
 				<GIC_SPI 330 IRQ_TYPE_LEVEL_HIGH>,
 				<GIC_SPI 331 IRQ_TYPE_LEVEL_HIGH>;
 			/*
-			 * GPU-GX GDSC's parent is GPU-CX. We need to bring up the
-			 * GPU-CX for SMMU but we need both of them up for Adreno.
-			 * Contemporarily, we also need to manage the VDDMX rpmpd
-			 * domain in the Adreno driver.
-			 * Enable GPU CX/GX GDSCs here so that we can manage the
-			 * SoC VDDMX RPM Power Domain in the Adreno driver.
+			 * The SMMU lives on the CX side of the GPU block, so it
+			 * belongs in GPU_CX_GDSC rather than in the GPU's own GX
+			 * domain. This matches both neighbouring SoCs: msm8996
+			 * uses mmcc GPU_GDSC and sdm845 uses gpucc GPU_CX_GDSC.
+			 *
+			 * Placing it in GX also made the GPU's runtime PM
+			 * power-cycle the SMMU, which is fatal here -- see the
+			 * retention handling in arm-smmu-qcom.c.
 			 */
-			power-domains = <&gpucc GPU_GX_GDSC>;
+			power-domains = <&gpucc GPU_CX_GDSC>;
 		};
 
 		gpucc: clock-controller@5065000 {
