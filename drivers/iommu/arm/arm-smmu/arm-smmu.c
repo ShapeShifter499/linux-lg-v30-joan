@@ -2298,6 +2298,15 @@ static int __maybe_unused arm_smmu_runtime_resume(struct device *dev)
 	if (ret)
 		return ret;
 
+	/*
+	 * Some implementations keep their configuration across a power-domain
+	 * collapse, and re-initialising them is at best redundant. Where the
+	 * firmware owns part of the register file it can also be actively
+	 * harmful, so leave such devices alone.
+	 */
+	if (smmu->features & ARM_SMMU_FEAT_RETAIN_ACROSS_PD)
+		return 0;
+
 	arm_smmu_device_reset(smmu);
 
 	return 0;

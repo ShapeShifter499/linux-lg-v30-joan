@@ -307,6 +307,11 @@ struct arm_smmu_device {
 #define ARM_SMMU_FEAT_FMT_AARCH32_L	(1 << 10)
 #define ARM_SMMU_FEAT_FMT_AARCH32_S	(1 << 11)
 #define ARM_SMMU_FEAT_EXIDS		(1 << 12)
+/*
+ * Set by an implementation whose configuration survives a power-domain
+ * collapse, so runtime resume must not re-initialise the device.
+ */
+#define ARM_SMMU_FEAT_RETAIN_ACROSS_PD	BIT(13)
 	u32				features;
 
 	enum arm_smmu_arch_version	version;
