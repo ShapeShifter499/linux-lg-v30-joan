@@ -29,6 +29,9 @@ properties:
       - const: xo
       - const: gpll0
 
+  vdd-gfx-supply:
+    description: Regulator supply for the GPU_GX GDSC
+
 required:
   - compatible
   - clocks
