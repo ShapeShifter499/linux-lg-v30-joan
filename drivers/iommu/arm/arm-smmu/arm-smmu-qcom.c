@@ -538,6 +538,18 @@ static int qcom_adreno_smmuv2_cfg_probe(struct arm_smmu_device *smmu)
 	/* Support for 16K pages is advertised on some SoCs, but it doesn't seem to work */
 	smmu->features &= ~ARM_SMMU_FEAT_FMT_AARCH64_16K;
 
+	/*
+	 * On MSM8998 the firmware XPU-protects the GPU SMMU's register window
+	 * once the GPU has been brought up: its protected-region table covers
+	 * 0x05040000-0x05060000 with non-secure read and write both denied, so
+	 * any access -- a read is enough -- raises a bus error that the secure
+	 * side turns into a system reset, with nothing logged on the Linux
+	 * side. The block keeps its configuration across a power collapse, so
+	 * re-initialising it on resume is unnecessary as well as fatal.
+	 */
+	if (of_device_is_compatible(smmu->dev->of_node, "qcom,msm8998-smmu-v2"))
+		smmu->features |= ARM_SMMU_FEAT_RETAIN_ACROSS_PD;
+
 	/* TZ protects several last context banks, hide them from Linux */
 	if (of_device_is_compatible(smmu->dev->of_node, "qcom,sdm630-smmu-v2") &&
 	    smmu->num_context_banks == 5)
