@@ -914,11 +914,6 @@
 	reg = <0x0 0x94d00000 0x0 0x500000>;
 };
 
-&remoteproc_adsp {
-	firmware-name = "qcom/msm8998/joan/adsp.mdt";
-	status = "okay";
-};
-
 &remoteproc_mss {
 	firmware-name = "qcom/msm8998/joan/mba.mbn",
 			"qcom/msm8998/joan/modem.mdt";
