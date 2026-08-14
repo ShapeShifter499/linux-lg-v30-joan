@@ -4896,7 +4896,8 @@ static int hci_le_set_default_phy_sync(struct hci_dev *hdev)
 {
 	struct hci_cp_le_set_default_phy cp;
 
-	if (!(hdev->commands[35] & 0x20)) {
+	if (!(hdev->commands[35] & 0x20) ||
+	    hci_test_quirk(hdev, HCI_QUIRK_BROKEN_LE_SET_DEFAULT_PHY)) {
 		/* If the command is not supported it means only 1M PHY is
 		 * supported.
 		 */

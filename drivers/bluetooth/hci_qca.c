@@ -1994,6 +1994,7 @@ retry:
 		 *   Bluetooth: hci0: Opcode 0x204b failed: -38
 		 */
 		hci_set_quirk(hdev, HCI_QUIRK_BROKEN_READ_TRANSMIT_POWER);
+		hci_set_quirk(hdev, HCI_QUIRK_BROKEN_LE_SET_DEFAULT_PHY);
 
 		hci_set_aosp_capable(hdev);
 
