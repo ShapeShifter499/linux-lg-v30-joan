@@ -1658,7 +1658,8 @@ static const struct iommu_ops arm_smmu_ops = {
 	}
 };
 
-static void arm_smmu_device_reset(struct arm_smmu_device *smmu)
+static void __arm_smmu_device_reset(struct arm_smmu_device *smmu,
+				    bool skip_stream_mapping)
 {
 	int i;
 	u32 reg;
@@ -1670,7 +1671,17 @@ static void arm_smmu_device_reset(struct arm_smmu_device *smmu)
 	/*
 	 * Reset stream mapping groups: Initial values mark all SMRn as
 	 * invalid and all S2CRn as bypass unless overridden.
+	 *
+	 * An implementation that retains its stream mapping and context bank
+	 * state across a power collapse must not have it overwritten here on
+	 * the way back up, and on some of those the registers are firmware
+	 * protected once the client device has been brought up, so they can
+	 * not even be read.  Everything below still has to run: the TLB is
+	 * not retained, and sCR0 comes back with client access disabled.
 	 */
+	if (skip_stream_mapping)
+		goto invalidate;
+
 	for (i = 0; i < smmu->num_mapping_groups; ++i)
 		arm_smmu_write_sme(smmu, i);
 
@@ -1679,6 +1690,8 @@ static void arm_smmu_device_reset(struct arm_smmu_device *smmu)
 		arm_smmu_write_context_bank(smmu, i);
 		arm_smmu_cb_write(smmu, i, ARM_SMMU_CB_FSR, ARM_SMMU_CB_FSR_FAULT);
 	}
+
+invalidate:
 
 	/* Invalidate the TLB, just in case */
 	arm_smmu_gr0_write(smmu, ARM_SMMU_GR0_TLBIALLH, QCOM_DUMMY_VAL);
@@ -1718,6 +1731,11 @@ static void arm_smmu_device_reset(struct arm_smmu_device *smmu)
 	/* Push the button */
 	arm_smmu_tlb_sync_global(smmu);
 	arm_smmu_gr0_write(smmu, ARM_SMMU_GR0_sCR0, reg);
+}
+
+static void arm_smmu_device_reset(struct arm_smmu_device *smmu)
+{
+	__arm_smmu_device_reset(smmu, false);
 }
 
 static int arm_smmu_id_size_to_bits(int size)
@@ -2299,15 +2317,15 @@ static int __maybe_unused arm_smmu_runtime_resume(struct device *dev)
 		return ret;
 
 	/*
-	 * Some implementations keep their configuration across a power-domain
-	 * collapse, and re-initialising them is at best redundant. Where the
-	 * firmware owns part of the register file it can also be actively
-	 * harmful, so leave such devices alone.
+	 * Some implementations keep their stream mapping and context bank
+	 * state across a power-domain collapse, and rewriting it here is at
+	 * best redundant. Where the firmware owns that part of the register
+	 * file it is actively harmful, so leave it alone -- but still clear
+	 * the global fault status, invalidate the TLB and reprogram sCR0,
+	 * none of which survive the collapse.
 	 */
-	if (smmu->features & ARM_SMMU_FEAT_RETAIN_ACROSS_PD)
-		return 0;
-
-	arm_smmu_device_reset(smmu);
+	__arm_smmu_device_reset(smmu,
+				!!(smmu->features & ARM_SMMU_FEAT_RETAIN_ACROSS_PD));
 
 	return 0;
 }
