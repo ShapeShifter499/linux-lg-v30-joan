@@ -1996,6 +1996,14 @@ retry:
 		hci_set_quirk(hdev, HCI_QUIRK_BROKEN_READ_TRANSMIT_POWER);
 		hci_set_quirk(hdev, HCI_QUIRK_BROKEN_LE_SET_DEFAULT_PHY);
 
+		/*
+		 * Extended scanning is claimed but LE Set Extended Scan Parameters
+		 * is answered with Unknown HCI Command, so discovery fails:
+		 *
+		 *   Bluetooth: hci0: Opcode 0x2041 failed: -56
+		 */
+		hci_set_quirk(hdev, HCI_QUIRK_BROKEN_EXT_SCAN);
+
 		hci_set_aosp_capable(hdev);
 
 		ret = qca_read_soc_version(hdev, &ver, soc_type);
