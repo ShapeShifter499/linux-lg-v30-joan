@@ -6,6 +6,9 @@
  * Copyright (c) 2014,2017 The Linux Foundation. All rights reserved.
  */
 
+#include <linux/pm_opp.h>
+#include <linux/property.h>
+
 #include "adreno_gpu.h"
 
 bool hang_debug = false;
@@ -328,10 +331,22 @@ static int adreno_runtime_suspend(struct device *dev)
 	msm_perfcntr_suspend(gpu);
 
 	ret = gpu->funcs->pm_suspend(gpu);
-	if (ret)
+	if (ret) {
 		msm_perfcntr_resume(gpu);
+		return ret;
+	}
 
-	return ret;
+	/*
+	 * Where the OPP core owns a supply for us it keeps that supply enabled
+	 * from the first dev_pm_opp_set_rate() onwards, which would hold the
+	 * rail up for as long as the machine is running. Setting a rate of 0
+	 * is how a consumer tells the OPP core it is done with it for now; the
+	 * next set_rate on resume brings it back.
+	 */
+	if (device_property_present(dev, "vdd-supply"))
+		dev_pm_opp_set_rate(dev, 0);
+
+	return 0;
 }
 
 static void suspend_scheduler(struct msm_gpu *gpu)
