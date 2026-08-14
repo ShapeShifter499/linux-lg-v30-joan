@@ -544,11 +544,11 @@ static int qcom_adreno_smmuv2_cfg_probe(struct arm_smmu_device *smmu)
 	 * 0x05040000-0x05060000 with non-secure read and write both denied, so
 	 * any access -- a read is enough -- raises a bus error that the secure
 	 * side turns into a system reset, with nothing logged on the Linux
-	 * side. The block keeps its configuration across a power collapse, so
-	 * re-initialising it on resume is unnecessary as well as fatal.
+	 * side. That leaves no way to restore the mapping after the domain
+	 * collapses, so the device has to stay resident instead.
 	 */
 	if (of_device_is_compatible(smmu->dev->of_node, "qcom,msm8998-smmu-v2"))
-		smmu->features |= ARM_SMMU_FEAT_RETAIN_ACROSS_PD;
+		smmu->features |= ARM_SMMU_FEAT_PIN_POWERED;
 
 	/* TZ protects several last context banks, hide them from Linux */
 	if (of_device_is_compatible(smmu->dev->of_node, "qcom,sdm630-smmu-v2") &&

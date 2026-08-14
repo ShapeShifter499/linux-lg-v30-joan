@@ -308,10 +308,12 @@ struct arm_smmu_device {
 #define ARM_SMMU_FEAT_FMT_AARCH32_S	(1 << 11)
 #define ARM_SMMU_FEAT_EXIDS		(1 << 12)
 /*
- * Set by an implementation whose configuration survives a power-domain
- * collapse, so runtime resume must not re-initialise the device.
+ * Set by an implementation that cannot be re-initialised once its client
+ * device is up, because firmware owns the stream mapping registers. Such a
+ * device must not be allowed to lose its configuration to a power-domain
+ * collapse, so it is kept runtime-resident for its whole lifetime.
  */
-#define ARM_SMMU_FEAT_RETAIN_ACROSS_PD	BIT(13)
+#define ARM_SMMU_FEAT_PIN_POWERED	BIT(13)
 	u32				features;
 
 	enum arm_smmu_arch_version	version;

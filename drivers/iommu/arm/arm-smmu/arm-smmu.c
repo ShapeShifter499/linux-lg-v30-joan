@@ -2272,6 +2272,16 @@ static int arm_smmu_device_probe(struct platform_device *pdev)
 		pm_runtime_set_active(dev);
 		pm_runtime_enable(dev);
 		arm_smmu_rpm_use_autosuspend(smmu);
+
+		/*
+		 * Where firmware owns the stream mapping registers they cannot
+		 * be reprogrammed once the client device is up -- on some
+		 * implementations they cannot even be read -- so a collapse of
+		 * the power domain loses the mapping for good.  Hold a usage
+		 * reference for the lifetime of the device to keep it resident.
+		 */
+		if (smmu->features & ARM_SMMU_FEAT_PIN_POWERED)
+			pm_runtime_get_noresume(dev);
 	}
 
 	return 0;
@@ -2325,7 +2335,7 @@ static int __maybe_unused arm_smmu_runtime_resume(struct device *dev)
 	 * none of which survive the collapse.
 	 */
 	__arm_smmu_device_reset(smmu,
-				!!(smmu->features & ARM_SMMU_FEAT_RETAIN_ACROSS_PD));
+				!!(smmu->features & ARM_SMMU_FEAT_PIN_POWERED));
 
 	return 0;
 }
