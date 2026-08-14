@@ -252,6 +252,18 @@ enum {
 	 */
 	HCI_QUIRK_BROKEN_READ_TRANSMIT_POWER,
 
+	/*
+	 * When this quirk is set, LE Set Default PHY is not sent to the
+	 * controller and only the 1M PHY is used.
+	 *
+	 * This quirk is for controllers that advertise the command in their
+	 * supported commands bitmap but answer it with Unknown HCI Command,
+	 * which fails LE init and leaves the controller unusable.
+	 *
+	 * This quirk must be set before hci_register_dev is called.
+	 */
+	HCI_QUIRK_BROKEN_LE_SET_DEFAULT_PHY,
+
 	/* When this quirk is set, HCI_OP_SET_EVENT_FLT requests with
 	 * HCI_FLT_CLEAR_ALL are ignored and event filtering is
 	 * completely avoided. A subset of the CSR controller

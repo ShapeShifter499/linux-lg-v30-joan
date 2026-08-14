@@ -1985,6 +1985,25 @@ retry:
 		if (qcadev && qcadev->bdaddr_property_broken)
 			hci_set_quirk(hdev, HCI_QUIRK_BDADDR_PROPERTY_BROKEN);
 
+		/*
+		 * These controllers answer HCI_OP_LE_READ_TRANSMIT_POWER with a
+		 * one byte command complete instead of the three the spec
+		 * requires, which fails the command and aborts HCI init:
+		 *
+		 *   Bluetooth: hci0: unexpected cc 0x204b length: 1 < 3
+		 *   Bluetooth: hci0: Opcode 0x204b failed: -38
+		 */
+		hci_set_quirk(hdev, HCI_QUIRK_BROKEN_READ_TRANSMIT_POWER);
+		hci_set_quirk(hdev, HCI_QUIRK_BROKEN_LE_SET_DEFAULT_PHY);
+
+		/*
+		 * Extended scanning is claimed but LE Set Extended Scan Parameters
+		 * is answered with Unknown HCI Command, so discovery fails:
+		 *
+		 *   Bluetooth: hci0: Opcode 0x2041 failed: -56
+		 */
+		hci_set_quirk(hdev, HCI_QUIRK_BROKEN_EXT_SCAN);
+
 		hci_set_aosp_capable(hdev);
 
 		ret = qca_read_soc_version(hdev, &ver, soc_type);
