@@ -1821,10 +1821,17 @@
 			compatible = "qcom,msm8998-smmu-v2", "qcom,adreno-smmu",
 				     "qcom,smmu-v2";
 			reg = <0x05040000 0x10000>;
+			/*
+			 * "mem_src" gates the source of the GFX BIMC path that
+			 * "mem"/"mem_iface" branch off. The GPU holds it too,
+			 * but it drops it on runtime suspend, and the SMMU
+			 * still has to reach the GPU-side TBU to invalidate.
+			 */
 			clocks = <&gcc GCC_GPU_CFG_AHB_CLK>,
 				 <&gcc GCC_BIMC_GFX_CLK>,
-				 <&gcc GCC_GPU_BIMC_GFX_CLK>;
-			clock-names = "iface", "mem", "mem_iface";
+				 <&gcc GCC_GPU_BIMC_GFX_CLK>,
+				 <&gcc GCC_GPU_BIMC_GFX_SRC_CLK>;
+			clock-names = "iface", "mem", "mem_iface", "mem_src";
 
 			#global-interrupts = <0>;
 			#iommu-cells = <1>;
