@@ -1405,8 +1405,18 @@ static int a5xx_pm_suspend(struct msm_gpu *gpu)
 	 * path wedged.  Give the GPMU the same bounded 100 usec window used
 	 * downstream, and fail the runtime suspend without touching VBIF,
 	 * clocks or regulators if collapse never completes.
+	 *
+	 * Only the GPMU ever performs that collapse, and it is loaded and
+	 * started by hw_init().  a5xx_pm_resume() powers SP/TP and RBCCU up by
+	 * hand on every resume, so a GPU that was woken but never initialised
+	 * -- a wake with no submit, which runtime PM autosuspends again a
+	 * moment later -- has both domains on with nothing running that could
+	 * turn them off.  Polling then cannot do anything but time out and
+	 * strand the device in runtime-PM error.  Skip the wait in that case,
+	 * the same way a6xx_gmu_shutdown() special-cases a GMU that never
+	 * completed a wake handshake.
 	 */
-	if (adreno_is_a540(adreno_gpu)) {
+	if (adreno_is_a540(adreno_gpu) && !gpu->needs_hw_init) {
 		ret = spin_usecs(gpu, 100, REG_A5XX_GPMU_SP_PWR_CLK_STATUS,
 				 BIT(20), 0);
 		if (!ret)
