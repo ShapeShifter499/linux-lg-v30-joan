@@ -324,6 +324,20 @@ static int ath10k_install_key(struct ath10k_vif *arvif,
 	if (ret)
 		return ret;
 
+	/* The tested WCN3990 firmware did not provide a matching completion
+	 * before the driver timeout after deleting a pairwise key. Qualcomm's
+	 * downstream driver also reports key commands complete without waiting
+	 * for this indication. Keep waiting for real key installs and group-key
+	 * replacement, but avoid three seconds of teardown latency here.
+	 */
+	if (cmd == DISABLE_KEY && !(flags & WMI_KEY_GROUP) &&
+	    ar->skip_pairwise_delete_key_wait) {
+		ath10k_dbg(ar, ATH10K_DBG_MAC,
+			   "mac skip pairwise delete key completion wait vdev %i peer %pM\n",
+			   arvif->vdev_id, macaddr);
+		return 0;
+	}
+
 	time_left = wait_for_completion_timeout(&ar->install_key_done, 3 * HZ);
 	if (time_left == 0)
 		return -ETIMEDOUT;

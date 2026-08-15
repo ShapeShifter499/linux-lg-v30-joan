@@ -1365,6 +1365,10 @@ static void ath10k_snoc_quirks_init(struct ath10k *ar)
 
 	if (of_property_read_bool(dev->of_node, "qcom,snoc-host-cap-skip-quirk"))
 		set_bit(ATH10K_SNOC_FLAG_SKIP_HOST_CAP_QUIRK, &ar_snoc->flags);
+
+	ar->skip_pairwise_delete_key_wait =
+		of_property_read_bool(dev->of_node,
+				      "qcom,skip-pairwise-delete-key-wait");
 }
 
 int ath10k_snoc_fw_indication(struct ath10k *ar, u64 type)
