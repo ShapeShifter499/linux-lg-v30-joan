@@ -3556,6 +3556,21 @@ static void ath10k_mac_update_channel_list(struct ath10k *ar,
 					IEEE80211_CHAN_DISABLED;
 		}
 	}
+
+	/* Withhold a channel the firmware cannot be asked to scan. This has
+	 * to happen here rather than once at registration time: ath10k
+	 * requests its own regulatory domain with REGULATORY_STRICT_REG, and
+	 * for such a driver the regulatory core rebuilds both flags and
+	 * orig_flags from the rule, which would clear the bit again.
+	 */
+	if (ar->hw_params.unsupported_5ghz_freq) {
+		for (i = 0; i < band->n_channels; i++) {
+			if (band->channels[i].center_freq ==
+			    ar->hw_params.unsupported_5ghz_freq)
+				band->channels[i].flags |=
+					IEEE80211_CHAN_DISABLED;
+		}
+	}
 }
 
 static void ath10k_reg_notifier(struct wiphy *wiphy,

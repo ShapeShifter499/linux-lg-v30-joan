@@ -737,6 +737,7 @@ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
 		.rx_ring_fill_level = HTT_RX_RING_FILL_LEVEL_DUAL_MAC,
 		.shadow_reg_support = true,
 		.rri_on_ddr = true,
+		.unsupported_5ghz_freq = 5845,
 		.hw_filter_reset_required = false,
 		.fw_diag_ce_download = false,
 		.credit_size_workaround = false,
