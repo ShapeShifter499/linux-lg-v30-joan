@@ -638,6 +638,11 @@ struct ath10k_hw_params {
 
 	/* The hardware support multicast frame registrations */
 	bool mcast_frame_registration;
+
+	/* Center frequency in MHz of a 5 GHz channel this firmware cannot
+	 * handle in a scan request, or 0 if every channel is supported.
+	 */
+	u16 unsupported_5ghz_freq;
 };
 
 struct htt_resp;
