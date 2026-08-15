@@ -183,6 +183,12 @@ properties:
       Quirk specifying that the firmware wants to skip the host
       capability QMI request
 
+  qcom,skip-pairwise-delete-key-wait:
+    type: boolean
+    description:
+      Quirk specifying that the firmware does not reliably provide a matching
+      completion before the driver timeout after deleting a pairwise key.
+
   qcom,xo-cal-data:
     $ref: /schemas/types.yaml#/definitions/uint32
     description:
