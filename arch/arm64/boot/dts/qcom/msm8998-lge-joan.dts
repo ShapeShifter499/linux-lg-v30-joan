@@ -8,6 +8,8 @@
 
 /dts-v1/;
 
+#include <dt-bindings/sound/qcom,q6afe.h>
+#include <dt-bindings/sound/qcom,q6asm.h>
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/input/input.h>
 #include <dt-bindings/pinctrl/qcom,pmic-gpio.h>
@@ -488,6 +490,14 @@
 &tlmm {
 	gpio-reserved-ranges = <0 4>, <49 4>, <81 4>;
 
+	wcd_intr_default: wcd-intr-default-state {
+		pins = "gpio54";
+		function = "gpio";
+		bias-pull-down;
+		drive-strength = <2>;
+	};
+
+
 	/*
 	 * The SoC-level sdc2_cd state uses the MTP's GPIO 95; joan routes
 	 * SD card-detect to GPIO 40 (downstream msm8998-joan_*.dtsi,
@@ -551,19 +561,29 @@
 &usb3 {
 	status = "okay";
 
-	/* Run USB 2 only for bring-up */
+	/* Run USB 2 only -- see the note on usb3_dwc3 below. */
 	qcom,select-utmi-as-pipe-clk;
 };
 
 &usb3_dwc3 {
-	/* Drop the unused USB 3 PHY */
+	/*
+	 * USB 2, peripheral only. The SuperSpeed + dr_mode="otg" +
+	 * usb-role-switch variant was tried on device 2026-08-16 with
+	 * CONFIG_PHY_QCOM_QMP_USB=y and it produced NO USB AT ALL: the kernel
+	 * boots (fastboot returns, pmOS runs) but no gadget ever enumerates.
+	 * So the modular-PHY theory is dead -- the DT change itself is what
+	 * breaks it. Most likely dr_mode="otg" + usb-role-switch with no
+	 * role-switch provider on this SoC: dwc3 registers the switch, nothing
+	 * ever sets a role, and the gadget never starts.
+	 *
+	 * Next experiment should be dr_mode="host" (no role provider needed)
+	 * to isolate whether the USB3 PHY itself is fine, and it must be
+	 * tested ALONE -- bundling it with the adsp_mem change cost a boot
+	 * and made the result unattributable.
+	 */
 	phys = <&qusb2phy>;
 	phy-names = "usb2-phy";
-
-	/* Fastest mode for USB 2 */
 	maximum-speed = "high-speed";
-
-	/* Force to peripheral until we can switch modes */
 	dr_mode = "peripheral";
 };
 
@@ -577,9 +597,10 @@
 
 /*
  * Display: SW43402 DSC command-mode panel.
- * NOTE: bringup-stage, not yet validated on device. The MDSS blocks sit
- * behind the mmss SMMU (cd00000.iommu), which currently fails deferred
- * probe (-110) — this chain will not light up until that is resolved.
+ * Validated on device — the panel lights up and GPU rendering works. The
+ * mmss SMMU (cd00000.iommu) deferred-probe -110 that once blocked this
+ * chain is resolved; see the MDSS BCR reset note below for the remaining
+ * bootloader-handoff workaround.
  * Panel rails are board GPIO-enabled fixed supplies (downstream uses
  * lge,gpio-vddio = TLMM 92, lge,gpio-vpnl = TLMM 69).
  */
@@ -899,19 +920,179 @@
 };
 
 &adsp_mem {
-	reg = <0x0 0x92b00000 0x0 0x1b00000>;
+	/*
+	 * 30 MB, matching joan's own downstream override
+	 * (msm8998-joan-common-pm.dtsi), not the generic msm8998 27 MB that
+	 * was here before.
+	 *
+	 * joan's adsp.mdt needs exactly 0x1e00000 of relocatable PT_LOAD span
+	 * (0x91900000..0x93700000; the 0x93700000 QCOM_MDT_TYPE_HASH phdr is
+	 * excluded). mainline mdt_loader.c and downstream pil_setup_region()
+	 * compute the same figure, and mdt_loader rejects on
+	 * `offset + p_memsz > mem_size` regardless of relocation -- so at 27 MB
+	 * the ADSP dies with "segment outside memory range" / rproc start -22.
+	 *
+	 * LG moves the chain with it. adsp/video/mba below are LG's values
+	 * verbatim. slpi deliberately is NOT: LG gives it 0xf00000 running to
+	 * 0x95f00000, which would swallow mainline's ipa_fw_mem, ipa_gsi_mem
+	 * and wlan_msa_mem. Following the existing design note above, SLPI is
+	 * not enabled here, so it keeps only enough to clear adsp and stops at
+	 * 0x95200000 where ipa_fw_mem begins. Everything from 0x95200000 up --
+	 * ipa, wlan_msa, gpu_mem and the reserved@ plug nodes -- is therefore
+	 * untouched and keeps working.
+	 *
+	 * UNTESTED ON DEVICE. An earlier attempt at this layout booted to no
+	 * USB, but that image also enabled the USB3 PHY in DT while
+	 * CONFIG_PHY_QCOM_QMP_USB was =m, so dwc3 deferred forever on a PHY
+	 * that cannot load on a RAM boot. There is no evidence the layout
+	 * itself is at fault. Test it with PHY_QCOM_QMP_USB=y, and change one
+	 * thing at a time.
+	 */
+	reg = <0x0 0x92b00000 0x0 0x1e00000>;
 };
 
 &venus_mem {
-	reg = <0x0 0x94600000 0x0 0x500000>;
+	/* LG joan pil_video_mem */
+	reg = <0x0 0x94900000 0x0 0x500000>;
 };
 
 &mba_mem {
-	reg = <0x0 0x94b00000 0x0 0x200000>;
+	/* LG joan pil_mba_mem */
+	reg = <0x0 0x94e00000 0x0 0x200000>;
 };
 
 &slpi_mem {
-	reg = <0x0 0x94d00000 0x0 0x500000>;
+	/*
+	 * 2 MB, stopping at ipa_fw_mem. LG's own value is 0xf00000 to
+	 * 0x95f00000, but that range holds mainline's ipa/wlan_msa/gpu
+	 * nodes, which work and must not move. SLPI is not enabled.
+	 */
+	reg = <0x0 0x95000000 0x0 0x200000>;
+};
+
+/*
+ * SLIMbus. The NGD is managed by the ADSP, so this can only work once
+ * remoteproc adsp is running (device-verified 2026-08-16). Enabling it here
+ * to see whether the NGD probes; the WCD934x codec node is a separate step.
+ */
+&slimbam {
+	status = "okay";
+};
+
+&slim {
+	status = "okay";
+
+	/*
+	 * WCD9340 (tavil). Downstream declares it as qcom,tavil-slim-pgd with
+	 * elemental-addr [00 01 50 02 17 02] -- manufacturer 0x217, product
+	 * 0x250 -- which is exactly mainline's "slim217,250", so the sdm845
+	 * node shape applies directly.
+	 *
+	 * joan specifics taken from downstream msm8998-audio.dtsi:
+	 *   interrupt  tlmm 54   (wcd9xxx_intc: qcom,gpio-connect = <&tlmm 54 0>)
+	 *   mclk       LN_BB from the PMIC (clock_audio_lnbb / wcd_clk); on
+	 *              msm8998 that is rpmcc RPM_SMD_LN_BB_CLK1, which is in the
+	 *              msm8998 rpm clk table and already used elsewhere here.
+	 *
+	 * NOT probed yet. Requires the ADSP running (it manages the NGD).
+	 */
+	slim@1 {
+		reg = <1>;
+		#address-cells = <2>;
+		#size-cells = <0>;
+
+		wcd9340_ifd: ifd@0,0 {
+			compatible = "slim217,250";
+			reg = <0 0>;
+		};
+
+		wcd9340: codec@1,0 {
+			compatible = "slim217,250";
+			reg = <1 0>;
+			slim-ifc-dev = <&wcd9340_ifd>;
+
+			/*
+			 * All five rails come off PM8998 S4 at 1.8 V. Downstream
+			 * feeds cdc-vdd-buck / cdc-buck-sido / cdc-vdd-tx-h /
+			 * cdc-vdd-rx-h / cdc-vddpx-1 all from <&pm8998_s4> at
+			 * 1800000, which is vreg_s4a_1p8 here. Without these the
+			 * codec runs on dummy regulators and SLIMbus logical-address
+			 * assignment fails ("Failed to get logical address").
+			 */
+			vdd-buck-supply = <&vreg_s4a_1p8>;
+			vdd-buck-sido-supply = <&vreg_s4a_1p8>;
+			vdd-tx-supply = <&vreg_s4a_1p8>;
+			vdd-rx-supply = <&vreg_s4a_1p8>;
+			vdd-io-supply = <&vreg_s4a_1p8>;
+
+			#sound-dai-cells = <1>;
+
+			interrupts-extended = <&tlmm 54 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+
+			/*
+			 * Codec reset. Downstream: wcd_rst_gpio msm_cdc_pinctrl@64
+			 * with qcom,cdc-rst-n-gpio = <&tlmm 64 0>. The mainline
+			 * wcd934x mfd takes this as an optional "reset" gpio and
+			 * asserts it before SLIMbus enumeration.
+			 */
+			reset-gpios = <&tlmm 64 GPIO_ACTIVE_HIGH>;
+
+			clock-names = "extclk";
+			clocks = <&rpmcc RPM_SMD_LN_BB_CLK1>;
+
+			#clock-cells = <0>;
+			clock-frequency = <9600000>;
+			clock-output-names = "mclk";
+
+			pinctrl-0 = <&wcd_intr_default>;
+			pinctrl-names = "default";
+
+			qcom,micbias1-microvolt = <1800000>;
+			qcom,micbias2-microvolt = <1800000>;
+			qcom,micbias3-microvolt = <1800000>;
+			qcom,micbias4-microvolt = <1800000>;
+
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			wcdgpio: gpio-controller@42 {
+				compatible = "qcom,wcd9340-gpio";
+				gpio-controller;
+				#gpio-cells = <2>;
+				reg = <0x42 0x2>;
+			};
+
+			/*
+			 * The WCD934x MFD instantiates a soundwire child
+			 * unconditionally; without this node it fails with
+			 * "wcd934x-soundwire: Failed to locate of_node [id: -2]".
+			 * Port layout is the codec's own and is identical to the
+			 * sdm845 shared dtsi -- it describes the WCD934x internal
+			 * link, not anything board-specific. joan drives its
+			 * loudspeaker via a TFA98xx on I2C rather than WSA parts on
+			 * this bus, so no slave devices are declared here.
+			 */
+			swm: soundwire@c85 {
+				compatible = "qcom,soundwire-v1.3.0";
+				reg = <0xc85 0x40>;
+				interrupts-extended = <&wcd9340 20>;
+
+				qcom,dout-ports = <6>;
+				qcom,din-ports = <2>;
+				qcom,ports-sinterval-low = /bits/ 8 <0x07 0x1f 0x3f 0x7 0x1f 0x3f 0x0f 0x0f>;
+				qcom,ports-offset1 = /bits/ 8 <0x01 0x02 0x0c 0x6 0x12 0x0d 0x07 0x0a>;
+				qcom,ports-offset2 = /bits/ 8 <0x00 0x00 0x1f 0x00 0x00 0x1f 0x00 0x00>;
+
+				#sound-dai-cells = <1>;
+				clocks = <&wcd9340>;
+				clock-names = "iface";
+				#address-cells = <2>;
+				#size-cells = <0>;
+			};
+		};
+	};
 };
 
 &remoteproc_adsp {
@@ -936,4 +1117,70 @@
 	memory-region = <&ipa_fw_mem>;
 	qcom,gsi-loader = "self";
 	status = "okay";
+};
+
+/*
+ * Minimal sound card for first light. Playback and capture over SLIMBUS_0 to
+ * the WCD9340, plus one MultiMedia frontend each way -- enough to create an
+ * ALSA card and prove the q6 <-> codec path, not a full topology.
+ *
+ * compatible is "qcom,sdm845-sndcard" deliberately. sound/soc/qcom/sdm845.c
+ * implements exactly this topology (q6 frontends + wcd934x over SLIMbus) and
+ * its match table says "Do not grow the list for compatible devices", which is
+ * why db845c and yoga-c630 reuse it too. joan has the same codec and the same
+ * DAI shape. If msm8998 later needs behaviour sdm845.c does not provide, this
+ * is the thing to revisit.
+ *
+ * NOT YET PROBED.
+ */
+/ {
+	sound {
+		compatible = "qcom,sdm845-sndcard";
+		model = "LG-V30";
+		status = "okay";
+
+		mm1-dai-link {
+			link-name = "MultiMedia1";
+			cpu {
+				sound-dai = <&q6asmdai MSM_FRONTEND_DAI_MULTIMEDIA1>;
+			};
+		};
+
+		mm2-dai-link {
+			link-name = "MultiMedia2";
+			cpu {
+				sound-dai = <&q6asmdai MSM_FRONTEND_DAI_MULTIMEDIA2>;
+			};
+		};
+
+		slim-playback-dai-link {
+			link-name = "SLIM Playback";
+			cpu {
+				sound-dai = <&q6afedai SLIMBUS_0_RX>;
+			};
+
+			platform {
+				sound-dai = <&q6routing>;
+			};
+
+			codec {
+				sound-dai = <&wcd9340 0>;
+			};
+		};
+
+		slim-capture-dai-link {
+			link-name = "SLIM Capture";
+			cpu {
+				sound-dai = <&q6afedai SLIMBUS_0_TX>;
+			};
+
+			platform {
+				sound-dai = <&q6routing>;
+			};
+
+			codec {
+				sound-dai = <&wcd9340 1>;
+			};
+		};
+	};
 };
