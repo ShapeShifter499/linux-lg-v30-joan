@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 /* Copyright (c) 2016, The Linux Foundation. All rights reserved. */
 
+#include <dt-bindings/soc/qcom,apr.h>
 #include <dt-bindings/interrupt-controller/arm-gic.h>
 #include <dt-bindings/clock/qcom,dsi-phy-28nm.h>
 #include <dt-bindings/clock/qcom,gcc-msm8998.h>
@@ -3636,6 +3637,48 @@
 			power-domains = <&mmcc BIMC_SMMU_GDSC>;
 		};
 
+		/*
+		 * SLIMbus. Prerequisite for the WCD934x audio codec (and its
+		 * microphone TX path), neither of which mainline joan can reach
+		 * without it.
+		 *
+		 * The block sits at the same addresses and IRQs as sdm845's --
+		 * NGD 0x171c0000 IRQ 163, BAM 0x17184000 IRQ 164 -- which is
+		 * also what msm8998 downstream declares (its slim_aud node).
+		 * msm8996 is a different base (0x91c0000) and v1.5.0. Both
+		 * compatibles resolve to the same ngd_v1_5_offset_info in
+		 * qcom-ngd-ctrl.c, so the version string is cosmetic to the
+		 * driver; v2.1.0 is chosen to match the address-identical
+		 * sdm845 block.
+		 *
+		 * NOT yet probed on device -- address/IRQ identity is strong
+		 * evidence of the same IP, not proof. Verify before relying on it.
+		 */
+		slimbam: dma-controller@17184000 {
+			compatible = "qcom,bam-v1.7.4", "qcom,bam-v1.7.0";
+			qcom,controlled-remotely;
+			reg = <0x17184000 0x2a000>;
+			num-channels = <23>;
+			interrupts = <GIC_SPI 164 IRQ_TYPE_LEVEL_HIGH>;
+			#dma-cells = <1>;
+			qcom,ee = <1>;
+			qcom,num-ees = <4>;
+			status = "disabled";
+		};
+
+		slim: slim-ngd@171c0000 {
+			compatible = "qcom,slim-ngd-v2.1.0";
+			reg = <0x171c0000 0x2c000>;
+			interrupts = <GIC_SPI 163 IRQ_TYPE_LEVEL_HIGH>;
+
+			dmas = <&slimbam 3>, <&slimbam 4>;
+			dma-names = "rx", "tx";
+
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
 		remoteproc_adsp: remoteproc@17300000 {
 			compatible = "qcom,msm8998-adsp-pas";
 			reg = <0x17300000 0x4040>;
@@ -3666,6 +3709,66 @@
 				label = "lpass";
 				qcom,remote-pid = <2>;
 				mboxes = <&apcs_glb 9>;
+
+				/*
+				 * APR and the Q6 audio services. Without these the
+				 * ADSP boots but exposes nothing, so no ALSA card is
+				 * ever created even with the codec enumerated.
+				 *
+				 * Modelled on sdm845. Two deliberate omissions:
+				 * qcom,protection-domain (msm8998 does not run the
+				 * audio PD split -- there are no PD maps in its
+				 * firmware) and the q6asmdai iommus property
+				 * (msm8998 has no apps_smmu; its ADSP sits behind
+				 * lpass_q6_smmu instead).
+				 */
+				apr {
+					compatible = "qcom,apr-v2";
+					qcom,glink-channels = "apr_audio_svc";
+					qcom,domain = <APR_DOMAIN_ADSP>;
+					#address-cells = <1>;
+					#size-cells = <0>;
+					qcom,intents = <512 20>;
+
+					service@3 {
+						reg = <APR_SVC_ADSP_CORE>;
+						compatible = "qcom,q6core";
+					};
+
+					q6afe: service@4 {
+						compatible = "qcom,q6afe";
+						reg = <APR_SVC_AFE>;
+
+						q6afedai: dais {
+							compatible = "qcom,q6afe-dais";
+							#address-cells = <1>;
+							#size-cells = <0>;
+							#sound-dai-cells = <1>;
+						};
+					};
+
+					q6asm: service@7 {
+						compatible = "qcom,q6asm";
+						reg = <APR_SVC_ASM>;
+
+						q6asmdai: dais {
+							compatible = "qcom,q6asm-dais";
+							#address-cells = <1>;
+							#size-cells = <0>;
+							#sound-dai-cells = <1>;
+						};
+					};
+
+					q6adm: service@8 {
+						compatible = "qcom,q6adm";
+						reg = <APR_SVC_ADM>;
+
+						q6routing: routing {
+							compatible = "qcom,q6adm-routing";
+							#sound-dai-cells = <0>;
+						};
+					};
+				};
 			};
 		};
 
