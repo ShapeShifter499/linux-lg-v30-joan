@@ -820,6 +820,243 @@ static const struct resources_icc icc_res_2290[] = {
 	},
 };
 
+/*
+ * msm8998 CAMSS. Same IP generation as sdm660 (VFE 4.8 / ISPIF, 3 CSIPHY,
+ * 4 CSID, 2 VFE), so CAMSS_660 and the *_ops_4_8 / _4_7 / _3ph_1_0 handlers
+ * are reused. msm8998 differs from the sdm660 tables in exactly four ways,
+ * which is why it needs its own csiphy/csid/vfe arrays rather than sharing
+ * sdm660's:
+ *
+ *   1. CSIPHY registers live at 0x0ca34000/5000/6000 (sdm630 uses 0x0c824000).
+ *   2. There is no CSIPHY clk_mux range, so .reg carries only "csiphyN".
+ *   3. mmcc-msm8998 has no CSIPHY_AHB2CRIF_CLK  -> no "csiphy_ahb2crif".
+ *   4. mmcc-msm8998 has no THROTTLE_CAMSS_AXI_CLK -> no "throttle_axi".
+ *
+ * Everything else -- CSID/ISPIF/VFE addresses and every interrupt -- is
+ * identical to sdm630's camss node.
+ *
+ * Clock rates come from downstream msm8998-camera.dtsi. The VFE rate list is
+ * that SoC's three OPP levels (low/nominal/turbo), not an invented ramp.
+ *
+ * NOT YET PROBED ON HARDWARE. The hw_ops/formats choices are inferred from the
+ * IP-version match and identical block topology; a wrong choice makes CAMSS
+ * fail to probe, which is harmless.
+ */
+static const struct camss_subdev_resources csiphy_res_8998[] = {
+	/* CSIPHY0 */
+	{
+		.regulators = {},
+		.clock = { "top_ahb", "ispif_ahb", "ahb", "csiphy0_timer",
+			   "csi0_phy" },
+		.clock_rate = { { 0 },
+				{ 0 },
+				{ 0 },
+				{ 200000000 },
+				{ 0 } },
+		.reg = { "csiphy0" },
+		.interrupt = { "csiphy0" },
+		.csiphy = {
+			.id = 0,
+			.hw_ops = &csiphy_ops_3ph_1_0,
+			.formats = &csiphy_formats_8x96
+		}
+	},
+
+	/* CSIPHY1 */
+	{
+		.regulators = {},
+		.clock = { "top_ahb", "ispif_ahb", "ahb", "csiphy1_timer",
+			   "csi1_phy" },
+		.clock_rate = { { 0 },
+				{ 0 },
+				{ 0 },
+				{ 200000000 },
+				{ 0 } },
+		.reg = { "csiphy1" },
+		.interrupt = { "csiphy1" },
+		.csiphy = {
+			.id = 1,
+			.hw_ops = &csiphy_ops_3ph_1_0,
+			.formats = &csiphy_formats_8x96
+		}
+	},
+
+	/* CSIPHY2 */
+	{
+		.regulators = {},
+		.clock = { "top_ahb", "ispif_ahb", "ahb", "csiphy2_timer",
+			   "csi2_phy" },
+		.clock_rate = { { 0 },
+				{ 0 },
+				{ 0 },
+				{ 200000000 },
+				{ 0 } },
+		.reg = { "csiphy2" },
+		.interrupt = { "csiphy2" },
+		.csiphy = {
+			.id = 2,
+			.hw_ops = &csiphy_ops_3ph_1_0,
+			.formats = &csiphy_formats_8x96
+		}
+	}
+};
+
+
+/* CSID: sdm660 shape. regulators left empty -- downstream's msm8998
+ * CSID supplies are GDSCs (power-domains here), not board rails.
+ * csi_src rate 274290000 from downstream msm8998-camera.dtsi.
+ */
+static const struct camss_subdev_resources csid_res_8998[] = {
+	/* CSID0 */
+	{
+		.regulators = {},
+		.clock = { "top_ahb", "ispif_ahb", "csi0_ahb", "ahb",
+			   "csi0", "csi0_phy", "csi0_pix", "csi0_rdi",
+			   "cphy_csid0" },
+		.clock_rate = { { 0 },
+				{ 0 },
+				{ 0 },
+				{ 0 },
+				{ 274290000 },
+				{ 0 },
+				{ 0 },
+				{ 0 },
+				{ 0 } },
+		.reg = { "csid0" },
+		.interrupt = { "csid0" },
+		.csid = {
+			.hw_ops = &csid_ops_4_7,
+			.parent_dev_ops = &vfe_parent_dev_ops,
+			.formats = &csid_formats_4_7
+		}
+	},
+
+	/* CSID1 */
+	{
+		.regulators = {},
+		.clock = { "top_ahb", "ispif_ahb", "csi1_ahb", "ahb",
+			   "csi1", "csi1_phy", "csi1_pix", "csi1_rdi",
+			   "cphy_csid1" },
+		.clock_rate = { { 0 },
+				{ 0 },
+				{ 0 },
+				{ 0 },
+				{ 274290000 },
+				{ 0 },
+				{ 0 },
+				{ 0 },
+				{ 0 } },
+		.reg = { "csid1" },
+		.interrupt = { "csid1" },
+		.csid = {
+			.hw_ops = &csid_ops_4_7,
+			.parent_dev_ops = &vfe_parent_dev_ops,
+			.formats = &csid_formats_4_7
+		}
+	},
+
+	/* CSID2 */
+	{
+		.regulators = {},
+		.clock = { "top_ahb", "ispif_ahb", "csi2_ahb", "ahb",
+			   "csi2", "csi2_phy", "csi2_pix", "csi2_rdi",
+			   "cphy_csid2" },
+		.clock_rate = { { 0 },
+				{ 0 },
+				{ 0 },
+				{ 0 },
+				{ 274290000 },
+				{ 0 },
+				{ 0 },
+				{ 0 },
+				{ 0 } },
+		.reg = { "csid2" },
+		.interrupt = { "csid2" },
+		.csid = {
+			.hw_ops = &csid_ops_4_7,
+			.parent_dev_ops = &vfe_parent_dev_ops,
+			.formats = &csid_formats_4_7
+		}
+	},
+
+	/* CSID3 */
+	{
+		.regulators = {},
+		.clock = { "top_ahb", "ispif_ahb", "csi3_ahb", "ahb",
+			   "csi3", "csi3_phy", "csi3_pix", "csi3_rdi",
+			   "cphy_csid3" },
+		.clock_rate = { { 0 },
+				{ 0 },
+				{ 0 },
+				{ 0 },
+				{ 274290000 },
+				{ 0 },
+				{ 0 },
+				{ 0 },
+				{ 0 } },
+		.reg = { "csid3" },
+		.interrupt = { "csid3" },
+		.csid = {
+			.hw_ops = &csid_ops_4_7,
+			.parent_dev_ops = &vfe_parent_dev_ops,
+			.formats = &csid_formats_4_7
+		}
+	}
+};
+
+/* VFE: sdm660 shape minus "throttle_axi" (no THROTTLE_CAMSS_AXI_CLK
+ * on msm8998). Rates are downstream's three OPP levels.
+ */
+static const struct camss_subdev_resources vfe_res_8998[] = {
+	/* VFE0 */
+	{
+		.regulators = {},
+		.clock = { "top_ahb", "ahb", "vfe0", "csi_vfe0",
+			   "vfe_ahb", "vfe0_ahb", "vfe_axi", "vfe0_stream" },
+		.clock_rate = { { 0 },
+				{ 0 },
+				{ 480000000, 576000000, 600000000 },
+				{ 0 },
+				{ 0 },
+				{ 0 },
+				{ 0 },
+				{ 0 } },
+		.reg = { "vfe0" },
+		.interrupt = { "vfe0" },
+		.vfe = {
+			.line_num = 3,
+			.has_pd = true,
+			.hw_ops = &vfe_ops_4_8,
+			.formats_rdi = &vfe_formats_rdi_8x96,
+			.formats_pix = &vfe_formats_pix_8x96
+		}
+	},
+
+	/* VFE1 */
+	{
+		.regulators = {},
+		.clock = { "top_ahb", "ahb", "vfe1", "csi_vfe1",
+			   "vfe_ahb", "vfe1_ahb", "vfe_axi", "vfe1_stream" },
+		.clock_rate = { { 0 },
+				{ 0 },
+				{ 480000000, 576000000, 600000000 },
+				{ 0 },
+				{ 0 },
+				{ 0 },
+				{ 0 },
+				{ 0 } },
+		.reg = { "vfe1" },
+		.interrupt = { "vfe1" },
+		.vfe = {
+			.line_num = 3,
+			.has_pd = true,
+			.hw_ops = &vfe_ops_4_8,
+			.formats_rdi = &vfe_formats_rdi_8x96,
+			.formats_pix = &vfe_formats_pix_8x96
+		}
+	}
+};
+
 static const struct camss_subdev_resources csiphy_res_660[] = {
 	/* CSIPHY0 */
 	{
@@ -5597,6 +5834,17 @@ static const struct camss_resources sa8775p_resources = {
 	.icc_path_num = ARRAY_SIZE(icc_res_sa8775p),
 };
 
+static const struct camss_resources msm8998_resources = {
+	.version = CAMSS_660,
+	.csiphy_res = csiphy_res_8998,
+	.csid_res = csid_res_8998,
+	.ispif_res = &ispif_res_660,
+	.vfe_res = vfe_res_8998,
+	.csiphy_num = ARRAY_SIZE(csiphy_res_8998),
+	.csid_num = ARRAY_SIZE(csid_res_8998),
+	.vfe_num = ARRAY_SIZE(vfe_res_8998),
+};
+
 static const struct camss_resources sdm660_resources = {
 	.version = CAMSS_660,
 	.csiphy_res = csiphy_res_660,
@@ -5744,6 +5992,7 @@ static const struct of_device_id camss_dt_match[] = {
 	{ .compatible = "qcom,msm8939-camss", .data = &msm8939_resources },
 	{ .compatible = "qcom,msm8953-camss", .data = &msm8953_resources },
 	{ .compatible = "qcom,msm8996-camss", .data = &msm8996_resources },
+	{ .compatible = "qcom,msm8998-camss", .data = &msm8998_resources },
 	{ .compatible = "qcom,qcm2290-camss", .data = &qcm2290_resources },
 	{ .compatible = "qcom,qcs8300-camss", .data = &qcs8300_resources },
 	{ .compatible = "qcom,sa8775p-camss", .data = &sa8775p_resources },
