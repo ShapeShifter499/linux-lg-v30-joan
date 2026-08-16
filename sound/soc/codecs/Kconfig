@@ -1307,6 +1307,14 @@ config SND_SOC_ES8389
 	tristate "Everest Semi ES8389 CODEC"
 	depends on I2C
 
+config SND_SOC_ES9218P
+	tristate "Everest Semi ES9218P headphone DAC"
+	depends on I2C
+	select REGMAP_I2C
+	help
+	  Enable support for the ESS Technology ES9218P headphone DAC and
+	  amplifier, as used for the "Quad DAC" on the LG V30.
+
 config SND_SOC_ES9356
 	tristate "Everest Semi ES9356 CODEC SDW"
 	depends on SND_SOC_SDCA
