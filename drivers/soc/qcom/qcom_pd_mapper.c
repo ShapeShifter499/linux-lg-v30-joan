@@ -391,8 +391,12 @@ static const struct qcom_pdm_domain_data *msm8996_domains[] = {
 };
 
 static const struct qcom_pdm_domain_data *msm8998_domains[] = {
+	&adsp_audio_pd,
+	&adsp_root_pd,
 	&mpss_root_pd,
 	&mpss_wlan_pd,
+	&slpi_root_pd,
+	&slpi_sensor_pd,
 	NULL,
 };
 
