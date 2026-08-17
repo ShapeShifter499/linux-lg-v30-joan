@@ -86,6 +86,9 @@
 #define AFE_PORT_ID_USB_RX                       0x7000
 
 #define AFE_API_VERSION_SLIMBUS_CONFIG 0x1
+/* SLIMbus hardware block ids (msm8998 firmware validates this; 0 = invalid) */
+#define AFE_SLIMBUS_DEVICE_1 1
+#define AFE_SLIMBUS_DEVICE_2 2
 /* Clock set API version */
 #define AFE_API_VERSION_CLOCK_SET 1
 #define Q6AFE_LPASS_CLK_CONFIG_API_VERSION	0x1
@@ -1330,6 +1333,7 @@ void q6afe_slim_port_prepare(struct q6afe_port *port,
 	union afe_port_config *pcfg = &port->port_cfg;
 
 	pcfg->slim_cfg.sb_cfg_minor_version = AFE_API_VERSION_SLIMBUS_CONFIG;
+	pcfg->slim_cfg.slimbus_dev_id = AFE_SLIMBUS_DEVICE_1;
 	pcfg->slim_cfg.sample_rate = cfg->sample_rate;
 	pcfg->slim_cfg.bit_width = cfg->bit_width;
 	pcfg->slim_cfg.num_channels = cfg->num_channels;
