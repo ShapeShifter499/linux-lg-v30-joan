@@ -3183,6 +3183,12 @@ static int snd_soc_dapm_add_route(struct snd_soc_dapm_context *dapm,
 	if (!wsource)
 		wsource = wtsource;
 
+	if (!wsource || !wsink) {
+		pr_info("JOAN-DBG: dapm route '%s' -> '%s': lookup failed at add time (src=%s sink=%s)\n",
+			source, sink,
+			wsource ? "found" : "MISSING", wsink ? "found" : "MISSING");
+	}
+
 	ret = -ENODEV;
 	if (!wsource)
 		goto err;
@@ -4457,8 +4463,13 @@ int snd_soc_dapm_link_dai_widgets(struct snd_soc_card *card)
 				break;
 			}
 
-			if (!w->sname || !strstr(w->sname, dai_w->sname))
+			if (!w->sname || !strstr(w->sname, dai_w->sname)) {
+				if (dai_w->sname && strstr(dai_w->sname, "Playback"))
+					pr_info("JOAN-DBG: link skip dai '%s' vs w '%s' (sname %s)\n",
+						dai_w->name, w->name,
+						w->sname ? w->sname : "(null)");
 				continue;
+			}
 
 			if (dai_w->id == snd_soc_dapm_dai_in) {
 				src = dai_w;

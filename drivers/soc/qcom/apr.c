@@ -15,6 +15,12 @@
 #include <linux/rpmsg.h>
 #include <linux/of.h>
 
+/* JOAN-DBG: skip registering APR/GPR service devices (no q6 driver probes,
+ * zero APR interaction with the ADSP). Set via cmdline: apr.skip_devices=1
+ */
+static bool skip_devices;
+module_param(skip_devices, bool, 0644);
+
 enum {
 	PR_TYPE_APR = 0,
 	PR_TYPE_GPR,
@@ -415,6 +421,12 @@ static int apr_add_device(struct device *dev, struct device_node *np,
 	struct apr_device *adev = NULL;
 	struct pkt_router_svc *svc;
 	int ret;
+
+	if (skip_devices) {
+		dev_info(dev, "JOAN-DBG: apr.skip_devices gate active, skipping svc %x\n",
+			 svc_id);
+		return 0;
+	}
 
 	adev = kzalloc_obj(*adev);
 	if (!adev)

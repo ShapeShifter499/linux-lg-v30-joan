@@ -67,6 +67,13 @@ struct q6core {
 
 static struct q6core *g_core;
 
+/* JOAN-DBG: skip the fwk/svc version APR commands (unhandled by the
+ * msm8998 ADSP firmware; sending them wedges the firmware's QMI/glink
+ * transport). Set via cmdline: q6core.skip_versions=1
+ */
+static bool skip_versions;
+module_param(skip_versions, bool, 0644);
+
 static int q6core_callback(struct apr_device *adev, const struct apr_resp_pkt *data)
 {
 	struct q6core *core = dev_get_drvdata(&adev->dev);
@@ -154,6 +161,9 @@ static int q6core_get_fwk_versions(struct q6core *core)
 	struct apr_pkt pkt;
 	int rc;
 
+	if (skip_versions)
+		return -ENOTSUPP;
+
 	pkt.hdr.hdr_field = APR_HDR_FIELD(APR_MSG_TYPE_SEQ_CMD,
 				      APR_HDR_LEN(APR_HDR_SIZE), APR_PKT_VER);
 	pkt.hdr.pkt_size = APR_HDR_SIZE;
@@ -183,6 +193,9 @@ static int q6core_get_svc_versions(struct q6core *core)
 	struct apr_device *adev = core->adev;
 	struct apr_pkt pkt;
 	int rc;
+
+	if (skip_versions)
+		return -ENOTSUPP;
 
 	pkt.hdr.hdr_field = APR_HDR_FIELD(APR_MSG_TYPE_SEQ_CMD,
 				      APR_HDR_LEN(APR_HDR_SIZE), APR_PKT_VER);

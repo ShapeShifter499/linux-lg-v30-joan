@@ -5,6 +5,7 @@
 #include <linux/irq.h>
 #include <linux/kernel.h>
 #include <linux/init.h>
+#include <linux/module.h>
 #include <linux/slab.h>
 #include <linux/interrupt.h>
 #include <linux/platform_device.h>
@@ -22,6 +23,13 @@
 #include <linux/soc/qcom/pdr.h>
 #include <net/sock.h>
 #include "slimbus.h"
+
+/* JOAN-DBG: skip the ADSP QMI handshake entirely (no connect, no
+ * select-instance, no capability exchange). Set via cmdline:
+ * slimbus.skip_select=1
+ */
+static bool skip_select;
+module_param(skip_select, bool, 0644);
 
 /* NGD (Non-ported Generic Device) registers */
 #define	NGD_CFG			0x0
@@ -62,8 +70,13 @@
 #define SLIMBUS_QMI_SELECT_INSTANCE_REQ_MAX_MSG_LEN	14
 #define SLIMBUS_QMI_SELECT_INSTANCE_RESP_MAX_MSG_LEN	7
 #define SLIMBUS_QMI_CHECK_FRAMER_STAT_RESP_MAX_MSG_LEN	7
-/* QMI response timeout of 500ms */
-#define SLIMBUS_QMI_RESP_TOUT	1000
+/*
+ * LG's downstream kernel carries a 3 s QMI response timeout for SLIMbus as
+ * a board workaround (CONFIG_MACH_LGE, "LGE W/A"): the ADSP can take longer
+ * than the default 1 s to answer during its init, and the stock 500 ms/1 s
+ * loses the race intermittently. Use the same value.
+ */
+#define SLIMBUS_QMI_RESP_TOUT	3000
 
 /* User defined commands */
 #define SLIM_USR_MC_GENERIC_ACK	0x25
@@ -1373,7 +1386,21 @@ static int qcom_slim_ngd_qmi_new_server(struct qmi_handle *hdl,
 	qmi->svc_info.sq_node = service->node;
 	qmi->svc_info.sq_port = service->port;
 
+	dev_info(ctrl->dev, "JOAN-DBG: SLIMbus QMI server up node %u port %u (state %d)\n",
+		 service->node, service->port, ctrl->state);
+
 	complete(&ctrl->qmi_up);
+
+	/*
+	 * The up worker only waits one second for this server to appear.
+	 * If the ADSP registers the SLIMbus service after that window has
+	 * closed, the completion above fires into the void and nothing ever
+	 * enables the controller. Re-arm the bring-up work here so a late
+	 * registration still brings the bus up; the worker re-checks the
+	 * controller state under ssr_lock before acting.
+	 */
+	if (ctrl->state == QCOM_SLIM_NGD_CTRL_DOWN)
+		schedule_work(&ctrl->ngd_up_work);
 
 	return 0;
 }
@@ -1387,6 +1414,8 @@ static void qcom_slim_ngd_qmi_del_server(struct qmi_handle *hdl,
 		container_of(qmi, struct qcom_slim_ngd_ctrl, qmi);
 
 	reinit_completion(&ctrl->qmi_up);
+	dev_info(ctrl->dev, "JOAN-DBG: SLIMbus QMI server down node %u port %u (state %d)\n",
+		 service->node, service->port, ctrl->state);
 	qmi->svc_info.sq_node = 0;
 	qmi->svc_info.sq_port = 0;
 }
@@ -1454,13 +1483,31 @@ static void qcom_slim_ngd_up_worker(struct work_struct *work)
 	ctrl = container_of(work, struct qcom_slim_ngd_ctrl, ngd_up_work);
 
 	/* Make sure qmi service is up before continuing */
+	dev_info(ctrl->dev, "JOAN-DBG: up_worker entering wait (state %d)\n", ctrl->state);
 	if (!wait_for_completion_interruptible_timeout(&ctrl->qmi_up,
 						       msecs_to_jiffies(MSEC_PER_SEC))) {
 		dev_err(ctrl->dev, "QMI wait timeout\n");
 		return;
 	}
+	dev_info(ctrl->dev, "JOAN-DBG: up_worker wait returned (state %d)\n", ctrl->state);
+
+	dev_info(ctrl->dev, "JOAN-DBG: up_worker proceeding (state %d, server %u:%u)\n",
+		 ctrl->state, ctrl->qmi.svc_info.sq_node, ctrl->qmi.svc_info.sq_port);
 
 	mutex_lock(&ctrl->ssr_lock);
+	/* A concurrent new_server re-arm may have queued a second run; if
+	 * the controller was already brought up (or taken down again),
+	 * there is nothing to do.
+	 */
+	if (ctrl->state != QCOM_SLIM_NGD_CTRL_DOWN) {
+		mutex_unlock(&ctrl->ssr_lock);
+		return;
+	}
+	if (skip_select) {
+		dev_info(ctrl->dev, "JOAN-DBG: skip_select gate active, skipping enable\n");
+		mutex_unlock(&ctrl->ssr_lock);
+		return;
+	}
 	qcom_slim_ngd_enable(ctrl, true);
 	mutex_unlock(&ctrl->ssr_lock);
 }
