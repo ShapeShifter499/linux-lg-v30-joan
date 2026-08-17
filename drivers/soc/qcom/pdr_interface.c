@@ -6,11 +6,18 @@
 #include <linux/cleanup.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
+#include <linux/moduleparam.h>
 #include <linux/slab.h>
 #include <linux/string.h>
 #include <linux/workqueue.h>
 
 #include "pdr_internal.h"
+
+/* JOAN-DBG: boot-time gates to bisect the ADSP QMI freeze trigger.
+ * Set via kernel cmdline: slimbus.skip_select=1 / pdr_interface.skip_listener=1
+ */
+static bool skip_listener;
+module_param(skip_listener, bool, 0644);
 
 struct pdr_service {
 	char service_name[SERVREG_NAME_LENGTH + 1];
@@ -145,6 +152,9 @@ static int pdr_register_listener(struct pdr_handle *pdr,
 		return ret;
 	}
 
+	pr_info("JOAN-DBG: PDR: register listener OK for %s, curr_state 0x%x\n",
+		pds->service_path, resp.curr_state);
+
 	if (resp.resp.result != QMI_RESULT_SUCCESS_V01) {
 		pr_err("PDR: %s register listener failed: 0x%x\n",
 		       pds->service_path, resp.resp.error);
@@ -204,6 +214,8 @@ static int pdr_notifier_new_server(struct qmi_handle *qmi,
 			pds->addr.sq_family = AF_QIPCRTR;
 			pds->addr.sq_node = svc->node;
 			pds->addr.sq_port = svc->port;
+			pr_info("JOAN-DBG: PDR notifier: new server svc %u inst %u node %u port %u\n",
+				svc->service, svc->instance, svc->node, svc->port);
 			queue_work(pdr->notifier_wq, &pdr->notifier_work);
 		}
 	}
@@ -227,6 +239,8 @@ static void pdr_notifier_del_server(struct qmi_handle *qmi,
 			pds->need_notifier_remove = true;
 			pds->addr.sq_node = 0;
 			pds->addr.sq_port = 0;
+			pr_info("JOAN-DBG: PDR notifier: del server svc %u inst %u node %u port %u\n",
+				svc->service, svc->instance, svc->node, svc->port);
 			queue_work(pdr->notifier_wq, &pdr->notifier_work);
 		}
 	}
@@ -511,6 +525,12 @@ struct pdr_service *pdr_add_lookup(struct pdr_handle *pdr,
 				   const char *service_path)
 {
 	struct pdr_service *tmp;
+
+	if (skip_listener) {
+		pr_info("JOAN-DBG: PDR: skip_listener gate active, NOT registering %s\n",
+			service_name);
+		return NULL;
+	}
 
 	if (IS_ERR_OR_NULL(pdr))
 		return ERR_PTR(-EINVAL);

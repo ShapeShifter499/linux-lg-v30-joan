@@ -1343,6 +1343,14 @@ void q6afe_slim_port_prepare(struct q6afe_port *port,
 	pcfg->slim_cfg.shared_ch_mapping[2] = cfg->ch_mapping[2];
 	pcfg->slim_cfg.shared_ch_mapping[3] = cfg->ch_mapping[3];
 
+	pr_info("JOAN-DBG: slim port %d cfg: dev %u rate %u width %u ch %u fmt %u map %u/%u/%u/%u\n",
+		port->id, pcfg->slim_cfg.slimbus_dev_id,
+		pcfg->slim_cfg.sample_rate, pcfg->slim_cfg.bit_width,
+		pcfg->slim_cfg.num_channels, pcfg->slim_cfg.data_format,
+		pcfg->slim_cfg.shared_ch_mapping[0],
+		pcfg->slim_cfg.shared_ch_mapping[1],
+		pcfg->slim_cfg.shared_ch_mapping[2],
+		pcfg->slim_cfg.shared_ch_mapping[3]);
 }
 EXPORT_SYMBOL_GPL(q6afe_slim_port_prepare);
 

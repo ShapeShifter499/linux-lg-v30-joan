@@ -2898,6 +2898,15 @@ static int dpcm_fe_dai_open(struct snd_pcm_substream *fe_substream)
 		dev_err_once(fe->dev, "ASoC: no backend DAIs enabled for %s, possibly missing ALSA mixer-based routing or UCM profile\n",
 			     fe->dai_link->name);
 		dev_dbg(fe->dev, "ASoC: no backend DAIs enabled for %s\n", fe->dai_link->name);
+		{
+			int k;
+			dev_info(fe->dev, "JOAN-DBG: FE %s stream %d: dpcm_path_get found %d widgets\n",
+				 fe->dai_link->name, stream,
+				 list ? list->num_widgets : -1);
+			for (k = 0; list && k < list->num_widgets && k < 12; k++)
+				dev_info(fe->dev, "JOAN-DBG:   w[%d] = %s (id %d)\n",
+					 k, list->widgets[k]->name, list->widgets[k]->id);
+		}
 
 		ret = -EINVAL;
 		goto put_path;

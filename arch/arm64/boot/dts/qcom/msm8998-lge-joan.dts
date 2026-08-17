@@ -1134,6 +1134,13 @@
 		model = "LG-V30";
 		status = "okay";
 
+		audio-routing =
+			"RX_BIAS", "MCLK",
+			"AMIC1", "MIC BIAS1",
+			"AMIC2", "MIC BIAS2",
+			"AMIC3", "MIC BIAS3",
+			"Left Spk", "SPK1 OUT";
+
 		mm1-dai-link {
 			link-name = "MultiMedia1";
 			cpu {

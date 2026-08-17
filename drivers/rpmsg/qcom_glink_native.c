@@ -583,6 +583,9 @@ static void qcom_glink_rx_done_work(struct work_struct *work)
 						channel->lcid, channel->rcid, cmd.liid, reuse);
 
 		qcom_glink_tx(glink, &cmd, sizeof(cmd), NULL, 0, true);
+		dev_info(glink->dev,
+			 "JOAN-DBG: edge %s channel '%s' rx_done sent (liid %u reuse %d)\n",
+			 glink->label, channel->name, cmd.liid, reuse);
 		if (!reuse) {
 			kfree(intent->data);
 			kfree(intent);
@@ -634,6 +637,9 @@ static void qcom_glink_receive_version(struct qcom_glink *glink,
 {
 	trace_qcom_glink_cmd_version_rx(glink->label, version, features);
 
+	dev_info(glink->dev, "JOAN-DBG: edge %s remote version %u features 0x%x\n",
+		 glink->label, version, features);
+
 	switch (version) {
 	case 0:
 		break;
@@ -662,6 +668,9 @@ static void qcom_glink_receive_version_ack(struct qcom_glink *glink,
 					   u32 features)
 {
 	trace_qcom_glink_cmd_version_ack_rx(glink->label, version, features);
+
+	dev_info(glink->dev, "JOAN-DBG: edge %s remote version ack %u features 0x%x (ours 0x%lx)\n",
+		 glink->label, version, features, glink->features);
 
 	switch (version) {
 	case 0:
@@ -739,6 +748,10 @@ static int qcom_glink_advertise_intent(struct qcom_glink *glink,
 				       channel->lcid, channel->rcid,
 				       cmd.count, cmd.size, cmd.liid);
 
+	dev_info(glink->dev,
+		 "JOAN-DBG: edge %s channel '%s' intent advertised to remote (liid %u size %u)\n",
+		 glink->label, channel->name, le32_to_cpu(cmd.liid), le32_to_cpu(cmd.size));
+
 	qcom_glink_tx(glink, &cmd, sizeof(cmd), NULL, 0, true);
 
 	return 0;
@@ -807,6 +820,10 @@ static void qcom_glink_handle_rx_done(struct qcom_glink *glink,
 	spin_lock_irqsave(&channel->intent_lock, flags);
 	intent = idr_find(&channel->riids, iid);
 
+	dev_info(glink->dev,
+		 "JOAN-DBG: edge %s channel '%s' rx_done received from remote (liid %u reuse %d)\n",
+		 glink->label, channel->name, iid, reuse);
+
 	if (!intent) {
 		spin_unlock_irqrestore(&channel->intent_lock, flags);
 		dev_err(glink->dev, "invalid intent id received\n");
@@ -860,6 +877,10 @@ static void qcom_glink_handle_intent_req(struct qcom_glink *glink,
 	intent = qcom_glink_alloc_intent(glink, channel, size, false);
 	if (intent)
 		qcom_glink_advertise_intent(glink, channel, intent);
+
+	dev_info_ratelimited(glink->dev,
+		"JOAN-DBG: edge %s channel '%s' rx-intent req from remote (size %zu, granted %d)\n",
+		glink->label, channel->name, size, !!intent);
 
 	qcom_glink_send_intent_req_ack(glink, channel, !!intent);
 }
@@ -976,6 +997,9 @@ static int qcom_glink_rx_data(struct qcom_glink *glink, size_t avail)
 			ret = -ENOENT;
 			goto advance_rx;
 		}
+		dev_info_ratelimited(glink->dev,
+			 "JOAN-DBG: edge %s channel '%s' data rx (liid %u len %u)\n",
+			 glink->label, channel->name, liid, chunk_size);
 	}
 
 	if (intent->size - intent->offset < chunk_size) {
@@ -1084,6 +1108,10 @@ static void qcom_glink_handle_intent(struct qcom_glink *glink,
 
 		if (ret < 0)
 			dev_err(glink->dev, "failed to store remote intent\n");
+		else
+			dev_info(glink->dev,
+				 "JOAN-DBG: edge %s channel '%s' intent granted by remote (liid %u size %u)\n",
+				 glink->label, channel->name, intent->id, intent->size);
 	}
 
 	WRITE_ONCE(channel->intent_received, true);
@@ -1435,6 +1463,8 @@ static int qcom_glink_request_intent(struct qcom_glink *glink,
 	} __packed cmd;
 
 	int ret;
+	unsigned long flags;
+	int j;
 
 	mutex_lock(&channel->intent_req_lock);
 
@@ -1460,7 +1490,16 @@ static int qcom_glink_request_intent(struct qcom_glink *glink,
 				 glink->abort_tx,
 				 10 * HZ);
 	if (!ret) {
-		dev_err(glink->dev, "intent request timed out\n");
+		int riids_left = 0;
+		struct glink_core_rx_intent *ii;
+
+		spin_lock_irqsave(&channel->intent_lock, flags);
+		idr_for_each_entry(&channel->riids, ii, j) {
+			riids_left++;
+		}
+		spin_unlock_irqrestore(&channel->intent_lock, flags);
+		dev_err(glink->dev, "JOAN-DBG: edge %s channel '%s' (lcid %u) intent request timed out (riids left %d, want %zu)\n",
+			glink->label, channel->name, channel->lcid, riids_left, size);
 		ret = -ETIMEDOUT;
 	} else if (glink->abort_tx) {
 		ret = -ECANCELED;
@@ -1668,6 +1707,9 @@ static int qcom_glink_rx_open(struct qcom_glink *glink, unsigned int rcid,
 	channel->rcid = ret;
 	spin_unlock_irqrestore(&glink->idr_lock, flags);
 
+	dev_info(glink->dev, "JOAN-DBG: edge %s channel '%s' opened by remote (lcid %u rcid %u)\n",
+		 glink->label, name, channel->lcid, rcid);
+
 	complete_all(&channel->open_req);
 
 	if (create_device) {
@@ -1723,6 +1765,9 @@ static void qcom_glink_rx_close(struct qcom_glink *glink, unsigned int rcid)
 				      channel ? channel->lcid : 0, rcid);
 	if (WARN(!channel, "close request on unknown channel\n"))
 		return;
+
+	dev_info(glink->dev, "JOAN-DBG: edge %s channel '%s' closed by remote (lcid %u rcid %u)\n",
+		 glink->label, channel->name, channel->lcid, rcid);
 
 	/* cancel pending rx_done work */
 	cancel_work_sync(&channel->intent_work);
