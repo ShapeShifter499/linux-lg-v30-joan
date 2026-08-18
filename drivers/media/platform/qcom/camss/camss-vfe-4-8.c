@@ -107,6 +107,17 @@
 #define VFE_0_BUS_IMAGE_MASTER_n_WR_CFG_WR_PATH_SHIFT	0
 #define VFE_0_BUS_IMAGE_MASTER_n_WR_PING_ADDR(n)	(0x0a4 + 0x2c * (n))
 #define VFE_0_BUS_IMAGE_MASTER_n_WR_PONG_ADDR(n)	(0x0ac + 0x2c * (n))
+/*
+ * VFE 4.7/4.8 added a per-buffer address limit beside each address register --
+ * that is why the write-master stride grew from 0x24 (4.0/4.4/4.6) to 0x2c.
+ * Downstream writes both, the limit as (addr + buf_size) & 0xffffffe0. The
+ * 4.7/4.8 ports bumped the stride but kept the 4.1 register list, so these two
+ * are never written and read zero -- and a write master whose address limit is
+ * zero cannot emit a single beat: it takes data in, fills its unified-buffer
+ * slice, raises BUS_OVERFLOW and never completes a burst.
+ */
+#define VFE_0_BUS_IMAGE_MASTER_n_WR_PING_ADDR_LIMIT(n)	(0x0a8 + 0x2c * (n))
+#define VFE_0_BUS_IMAGE_MASTER_n_WR_PONG_ADDR_LIMIT(n)	(0x0b0 + 0x2c * (n))
 #define VFE_0_BUS_IMAGE_MASTER_n_WR_ADDR_CFG(n)		(0x0b4 + 0x2c * (n))
 #define VFE_0_BUS_IMAGE_MASTER_n_WR_ADDR_CFG_FRM_BASED_SHIFT	1
 #define VFE_0_BUS_IMAGE_MASTER_n_WR_ADDR_CFG_FRM_DROP_PER_SHIFT	2
@@ -447,12 +458,16 @@ static void vfe_wm_set_ping_addr(struct vfe_device *vfe, u8 wm, u32 addr)
 {
 	writel_relaxed(addr,
 		       vfe->base + VFE_0_BUS_IMAGE_MASTER_n_WR_PING_ADDR(wm));
+	writel_relaxed(addr ? (addr + vfe->sizeimage) & 0xffffffe0 : 0,
+		       vfe->base + VFE_0_BUS_IMAGE_MASTER_n_WR_PING_ADDR_LIMIT(wm));
 }
 
 static void vfe_wm_set_pong_addr(struct vfe_device *vfe, u8 wm, u32 addr)
 {
 	writel_relaxed(addr,
 		       vfe->base + VFE_0_BUS_IMAGE_MASTER_n_WR_PONG_ADDR(wm));
+	writel_relaxed(addr ? (addr + vfe->sizeimage) & 0xffffffe0 : 0,
+		       vfe->base + VFE_0_BUS_IMAGE_MASTER_n_WR_PONG_ADDR_LIMIT(wm));
 }
 
 static int vfe_wm_get_ping_pong_status(struct vfe_device *vfe, u8 wm)

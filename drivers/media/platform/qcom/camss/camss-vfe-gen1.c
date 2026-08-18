@@ -138,6 +138,7 @@ static void vfe_output_init_addrs(struct vfe_device *vfe,
 		else
 			pong_addr = ping_addr;
 
+		vfe->sizeimage = line->video_out.active_fmt.fmt.pix_mp.plane_fmt[i].sizeimage;
 		vfe->ops_gen1->wm_set_ping_addr(vfe, output->wm_idx[i], ping_addr);
 		vfe->ops_gen1->wm_set_pong_addr(vfe, output->wm_idx[i], pong_addr);
 		if (sync)
