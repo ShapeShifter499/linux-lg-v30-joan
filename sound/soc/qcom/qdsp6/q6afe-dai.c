@@ -38,9 +38,11 @@ static int q6slim_hw_params(struct snd_pcm_substream *substream,
 			    struct snd_pcm_hw_params *params,
 			    struct snd_soc_dai *dai)
 {
-
 	struct q6afe_dai_data *dai_data = dev_get_drvdata(dai->dev);
 	struct q6afe_slim_cfg *slim = &dai_data->port_config[dai->id].slim;
+
+	pr_info("JOAN-DBG: q6slim_hw_params dai id %d rate %d fmt %d\n",
+		dai->id, params_rate(params), params_format(params));
 
 	slim->sample_rate = params_rate(params);
 
@@ -389,6 +391,9 @@ static int q6afe_dai_prepare(struct snd_pcm_substream *substream,
 {
 	struct q6afe_dai_data *dai_data = dev_get_drvdata(dai->dev);
 	int rc;
+
+	pr_info("JOAN-DBG: q6afe_dai_prepare dai id %d started %d\n",
+		dai->id, dai_data->is_port_started[dai->id]);
 
 	if (dai_data->is_port_started[dai->id]) {
 		/* stop the port and restart with new port config */
