@@ -4113,6 +4113,8 @@ static int wcd934x_codec_enable_slim(struct snd_soc_dapm_widget *w,
 {
 	struct snd_soc_component *comp = snd_soc_dapm_to_component(w->dapm);
 	struct wcd934x_codec *wcd = snd_soc_component_get_drvdata(comp);
+
+	dev_info(comp->dev, "JOAN-DBG: enable_slim event %d\n", event);
 	struct wcd_slim_codec_dai_data *dai = &wcd->dai[w->shift];
 
 	switch (event) {
