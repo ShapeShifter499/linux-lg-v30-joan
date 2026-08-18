@@ -404,8 +404,17 @@ static void qmi_invoke_handler(struct qmi_handle *qmi, struct sockaddr_qrtr *sq,
 			break;
 	}
 
-	if (!handler->fn)
+	if (!handler->fn) {
+		/* JOAN: surface unmatched QMI messages (the ADSP slim service
+		 * sends an unanswered message at stream setup; Boots 20e-20h
+		 * die silently ~1.3 s later).
+		 */
+		pr_info("JOAN-DBG: qmi unmatched from node %u port %u type %d id %#x len %zu first %*ph\n",
+			sq ? sq->sq_node : 0, sq ? sq->sq_port : 0,
+			hdr->type, le16_to_cpu(hdr->msg_id), len,
+			min_t(size_t, len, 8), buf);
 		return;
+	}
 
 	dest = kzalloc(handler->decoded_size, GFP_KERNEL);
 	if (!dest)
