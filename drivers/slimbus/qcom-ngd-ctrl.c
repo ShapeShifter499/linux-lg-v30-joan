@@ -252,6 +252,7 @@ struct qcom_slim_ngd_ctrl {
 	u32 ver;
 	bool joan_pipe_done;
 	u8 joan_pgdla;
+	struct work_struct joan_pipe_work;
 };
 
 static void qcom_slim_ngd_timeout_recover(struct qcom_slim_ngd_ctrl *ctrl)
@@ -990,11 +991,11 @@ static void qcom_slim_ngd_joan_pipe_bringup(struct qcom_slim_ngd_ctrl *ctrl,
 		.prod_code = JOAN_EAPC,
 		.manf_id = (QC_MFGID_LSB << 8) | QC_MFGID_MSB,
 	};
-	int pgdla, pn, ret;
+	u8 pgdla;
+	int pn, ret;
 
 	if (!joan_pipes || ctrl->joan_pipe_done)
 		return;
-	ctrl->joan_pipe_done = true;
 
 	pgd = slim_get_device(sctrl, &ea);
 	if (IS_ERR(pgd)) {
@@ -1003,11 +1004,21 @@ static void qcom_slim_ngd_joan_pipe_bringup(struct qcom_slim_ngd_ctrl *ctrl,
 		return;
 	}
 
-	pgdla = slim_get_logical_addr(pgd);
-	if (pgdla < 0 || pgdla == SLIM_LA_MGR) {
-		dev_err(ctrl->dev, "JOAN: PGD laddr query failed %d\n", pgdla);
+	/*
+	 * Query the ADSP manager directly (downstream does the same via
+	 * dev->ctrl.get_laddr). slim_get_logical_addr() short-circuits on
+	 * the device's cached is_laddr_valid state, and a freshly
+	 * allocated device can come back with a stale 0x0 LA (Boot 20g:
+	 * the pipe connects went to LA 0 and every one drew a bus error).
+	 */
+	ret = ctrl->ctrl.get_laddr(&ctrl->ctrl, &ea, &pgdla);
+	if (ret < 0 || pgdla == SLIM_LA_MGR) {
+		dev_err(ctrl->dev, "JOAN: PGD laddr query failed %d la %#x\n",
+			ret, pgdla);
 		return;
 	}
+	pgd->laddr = pgdla;
+	ctrl->joan_pipe_done = true;
 	ctrl->joan_pgdla = pgdla;
 
 	if (joan_slim_dbg)
@@ -1026,6 +1037,15 @@ static void qcom_slim_ngd_joan_pipe_bringup(struct qcom_slim_ngd_ctrl *ctrl,
 			dev_err(ctrl->dev, "JOAN: pipe SINK connect pn=%u ret=%d\n",
 				pn, ret);
 	}
+}
+
+static void qcom_slim_ngd_joan_pipe_worker(struct work_struct *work)
+{
+	struct qcom_slim_ngd_ctrl *ctrl = container_of(work,
+			struct qcom_slim_ngd_ctrl, joan_pipe_work);
+
+	if (!ctrl->joan_pipe_done)
+		qcom_slim_ngd_joan_pipe_bringup(ctrl, &ctrl->ctrl);
 }
 
 static int qcom_slim_ngd_xfer_msg(struct slim_controller *sctrl,
@@ -1621,6 +1641,7 @@ static int qcom_slim_ngd_update_device_status(struct device *dev, void *null)
 static int qcom_slim_ngd_runtime_resume(struct device *dev)
 {
 	struct qcom_slim_ngd_ctrl *ctrl = dev_get_drvdata(dev);
+	enum qcom_slim_ngd_state prev_state = ctrl->state;
 	int ret = 0;
 
 	if (!ctrl->qmi.handle)
@@ -1637,6 +1658,21 @@ static int qcom_slim_ngd_runtime_resume(struct device *dev)
 	} else {
 		ctrl->state = QCOM_SLIM_NGD_CTRL_AWAKE;
 	}
+
+	/*
+	 * JOAN: on a bus RE-activation (not the initial DOWN->AWAKE boot
+	 * power-up, when the controller is not registered yet), bring up
+	 * the app-side pipe ports immediately. Evidence (Boot 20e r3/r4):
+	 * the stream setup reaches the AFE port config, the ADSP then
+	 * wedges waiting for the app pipe-port connect and its watchdog
+	 * resets the SoC ~1.3 s later -- BEFORE the PCM trigger ever runs.
+	 * Sending the USR connect messages at wake time pre-empts the wait.
+	 * Deferred to a worker: this runs inside the runtime_resume
+	 * callback (RPM_RESUMING) and the bring-up's ADDR_QUERY does
+	 * pm_runtime_get_sync, which would deadlock waiting on itself.
+	 */
+	if (prev_state != QCOM_SLIM_NGD_CTRL_DOWN && !ctrl->joan_pipe_done)
+		queue_work(ctrl->mwq, &ctrl->joan_pipe_work);
 
 	return 0;
 }
@@ -1988,6 +2024,7 @@ static int qcom_slim_ngd_ctrl_probe(struct platform_device *pdev)
 
 	INIT_WORK(&ctrl->m_work, qcom_slim_ngd_master_worker);
 	INIT_WORK(&ctrl->ngd_up_work, qcom_slim_ngd_up_worker);
+	INIT_WORK(&ctrl->joan_pipe_work, qcom_slim_ngd_joan_pipe_worker);
 
 	ctrl->mwq = create_singlethread_workqueue("ngd_master");
 	if (!ctrl->mwq)
