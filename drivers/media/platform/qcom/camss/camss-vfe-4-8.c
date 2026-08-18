@@ -9,6 +9,7 @@
  */
 
 #include <linux/device.h>
+#include <linux/dma-mapping.h>
 #include <linux/interrupt.h>
 #include <linux/io.h>
 #include <linux/iopoll.h>
@@ -1048,6 +1049,35 @@ static u16 vfe_get_ub_size(u8 vfe_id)
 	return MSM_VFE_VFE0_UB_SIZE_RDI;
 }
 
+/*
+ * Park a write master's ping/pong addresses on an always-mapped scratch page.
+ *
+ * Downstream keeps a scratch buffer for idle write masters; mainline leaves the
+ * last frame buffer's IOVA in the write master instead. Once userspace closes
+ * the video node those IOVAs are unmapped from the camera SMMU, and a straggler
+ * write from the disabled master faults. The fault stalls the fabric silently:
+ * stream stop completes, then a few seconds later the display controller -- on
+ * the same NoC -- starts timing out frame-done, and the watchdog resets the SoC.
+ * The address limit keeps anything larger than the page on the page.
+ *
+ * Register writes only: vfe_disable_output() calls this with output_lock held,
+ * so the page itself is allocated once at subdev init.
+ */
+static void vfe_wm_park(struct vfe_device *vfe, u8 wm)
+{
+	u32 iova = lower_32_bits(vfe->scratch_iova);
+
+	if (!vfe->scratch)
+		return;
+
+	writel_relaxed(iova, vfe->base + VFE_0_BUS_IMAGE_MASTER_n_WR_PING_ADDR(wm));
+	writel_relaxed(iova + PAGE_SIZE,
+		       vfe->base + VFE_0_BUS_IMAGE_MASTER_n_WR_PING_ADDR_LIMIT(wm));
+	writel_relaxed(iova, vfe->base + VFE_0_BUS_IMAGE_MASTER_n_WR_PONG_ADDR(wm));
+	writel_relaxed(iova + PAGE_SIZE,
+		       vfe->base + VFE_0_BUS_IMAGE_MASTER_n_WR_PONG_ADDR_LIMIT(wm));
+}
+
 static void vfe_wm_enable(struct vfe_device *vfe, u8 wm, u8 enable)
 {
 	if (enable)
@@ -1059,6 +1089,9 @@ static void vfe_wm_enable(struct vfe_device *vfe, u8 wm, u8 enable)
 
 	/* The WM must be enabled before sending other commands */
 	wmb();
+
+	if (!enable)
+		vfe_wm_park(vfe, wm);
 }
 
 static void vfe_set_qos(struct vfe_device *vfe)
@@ -1161,6 +1194,12 @@ static const struct vfe_hw_ops_gen1 vfe_ops_gen1_4_8 = {
 
 static void vfe_subdev_init(struct device *dev, struct vfe_device *vfe)
 {
+	vfe->scratch = dmam_alloc_coherent(dev, PAGE_SIZE, &vfe->scratch_iova,
+					   GFP_KERNEL);
+	if (!vfe->scratch)
+		dev_warn(dev,
+			 "no scratch page, idle write masters keep the last buffer\n");
+
 	vfe->isr_ops = vfe_isr_ops_gen1;
 	vfe->ops_gen1 = &vfe_ops_gen1_4_8;
 	vfe->video_ops = vfe_video_ops_gen1;

@@ -154,6 +154,9 @@ struct vfe_device {
 	 * are only handed an address.
 	 */
 	u32 sizeimage;
+	/* One always-mapped page that idle write masters are parked on. */
+	void *scratch;
+	dma_addr_t scratch_iova;
 	u32 irq;
 	char irq_name[30];
 	struct camss_clock *clock;
