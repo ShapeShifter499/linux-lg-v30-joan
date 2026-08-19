@@ -879,11 +879,13 @@ void vfe_isr_reset_ack(struct vfe_device *vfe)
  */
 void vfe_pm_domain_off(struct vfe_device *vfe)
 {
-	if (!vfe->genpd)
+	if (!vfe->genpd || !vfe->genpd_count)
 		return;
 
 	device_link_del(vfe->genpd_link);
-	vfe->genpd_link = NULL;
+
+	if (!--vfe->genpd_count)
+		vfe->genpd_link = NULL;
 }
 
 /*
@@ -903,6 +905,8 @@ int vfe_pm_domain_on(struct vfe_device *vfe)
 					  DL_FLAG_RPM_ACTIVE);
 	if (!vfe->genpd_link)
 		return -EINVAL;
+
+	vfe->genpd_count++;
 
 	return 0;
 }
