@@ -1534,6 +1534,11 @@ int q6afe_i2s_port_prepare(struct q6afe_port *port, struct q6afe_i2s_cfg *cfg)
 		break;
 	}
 
+	dev_info(dev, "JOAN-I2S port=%d ver=%#x rate=%u bw=%u fmt=%#x ws_src=%u sd_mask=%#x\n",
+		 port->id, pcfg->i2s_cfg.i2s_cfg_minor_version,
+		 pcfg->i2s_cfg.sample_rate, pcfg->i2s_cfg.bit_width,
+		 cfg->fmt, pcfg->i2s_cfg.ws_src, cfg->sd_line_mask);
+
 	num_sd_lines = hweight_long(cfg->sd_line_mask);
 
 	switch (num_sd_lines) {
@@ -1642,6 +1647,10 @@ int q6afe_i2s_port_prepare(struct q6afe_port *port, struct q6afe_i2s_cfg *cfg)
 	default:
 		break;
 	}
+
+	dev_info(dev, "JOAN-I2S port=%d chan_mode=%u mono_stereo=%u data_fmt=%u\n",
+		 port->id, pcfg->i2s_cfg.channel_mode,
+		 pcfg->i2s_cfg.mono_stereo, pcfg->i2s_cfg.data_format);
 
 	return 0;
 }
