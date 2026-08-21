@@ -503,22 +503,23 @@
 	gpio-reserved-ranges = <0 2>, <49 4>, <81 4>;
 
 	/*
-	 * Tertiary MI2S carries I2S playback to the ES9218P headphone DAC.
-	 * Downstream (msm8998-pinctrl.dtsi) splits this across three states:
-	 * gpio75/76 are SCK and WS, gpio77 is SD0 (capture) and gpio78 is SD1
-	 * (playback).  joan's dai_mi2s2 sets rx-lines = 2, i.e. SD1 out, so only
-	 * the clock pair and SD1 are needed here.
+	 * Quaternary MI2S carries I2S playback to the ES9218P headphone DAC.
+	 * Downstream's dai-link is LPASS_BE_QUAT_MI2S_RX / msm-dai-q6-mi2s.3 ->
+	 * es9218-codec.1-0048 (msm8998.c, under CONFIG_SND_USE_QUAT_MI2S, which
+	 * every joan defconfig sets).  Pins from msm8998-pinctrl.dtsi:
+	 * gpio58 SCK, gpio59 WS, gpio61 SD1.  dai_mi2s3 sets rx-lines = 2, i.e.
+	 * SD1 out, so only the clock pair and SD1 are described here.
 	 */
-	tert_mi2s_default: tert-mi2s-default-state {
-		pins = "gpio75", "gpio76", "gpio78";
-		function = "ter_mi2s";
+	quat_mi2s_default: quat-mi2s-default-state {
+		pins = "gpio58", "gpio59", "gpio61";
+		function = "qua_mi2s";
 		drive-strength = <8>;
 		bias-disable;
 	};
 
-	tert_mi2s_sleep: tert-mi2s-sleep-state {
-		pins = "gpio75", "gpio76", "gpio78";
-		function = "ter_mi2s";
+	quat_mi2s_sleep: quat-mi2s-sleep-state {
+		pins = "gpio58", "gpio59", "gpio61";
+		function = "qua_mi2s";
 		drive-strength = <2>;
 		bias-pull-down;
 	};
@@ -1215,8 +1216,8 @@
 		model = "LG-V30";
 		status = "okay";
 
-		pinctrl-0 = <&tert_mi2s_default>;
-		pinctrl-1 = <&tert_mi2s_sleep>;
+		pinctrl-0 = <&quat_mi2s_default>;
+		pinctrl-1 = <&quat_mi2s_sleep>;
 		pinctrl-names = "default", "sleep";
 
 		/*
@@ -1264,11 +1265,11 @@
 			};
 		};
 
-		tert-mi2s-dai-link {
-			link-name = "Tertiary MI2S Playback";
+		quat-mi2s-dai-link {
+			link-name = "Quaternary MI2S Playback";
 
 			cpu {
-				sound-dai = <&q6afedai TERTIARY_MI2S_RX>;
+				sound-dai = <&q6afedai QUATERNARY_MI2S_RX>;
 			};
 
 			platform {
@@ -1313,8 +1314,8 @@
 };
 
 &q6afedai {
-	dai@20 {
-		reg = <TERTIARY_MI2S_RX>;
+	dai@22 {
+		reg = <QUATERNARY_MI2S_RX>;
 		qcom,sd-lines = <1>;
 	};
 
