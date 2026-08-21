@@ -68,6 +68,11 @@
 struct tfa989x_rev {
 	unsigned int rev;
 	int (*init)(struct regmap *regmap);
+	/*
+	 * Later parts (TFA9872) repurpose the registers below
+	 * TFA989X_REVISIONNUMBER, which are status-only on the older ones.
+	 */
+	bool low_regs_writeable;
 };
 
 struct tfa989x {
@@ -86,11 +91,26 @@ static bool tfa989x_volatile_reg(struct device *dev, unsigned int reg)
 	return reg < TFA989X_REVISIONNUMBER;
 }
 
+static bool tfa989x_writeable_reg_all(struct device *dev, unsigned int reg)
+{
+	return true;
+}
+
 static const struct regmap_config tfa989x_regmap = {
 	.reg_bits = 8,
 	.val_bits = 16,
 
 	.writeable_reg	= tfa989x_writeable_reg,
+	.volatile_reg	= tfa989x_volatile_reg,
+	.cache_type	= REGCACHE_RBTREE,
+};
+
+/* Same, but for parts whose low registers are not status-only. */
+static const struct regmap_config tfa989x_regmap_low_rw = {
+	.reg_bits	= 8,
+	.val_bits	= 16,
+
+	.writeable_reg	= tfa989x_writeable_reg_all,
 	.volatile_reg	= tfa989x_volatile_reg,
 	.cache_type	= REGCACHE_RBTREE,
 };
@@ -279,13 +299,12 @@ static int tfa9897_init(struct regmap *regmap)
  * deviations from power-on reset that the part needs for correct amplifier
  * behaviour; the vendor source lists the POR value beside each one.
  *
- * NOTE: the vendor table also writes 0x02.  On the older parts this driver
- * supports, 0x02 is TFA989X_TEMPERATURE and read-only, so writeable_reg
- * rejects it.  The 9872 evidently repurposes the low registers.  It is left
- * out here rather than widening writeable_reg for every part; revisit if the
- * amplifier misbehaves.
+ * The table writes 0x02 and the tail touches 0x01, both of which are
+ * status-only on the older parts; the 9872 repurposes them, which is what
+ * low_regs_writeable selects a permissive regmap for.
  */
 static const struct reg_sequence tfa9872_reg_init[] = {
+	{ 0x02, 0x2dc8 },
 	{ 0x20, 0x0890 },
 	{ 0x22, 0x043c },
 	{ 0x23, 0x0001 },
@@ -336,8 +355,9 @@ static int tfa9872_init(struct regmap *regmap)
 }
 
 static const struct tfa989x_rev tfa9872_rev = {
-	.rev	= TFA9872_REVISION,
-	.init	= tfa9872_init,
+	.rev			= TFA9872_REVISION,
+	.init			= tfa9872_init,
+	.low_regs_writeable	= true,
 };
 
 static const struct tfa989x_rev tfa9897_rev = {
@@ -428,7 +448,9 @@ static int tfa989x_i2c_probe(struct i2c_client *i2c)
 			return PTR_ERR(tfa989x->rcv_gpiod);
 	}
 
-	regmap = devm_regmap_init_i2c(i2c, &tfa989x_regmap);
+	regmap = devm_regmap_init_i2c(i2c,
+				      rev->low_regs_writeable ?
+				      &tfa989x_regmap_low_rw : &tfa989x_regmap);
 	if (IS_ERR(regmap))
 		return PTR_ERR(regmap);
 
