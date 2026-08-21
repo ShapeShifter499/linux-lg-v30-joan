@@ -50,6 +50,20 @@
 #define TFA9890_REVISION		0x80
 #define TFA9895_REVISION		0x12
 #define TFA9897_REVISION		0x97
+#define TFA9872_REVISION		0x72
+
+/*
+ * The TFA9872 reaches its hidden registers through a different key register
+ * than the older parts (0x0f, not TFA989X_HIDE_UNHIDE_KEY at 0x40), and needs
+ * a second, challenge-response key on top: read 0xfb, xor, write to 0xa0.
+ */
+#define TFA9872_KEY1			0x0f
+#define TFA9872_KEY1_VAL		0x5a6b
+#define TFA9872_KEY2_CHALLENGE		0xfb
+#define TFA9872_KEY2			0xa0
+#define TFA9872_KEY2_XOR		0x005a
+#define TFA9872_MANAOOSC		0x01	/* bit 4: 1 MHz oscillator off */
+#define TFA9872_OVP			0xb0	/* bit 3: bypass over-voltage protection */
 
 struct tfa989x_rev {
 	unsigned int rev;
@@ -259,6 +273,73 @@ static int tfa9897_init(struct regmap *regmap)
 	return regmap_write(regmap, 0x14, 0x0);
 }
 
+/*
+ * Register defaults for the N1B2 die (revisions 0x1b72, 0x2b72, 0x3b72), from
+ * tfa9872_specific() in NXP's vendor driver as shipped by LG.  These are the
+ * deviations from power-on reset that the part needs for correct amplifier
+ * behaviour; the vendor source lists the POR value beside each one.
+ *
+ * NOTE: the vendor table also writes 0x02.  On the older parts this driver
+ * supports, 0x02 is TFA989X_TEMPERATURE and read-only, so writeable_reg
+ * rejects it.  The 9872 evidently repurposes the low registers.  It is left
+ * out here rather than widening writeable_reg for every part; revisit if the
+ * amplifier misbehaves.
+ */
+static const struct reg_sequence tfa9872_reg_init[] = {
+	{ 0x20, 0x0890 },
+	{ 0x22, 0x043c },
+	{ 0x23, 0x0001 },
+	{ 0x51, 0x0000 },
+	{ 0x52, 0x5a1c },
+	{ 0x61, 0x0198 },
+	{ 0x63, 0x0a9a },
+	{ 0x65, 0x0a82 },
+	{ 0x6f, 0x01e3 },
+	{ 0x70, 0x06fd },
+	{ 0x71, 0x307e },
+	{ 0x74, 0xcc84 },
+	{ 0x75, 0x1132 },
+	{ 0x82, 0x01ed },
+	{ 0x83, 0x001a },
+};
+
+static int tfa9872_init(struct regmap *regmap)
+{
+	unsigned int val;
+	int ret;
+
+	/* Unlock the hidden registers: fixed key, then challenge-response. */
+	ret = regmap_write(regmap, TFA9872_KEY1, TFA9872_KEY1_VAL);
+	if (ret)
+		return ret;
+
+	ret = regmap_read(regmap, TFA9872_KEY2_CHALLENGE, &val);
+	if (ret)
+		return ret;
+
+	ret = regmap_write(regmap, TFA9872_KEY2, val ^ TFA9872_KEY2_XOR);
+	if (ret)
+		return ret;
+
+	ret = regmap_multi_reg_write(regmap, tfa9872_reg_init,
+				     ARRAY_SIZE(tfa9872_reg_init));
+	if (ret)
+		return ret;
+
+	/* Turn the 1 MHz oscillator off to save power. */
+	ret = regmap_set_bits(regmap, TFA9872_MANAOOSC, BIT(4));
+	if (ret)
+		return ret;
+
+	/* Bypass over-voltage protection, as the vendor driver does. */
+	return regmap_set_bits(regmap, TFA9872_OVP, BIT(3));
+}
+
+static const struct tfa989x_rev tfa9872_rev = {
+	.rev	= TFA9872_REVISION,
+	.init	= tfa9872_init,
+};
+
 static const struct tfa989x_rev tfa9897_rev = {
 	.rev	= TFA9897_REVISION,
 	.init	= tfa9897_init,
@@ -404,6 +485,7 @@ static int tfa989x_i2c_probe(struct i2c_client *i2c)
 }
 
 static const struct of_device_id tfa989x_of_match[] = {
+	{ .compatible = "nxp,tfa9872", .data = &tfa9872_rev },
 	{ .compatible = "nxp,tfa9890", .data = &tfa9890_rev },
 	{ .compatible = "nxp,tfa9895", .data = &tfa9895_rev },
 	{ .compatible = "nxp,tfa9897", .data = &tfa9897_rev },

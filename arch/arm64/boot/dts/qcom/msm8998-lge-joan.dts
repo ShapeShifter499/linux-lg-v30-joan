@@ -510,6 +510,19 @@
 	 * gpio58 SCK, gpio59 WS, gpio61 SD1.  dai_mi2s3 sets rx-lines = 2, i.e.
 	 * SD1 out, so only the clock pair and SD1 are described here.
 	 */
+	/*
+	 * Tertiary MI2S carries I2S playback to the TFA9872 speaker amplifier
+	 * (downstream: LPASS_BE_TERT_MI2S_RX / msm-dai-q6-mi2s.2 ->
+	 * tfa98xx.7-0034).  gpio75 SCK, gpio76 WS, gpio78 SD1; dai_mi2s2 sets
+	 * rx-lines = 2, i.e. SD1 out.
+	 */
+	tert_mi2s_default: tert-mi2s-default-state {
+		pins = "gpio75", "gpio76", "gpio78";
+		function = "ter_mi2s";
+		drive-strength = <8>;
+		bias-disable;
+	};
+
 	quat_mi2s_default: quat-mi2s-default-state {
 		pins = "gpio58", "gpio59", "gpio61";
 		function = "qua_mi2s";
@@ -775,6 +788,23 @@
 		/* US998 ships dac,use-internal-ldo; SEL1V stays clear. */
 		ess,internal-ldo;
 
+		#sound-dai-cells = <0>;
+	};
+};
+
+/*
+ * BLSP2 QUP1: the TFA9872 smart amplifier driving joan's loudspeaker.
+ * Downstream names it tfa98xx.7-0034, i.e. this bus at 0x34, fed by tertiary
+ * MI2S.  mainline's tfa989x drives it with the CoolFlux DSP bypassed, so there
+ * is no speaker protection: keep the gain conservative until the vendor
+ * firmware container is loaded.
+ */
+&blsp2_i2c1 {
+	status = "okay";
+
+	speaker_amp: audio-codec@34 {
+		compatible = "nxp,tfa9872";
+		reg = <0x34>;
 		#sound-dai-cells = <0>;
 	};
 };
@@ -1216,7 +1246,7 @@
 		model = "LG-V30";
 		status = "okay";
 
-		pinctrl-0 = <&quat_mi2s_default>;
+		pinctrl-0 = <&quat_mi2s_default>, <&tert_mi2s_default>;
 		pinctrl-1 = <&quat_mi2s_sleep>;
 		pinctrl-names = "default", "sleep";
 
@@ -1262,6 +1292,22 @@
 
 			codec {
 				sound-dai = <&wcd9340 0>;
+			};
+		};
+
+		tert-mi2s-dai-link {
+			link-name = "Tertiary MI2S Playback";
+
+			cpu {
+				sound-dai = <&q6afedai TERTIARY_MI2S_RX>;
+			};
+
+			platform {
+				sound-dai = <&q6routing>;
+			};
+
+			codec {
+				sound-dai = <&speaker_amp>;
 			};
 		};
 
@@ -1314,6 +1360,11 @@
 };
 
 &q6afedai {
+	dai@20 {
+		reg = <TERTIARY_MI2S_RX>;
+		qcom,sd-lines = <1>;
+	};
+
 	dai@22 {
 		reg = <QUATERNARY_MI2S_RX>;
 		qcom,sd-lines = <1>;
