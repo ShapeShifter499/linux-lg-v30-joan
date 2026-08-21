@@ -97,10 +97,15 @@
 /* ES9218P_INPUT_SELECT */
 #define ES9218P_INPUT_SEL_MASK		GENMASK(7, 6)
 #define ES9218P_INPUT_SEL_I2S		0
-#define ES9218P_SERIAL_LEN_MASK		GENMASK(1, 0)
-#define ES9218P_SERIAL_LEN_16		0
-#define ES9218P_SERIAL_LEN_24		1
-#define ES9218P_SERIAL_LEN_32		2
+/*
+ * Serial word length lives in bit 7 of the input-select register, and LG's
+ * es9218p_set_bit_width() writes the whole byte rather than masking: 0x00 for
+ * 16-bit, 0x80 for 24- and 32-bit.  An earlier version of this driver put the
+ * field in bits 1:0, so the register kept its 0x8c reset value -- 32-bit --
+ * while 16-bit frames were being sent, and the misaligned frames crackled.
+ */
+#define ES9218P_SERIAL_LEN_16		0x00
+#define ES9218P_SERIAL_LEN_32		0x80
 
 /* ES9218P_FILTER_BAND_SYSTEM_MUTE */
 #define ES9218P_SYSTEM_MUTE		BIT(0)
@@ -181,8 +186,6 @@ static int es9218p_hw_params(struct snd_pcm_substream *substream,
 		len = ES9218P_SERIAL_LEN_16;
 		break;
 	case 24:
-		len = ES9218P_SERIAL_LEN_24;
-		break;
 	case 32:
 		len = ES9218P_SERIAL_LEN_32;
 		break;
@@ -190,8 +193,7 @@ static int es9218p_hw_params(struct snd_pcm_substream *substream,
 		return -EINVAL;
 	}
 
-	return regmap_update_bits(es9218p->regmap, ES9218P_INPUT_SELECT,
-				  ES9218P_SERIAL_LEN_MASK, len);
+	return regmap_write(es9218p->regmap, ES9218P_INPUT_SELECT, len);
 }
 
 static int es9218p_mute_stream(struct snd_soc_dai *dai, int mute, int direction)
