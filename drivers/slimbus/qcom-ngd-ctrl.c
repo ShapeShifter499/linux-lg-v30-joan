@@ -148,6 +148,29 @@ static bool pgd_enable;
 module_param_named(pgd_enable, pgd_enable, bool, 0644);
 MODULE_PARM_DESC(pgd_enable, "JOAN: enable PGD + claim port ownership at bring-up (DANGEROUS: hangs the controller on current mainline; needs the downstream framer/MGR/INTF init sequence first)");
 
+/* JOAN: runtime-PM experiment knobs.
+ *
+ * Mainline autosuspends the NGD 100 ms after the last apps-side bus
+ * access and, in the suspend callback, tears the BAM msgq channels down
+ * (qcom_slim_ngd_exit_dma -> bam_free_chan -> BAM_P_RST writes into the
+ * qcom,controlled-remotely slimbus BAM at 0x17184000).  Downstream waits
+ * 1000 ms (MSM_SLIM_AUTOSUSPEND), refuses to suspend while any TID is
+ * outstanding, and never touches its pipes on runtime suspend.  The
+ * observed kill window (silent SoC reset 0.3-1.3 s after the AFE port
+ * config, ahead of the PCM trigger) sits exactly on that 100 ms timer.
+ */
+static int autosuspend_ms = 100;
+module_param_named(autosuspend_ms, autosuspend_ms, int, 0644);
+MODULE_PARM_DESC(autosuspend_ms, "JOAN: NGD runtime-PM autosuspend delay in ms (mainline 100, downstream 1000; large values keep the bus awake through ADSP stream setup)");
+
+static bool keep_dma;
+module_param_named(keep_dma, keep_dma, bool, 0644);
+MODULE_PARM_DESC(keep_dma, "JOAN: keep the BAM msgq channels allocated across runtime suspend (downstream never resets its pipes on power-down)");
+
+static bool pm_dbg = true;
+module_param_named(pm_dbg, pm_dbg, bool, 0644);
+MODULE_PARM_DESC(pm_dbg, "JOAN: breadcrumb every runtime suspend/resume and BAM msgq init/exit");
+
 /* JOAN pipe-port bring-up: the msm8998 ADSP expects the app CPU to connect
  * its pipe ports to the PGD (ported generic device) and program the PGD
  * port registers BEFORE codec connects can complete. Downstream does this
@@ -909,6 +932,20 @@ static int qcom_slim_ngd_init_dma(struct qcom_slim_ngd_ctrl *ctrl)
 {
 	int ret = 0;
 
+	if (pm_dbg)
+		dev_info(ctrl->dev, "JOAN-PM: init_dma enter (rx=%p tx=%p)\n",
+			 ctrl->dma_rx_channel, ctrl->dma_tx_channel);
+
+	/* keep_dma left the channels allocated across the suspend; the BAM
+	 * pipes and the NGD msgq CFG registers were never torn down, so
+	 * re-requesting them would just fail with -EBUSY.
+	 */
+	if (keep_dma && ctrl->dma_rx_channel && ctrl->dma_tx_channel) {
+		if (pm_dbg)
+			dev_info(ctrl->dev, "JOAN-PM: init_dma skipped (keep_dma)\n");
+		return 0;
+	}
+
 	ret = qcom_slim_ngd_init_rx_msgq(ctrl);
 	if (ret) {
 		dev_err(ctrl->dev, "rx dma init failed\n");
@@ -918,6 +955,9 @@ static int qcom_slim_ngd_init_dma(struct qcom_slim_ngd_ctrl *ctrl)
 	ret = qcom_slim_ngd_init_tx_msgq(ctrl);
 	if (ret)
 		dev_err(ctrl->dev, "tx dma init failed\n");
+
+	if (pm_dbg)
+		dev_info(ctrl->dev, "JOAN-PM: init_dma done ret=%d\n", ret);
 
 	return ret;
 }
@@ -1449,6 +1489,10 @@ static int qcom_slim_ngd_get_laddr(struct slim_controller *ctrl,
 
 static int qcom_slim_ngd_exit_dma(struct qcom_slim_ngd_ctrl *ctrl)
 {
+	if (pm_dbg)
+		dev_info(ctrl->dev, "JOAN-PM: exit_dma enter (rx=%p tx=%p)\n",
+			 ctrl->dma_rx_channel, ctrl->dma_tx_channel);
+
 	if (ctrl->dma_rx_channel) {
 		dmaengine_terminate_sync(ctrl->dma_rx_channel);
 		dma_release_channel(ctrl->dma_rx_channel);
@@ -1460,6 +1504,9 @@ static int qcom_slim_ngd_exit_dma(struct qcom_slim_ngd_ctrl *ctrl)
 	}
 
 	ctrl->dma_tx_channel = ctrl->dma_rx_channel = NULL;
+
+	if (pm_dbg)
+		dev_info(ctrl->dev, "JOAN-PM: exit_dma done\n");
 
 	return 0;
 }
@@ -1644,6 +1691,10 @@ static int qcom_slim_ngd_runtime_resume(struct device *dev)
 	enum qcom_slim_ngd_state prev_state = ctrl->state;
 	int ret = 0;
 
+	if (pm_dbg)
+		dev_info(ctrl->dev, "JOAN-PM: runtime_resume enter (state %d)\n",
+			 ctrl->state);
+
 	if (!ctrl->qmi.handle)
 		return 0;
 
@@ -1673,6 +1724,10 @@ static int qcom_slim_ngd_runtime_resume(struct device *dev)
 	 */
 	if (prev_state != QCOM_SLIM_NGD_CTRL_DOWN && !ctrl->joan_pipe_done)
 		queue_work(ctrl->mwq, &ctrl->joan_pipe_work);
+
+	if (pm_dbg)
+		dev_info(ctrl->dev, "JOAN-PM: runtime_resume done ret=%d state=%d prev=%d\n",
+			 ret, ctrl->state, prev_state);
 
 	return 0;
 }
@@ -1960,7 +2015,10 @@ static int qcom_slim_ngd_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, ctrl);
 	pm_runtime_use_autosuspend(dev);
-	pm_runtime_set_autosuspend_delay(dev, 100);
+	pm_runtime_set_autosuspend_delay(dev, autosuspend_ms);
+	if (pm_dbg)
+		dev_info(dev, "JOAN-PM: autosuspend delay %d ms, keep_dma=%d\n",
+			 autosuspend_ms, keep_dma);
 	pm_runtime_set_suspended(dev);
 	pm_runtime_enable(dev);
 	pm_runtime_get_noresume(dev);
@@ -2108,15 +2166,30 @@ static int __maybe_unused qcom_slim_ngd_runtime_suspend(struct device *dev)
 	struct qcom_slim_ngd_ctrl *ctrl = dev_get_drvdata(dev);
 	int ret = 0;
 
-	qcom_slim_ngd_exit_dma(ctrl);
-	if (!ctrl->qmi.handle)
+	if (pm_dbg)
+		dev_info(ctrl->dev, "JOAN-PM: runtime_suspend enter (state %d)\n",
+			 ctrl->state);
+
+	if (!keep_dma)
+		qcom_slim_ngd_exit_dma(ctrl);
+	if (!ctrl->qmi.handle) {
+		if (pm_dbg)
+			dev_info(ctrl->dev, "JOAN-PM: runtime_suspend exit (no qmi handle)\n");
 		return 0;
+	}
+
+	if (pm_dbg)
+		dev_info(ctrl->dev, "JOAN-PM: qmi power_request(false)\n");
 
 	ret = qcom_slim_qmi_power_request(ctrl, false);
 	if (ret && ret != -EBUSY)
 		dev_info(ctrl->dev, "slim resource not idle:%d\n", ret);
 	if (!ret || ret == -ETIMEDOUT)
 		ctrl->state = QCOM_SLIM_NGD_CTRL_ASLEEP;
+
+	if (pm_dbg)
+		dev_info(ctrl->dev, "JOAN-PM: runtime_suspend done ret=%d state=%d\n",
+			 ret, ctrl->state);
 
 	return ret;
 }
