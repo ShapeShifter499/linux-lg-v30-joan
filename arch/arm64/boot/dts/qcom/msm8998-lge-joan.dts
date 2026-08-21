@@ -185,12 +185,57 @@
 };
 
 &pm8998_gpios {
+	/*
+	 * ES9218P "Quad DAC" mode pins.  joan's headphone jack is wired
+	 * through the ES9218P, not straight off the WCD9340, so the jack is
+	 * dead unless the DAC is in a mode that passes audio.  LG's
+	 * es9218p.c documents the pin encoding:
+	 *
+	 *   reset=H && hifi_mode2=L  -> HiFi mode
+	 *   reset=L && hifi_mode2=H  -> Low Power Bypass   <- this
+	 *   reset=L && hifi_mode2=L  -> Standby / shutdown
+	 *   reset=H && hifi_mode2=H  -> LowFi mode
+	 *
+	 * Low Power Bypass routes the WCD9340's own analog HPHL/HPHR to the
+	 * jack, which is what we want until the ES9218P driver owns these
+	 * pins and can run the standby -> LPB -> HiFi sequence itself.  The
+	 * chip still needs its supply up for the bypass switch to conduct,
+	 * hence power high.
+	 *
+	 * DT numbering here is 1-based: pinctrl-spmi-gpio's of_xlate
+	 * subtracts PMIC_GPIO_PHYSICAL_OFFSET, so <10> is PMIC GPIO_10 and
+	 * matches downstream's numbers directly.
+	 */
+	es9218p_power_hog {
+		gpio-hog;
+		gpios = <10 GPIO_ACTIVE_HIGH>;
+		output-high;
+		line-name = "es9218p-power";
+	};
+
+	es9218p_hifi_mode2_hog {
+		gpio-hog;
+		gpios = <12 GPIO_ACTIVE_HIGH>;
+		output-high;
+		line-name = "es9218p-hifi-mode2";
+	};
+
 	vol_up_default: vol-up-state {
 		pins = "gpio6";
 		function = "normal";
 		bias-pull-up;
 		input-enable;
 		qcom,drive-strength = <PMIC_GPIO_STRENGTH_NO>;
+	};
+};
+
+&pmi8998_gpios {
+	/* ES9218P RESETb held low: see the mode table on &pm8998_gpios. */
+	es9218p_reset_hog {
+		gpio-hog;
+		gpios = <2 GPIO_ACTIVE_HIGH>;
+		output-low;
+		line-name = "es9218p-reset-n";
 	};
 };
 
@@ -1148,12 +1193,21 @@
 		model = "LG-V30";
 		status = "okay";
 
+		/*
+		 * "Left Spk"/"SPK1 OUT" was copied from db845c, which drives
+		 * WSA881x amps off the codec's SoundWire speaker output.  joan
+		 * has no WSA parts -- its loudspeaker is a TFA98xx on i2c_7 --
+		 * so that route named a widget nothing declares.  Dropped.
+		 *
+		 * The codec's own analog outputs (EAR, HPHL, HPHR) are
+		 * SND_SOC_DAPM_OUTPUT endpoints and need no board route to be
+		 * usable; they are reached by the RX INTn chain kcontrols.
+		 */
 		audio-routing =
 			"RX_BIAS", "MCLK",
 			"AMIC1", "MIC BIAS1",
 			"AMIC2", "MIC BIAS2",
-			"AMIC3", "MIC BIAS3",
-			"Left Spk", "SPK1 OUT";
+			"AMIC3", "MIC BIAS3";
 
 		mm1-dai-link {
 			link-name = "MultiMedia1";
