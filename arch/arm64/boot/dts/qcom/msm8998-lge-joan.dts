@@ -185,57 +185,12 @@
 };
 
 &pm8998_gpios {
-	/*
-	 * ES9218P "Quad DAC" mode pins.  joan's headphone jack is wired
-	 * through the ES9218P, not straight off the WCD9340, so the jack is
-	 * dead unless the DAC is in a mode that passes audio.  LG's
-	 * es9218p.c documents the pin encoding:
-	 *
-	 *   reset=H && hifi_mode2=L  -> HiFi mode
-	 *   reset=L && hifi_mode2=H  -> Low Power Bypass   <- this
-	 *   reset=L && hifi_mode2=L  -> Standby / shutdown
-	 *   reset=H && hifi_mode2=H  -> LowFi mode
-	 *
-	 * Low Power Bypass routes the WCD9340's own analog HPHL/HPHR to the
-	 * jack, which is what we want until the ES9218P driver owns these
-	 * pins and can run the standby -> LPB -> HiFi sequence itself.  The
-	 * chip still needs its supply up for the bypass switch to conduct,
-	 * hence power high.
-	 *
-	 * DT numbering here is 1-based: pinctrl-spmi-gpio's of_xlate
-	 * subtracts PMIC_GPIO_PHYSICAL_OFFSET, so <10> is PMIC GPIO_10 and
-	 * matches downstream's numbers directly.
-	 */
-	es9218p_power_hog {
-		gpio-hog;
-		gpios = <10 GPIO_ACTIVE_HIGH>;
-		output-high;
-		line-name = "es9218p-power";
-	};
-
-	es9218p_hifi_mode2_hog {
-		gpio-hog;
-		gpios = <12 GPIO_ACTIVE_HIGH>;
-		output-high;
-		line-name = "es9218p-hifi-mode2";
-	};
-
 	vol_up_default: vol-up-state {
 		pins = "gpio6";
 		function = "normal";
 		bias-pull-up;
 		input-enable;
 		qcom,drive-strength = <PMIC_GPIO_STRENGTH_NO>;
-	};
-};
-
-&pmi8998_gpios {
-	/* ES9218P RESETb held low: see the mode table on &pm8998_gpios. */
-	es9218p_reset_hog {
-		gpio-hog;
-		gpios = <2 GPIO_ACTIVE_HIGH>;
-		output-low;
-		line-name = "es9218p-reset-n";
 	};
 };
 
@@ -533,7 +488,19 @@
 };
 
 &tlmm {
-	gpio-reserved-ranges = <0 4>, <49 4>, <81 4>;
+	/*
+	 * <0 4> came in as msm8998 boilerplate -- every mainline board carries it,
+	 * inherited from the MTP reference -- and it covers the whole BLSP1 QUP1
+	 * pin block (gpio0-3, SPI1/UART1/I2C1 muxed). joan actually uses QUP1 as
+	 * I2C for the ES9218P headphone DAC, and downstream drives gpio2/gpio3 with
+	 * function = "blsp_i2c1" under the same TZ firmware we boot, so AP access is
+	 * permitted. Reserving them made pinctrl reject the controller outright:
+	 *   msm8998-pinctrl: error -EINVAL: pin-2 (c175000.i2c)
+	 *   i2c_qup c175000.i2c: error -EINVAL: Error applying setting
+	 * and i2c-1 never appeared. Narrow to <0 2> so the unused SPI pins stay
+	 * reserved while SCL/SDA are available.
+	 */
+	gpio-reserved-ranges = <0 2>, <49 4>, <81 4>;
 
 	wcd_intr_default: wcd-intr-default-state {
 		pins = "gpio54";
@@ -753,6 +720,37 @@
 		regulator-max-microvolt = <1800000>;
 		gpio = <&tlmm 86 GPIO_ACTIVE_HIGH>;
 		enable-active-high;
+	};
+};
+
+/*
+ * BLSP1 QUP1: the ES9218P "Quad DAC" that drives joan's headphone jack.
+ * The WCD9340's own HPHL/HPHR reach the jack only through this part, so
+ * nothing is audible on the headphone path until it is driven.
+ *
+ * LG's es9218p.c documents the mode pins:
+ *   reset=H && hifi_mode2=L  -> HiFi mode          (driver's power-on state)
+ *   reset=L && hifi_mode2=H  -> Low Power Bypass   (WCD analog passes through)
+ *   reset=L && hifi_mode2=L  -> Standby / shutdown
+ *   reset=H && hifi_mode2=H  -> LowFi mode
+ *
+ * Polarity: RESETb is asserted low, so reset-gpios is ACTIVE_LOW and the
+ * driver's deassert leaves it physically high. power and hph-sw are plain
+ * active-high. PMIC DT numbering is 1-based and matches downstream, because
+ * pinctrl-spmi-gpio's of_xlate subtracts PMIC_GPIO_PHYSICAL_OFFSET.
+ */
+&blsp1_i2c1 {
+	status = "okay";
+
+	headphone-dac@48 {
+		compatible = "ess,es9218p";
+		reg = <0x48>;
+
+		power-gpios = <&pm8998_gpios 10 GPIO_ACTIVE_HIGH>;
+		reset-gpios = <&pmi8998_gpios 2 GPIO_ACTIVE_LOW>;
+		hph-sw-gpios = <&pm8998_gpios 12 GPIO_ACTIVE_HIGH>;
+
+		#sound-dai-cells = <0>;
 	};
 };
 

@@ -11,10 +11,13 @@
  * custom sysfs and per-SKU tuning. The register semantics below are taken from
  * that driver's header, which is the only public description of the part.
  *
- * STATUS: skeleton. Probe, regmap, volume, mute and power sequencing are
- * implemented. Not yet probed on hardware -- there is no ES9218P support
- * anywhere upstream to compare against (the only ESS codec in tree, es9356,
- * is a SoundWire part and shares no bus model with this one).
+ * STATUS: probe verified on hardware (LG V30, 2026-08-21) -- the part answers
+ * on BLSP1 QUP1 with chip id 0xd0, which is the value LG's own driver checks
+ * for. Regmap, volume, mute and power sequencing are implemented; the I2S data
+ * path has NOT been exercised yet, as joan's tertiary MI2S link is not wired up
+ * in the machine driver. There is no ES9218P support anywhere upstream to
+ * compare against (the only ESS codec in tree, es9356, is a SoundWire part and
+ * shares no bus model with this one).
  */
 
 #include <linux/clk.h>
