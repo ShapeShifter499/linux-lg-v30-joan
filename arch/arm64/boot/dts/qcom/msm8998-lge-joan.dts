@@ -502,6 +502,27 @@
 	 */
 	gpio-reserved-ranges = <0 2>, <49 4>, <81 4>;
 
+	/*
+	 * Tertiary MI2S carries I2S playback to the ES9218P headphone DAC.
+	 * Downstream (msm8998-pinctrl.dtsi) splits this across three states:
+	 * gpio75/76 are SCK and WS, gpio77 is SD0 (capture) and gpio78 is SD1
+	 * (playback).  joan's dai_mi2s2 sets rx-lines = 2, i.e. SD1 out, so only
+	 * the clock pair and SD1 are needed here.
+	 */
+	tert_mi2s_default: tert-mi2s-default-state {
+		pins = "gpio75", "gpio76", "gpio78";
+		function = "ter_mi2s";
+		drive-strength = <8>;
+		bias-disable;
+	};
+
+	tert_mi2s_sleep: tert-mi2s-sleep-state {
+		pins = "gpio75", "gpio76", "gpio78";
+		function = "ter_mi2s";
+		drive-strength = <2>;
+		bias-pull-down;
+	};
+
 	wcd_intr_default: wcd-intr-default-state {
 		pins = "gpio54";
 		function = "gpio";
@@ -742,7 +763,7 @@
 &blsp1_i2c1 {
 	status = "okay";
 
-	headphone-dac@48 {
+	es9218p: headphone-dac@48 {
 		compatible = "ess,es9218p";
 		reg = <0x48>;
 
@@ -1191,6 +1212,10 @@
 		model = "LG-V30";
 		status = "okay";
 
+		pinctrl-0 = <&tert_mi2s_default>;
+		pinctrl-1 = <&tert_mi2s_sleep>;
+		pinctrl-names = "default", "sleep";
+
 		/*
 		 * "Left Spk"/"SPK1 OUT" was copied from db845c, which drives
 		 * WSA881x amps off the codec's SoundWire speaker output.  joan
@@ -1236,6 +1261,22 @@
 			};
 		};
 
+		tert-mi2s-dai-link {
+			link-name = "Tertiary MI2S Playback";
+
+			cpu {
+				sound-dai = <&q6afedai TERTIARY_MI2S_RX>;
+			};
+
+			platform {
+				sound-dai = <&q6routing>;
+			};
+
+			codec {
+				sound-dai = <&es9218p>;
+			};
+		};
+
 		slim-capture-dai-link {
 			link-name = "SLIM Capture";
 			cpu {
@@ -1269,6 +1310,11 @@
 };
 
 &q6afedai {
+	dai@20 {
+		reg = <TERTIARY_MI2S_RX>;
+		qcom,sd-lines = <1>;
+	};
+
 	dai@16 {
 		reg = <SLIMBUS_0_RX>;
 	};
