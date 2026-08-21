@@ -376,11 +376,22 @@ static int sdm845_snd_startup(struct snd_pcm_substream *substream)
 
 	case TERTIARY_MI2S_RX:
 		codec_dai_fmt |= SND_SOC_DAIFMT_NB_NF | SND_SOC_DAIFMT_I2S;
-		snd_soc_dai_set_sysclk(cpu_dai,
+		ret = snd_soc_dai_set_sysclk(cpu_dai,
 			Q6AFE_LPASS_CLK_ID_TER_MI2S_IBIT,
 			MI2S_BCLK_RATE, SNDRV_PCM_STREAM_PLAYBACK);
-		snd_soc_dai_set_fmt(cpu_dai, fmt);
-		snd_soc_dai_set_fmt(codec_dai, codec_dai_fmt);
+		if (ret)
+			dev_err(card->dev,
+				"tert MI2S set_sysclk %u Hz failed: %d\n",
+				MI2S_BCLK_RATE, ret);
+		ret = snd_soc_dai_set_fmt(cpu_dai, fmt);
+		if (ret)
+			dev_err(card->dev, "tert MI2S cpu set_fmt failed: %d\n",
+				ret);
+		ret = snd_soc_dai_set_fmt(codec_dai, codec_dai_fmt);
+		if (ret)
+			dev_err(card->dev, "tert MI2S codec set_fmt failed: %d\n",
+				ret);
+		ret = 0;
 		break;
 
 	case QUATERNARY_TDM_RX_0:
