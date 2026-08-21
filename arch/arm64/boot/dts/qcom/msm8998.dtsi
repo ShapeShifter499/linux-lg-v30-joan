@@ -3715,12 +3715,24 @@
 				 * ADSP boots but exposes nothing, so no ALSA card is
 				 * ever created even with the codec enumerated.
 				 *
-				 * Modelled on sdm845. Two deliberate omissions:
-				 * qcom,protection-domain (msm8998 does not run the
-				 * audio PD split -- there are no PD maps in its
-				 * firmware) and the q6asmdai iommus property
-				 * (msm8998 has no apps_smmu; its ADSP sits behind
-				 * lpass_q6_smmu instead).
+				 * Modelled on sdm845.
+				 *
+				 * qcom,protection-domain is still omitted here; the
+				 * ADSP PDs are supplied by the in-kernel locator
+				 * (qcom_pd_mapper msm8998_domains[]) instead.
+				 *
+				 * q6asmdai DOES need iommus.  q6asm_dai_probe()
+				 * reads it to recover the audio stream ID and puts
+				 * that SID in bits [63:32] of the buffer address it
+				 * hands the DSP; without the property pdata->sid is
+				 * -1 and the DSP is given a bare, unmapped physical
+				 * address.  On joan that killed the SoC silently at
+				 * the first ASM_DATA_CMD_WRITE_V2 (boot 22a).
+				 * sdm845 uses apps_smmu 0x1821 (SID 1 after the 0xF
+				 * mask); msm8998's audio context bank on
+				 * lpass_q6_smmu is likewise 1 -- downstream
+				 * msm-audio.dtsi:448 gives qcom,msm-audio-ion
+				 * iommus = <&lpass_q6_smmu 1>.
 				 */
 				apr {
 					compatible = "qcom,apr-v2";
@@ -3756,6 +3768,7 @@
 							#address-cells = <1>;
 							#size-cells = <0>;
 							#sound-dai-cells = <1>;
+							iommus = <&lpass_q6_smmu 1>;
 						};
 					};
 

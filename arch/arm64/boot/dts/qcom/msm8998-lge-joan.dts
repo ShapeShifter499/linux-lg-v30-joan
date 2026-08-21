@@ -1100,6 +1100,15 @@
 	status = "okay";
 };
 
+/*
+ * The ADSP's own IOMMU.  q6asmdai (msm8998.dtsi) takes its audio context
+ * bank from here, so the PCM buffer handed to the DSP is an IOVA the Q6 can
+ * translate rather than a bare physical address.
+ */
+&lpass_q6_smmu {
+	status = "okay";
+};
+
 &remoteproc_mss {
 	firmware-name = "qcom/msm8998/joan/mba.mbn",
 			"qcom/msm8998/joan/modem.mdt";
