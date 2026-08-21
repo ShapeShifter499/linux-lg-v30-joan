@@ -11,13 +11,23 @@
  * custom sysfs and per-SKU tuning. The register semantics below are taken from
  * that driver's header, which is the only public description of the part.
  *
- * STATUS: probe verified on hardware (LG V30, 2026-08-21) -- the part answers
- * on BLSP1 QUP1 with chip id 0xd0, which is the value LG's own driver checks
- * for. Regmap, volume, mute and power sequencing are implemented; the I2S data
- * path has NOT been exercised yet, as joan's tertiary MI2S link is not wired up
- * in the machine driver. There is no ES9218P support anywhere upstream to
- * compare against (the only ESS codec in tree, es9356, is a SoundWire part and
- * shares no bus model with this one).
+ * STATUS: working on hardware (LG V30, 2026-08-21). The part answers on BLSP1
+ * QUP1 with chip id 0xd0, the value LG's own driver checks for, and plays
+ * stereo audio: regmap, volume, mute, power sequencing, the register init and
+ * the analog amplifier power-up are all implemented and verified, and the DAC
+ * reports a locked DPLL while a stream runs.
+ *
+ * On joan the I2S feed is QUATERNARY MI2S, not tertiary -- tertiary carries the
+ * TFA9872 loudspeaker amplifier instead. Read the dai-link that names the codec
+ * (LPASS_BE_QUAT_MI2S_RX / msm-dai-q6-mi2s.3 -> es9218-codec.1-0048) rather than
+ * inferring the port from a neighbouring DT node.
+ *
+ * Not yet done: jack detection, and a sane default volume (full scale here is
+ * 0 dB into headphones and is uncomfortably loud).
+ *
+ * There is no ES9218P support anywhere upstream to compare against (the only
+ * ESS codec in tree, es9356, is a SoundWire part and shares no bus model with
+ * this one).
  */
 
 #include <linux/clk.h>
