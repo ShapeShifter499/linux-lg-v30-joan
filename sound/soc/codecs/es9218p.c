@@ -52,7 +52,44 @@
 #define ES9218P_MASTERTRIM_2		0x13
 #define ES9218P_MASTERTRIM_1		0x14
 #define ES9218P_GPIO_INPUT_SEL		0x15
-#define ES9218P_GEN_CONFIG		0x1b
+#define ES9218P_CP_SS_DELAY		0x1b	/* charge pump soft-start delay */
+#define ES9218P_GEN_CONFIG		0x1d
+#define ES9218P_GPIO_INVERT_CLKGEAR1	0x1e
+#define ES9218P_GPIO_INVERT_CLKGEAR2	0x1f
+#define ES9218P_AMP_CONFIG		0x20
+#define ES9218P_AMP_MODE_HIFI1		0x02
+
+/*
+ * Analog output block.  LG's driver drives these directly with no symbolic
+ * names; the bit meanings below come from the comments in its power-up
+ * sequence (es9218p.c, es9218p_sabre_bypass2hifi()).
+ */
+#define ES9218P_ANALOG_OVERRIDE		0x2d	/* "register 45" */
+#define ES9218P_APDB			BIT(2)
+#define ES9218P_CPH_WEAK		BIT(3)
+#define ES9218P_CPH_STRONG		BIT(4)
+#define ES9218P_AREG_PDB		BIT(5)
+#define ES9218P_ENHPA			BIT(6)
+
+#define ES9218P_DIGITAL_OVERRIDE	0x2e	/* "register 46" */
+#define ES9218P_SHTINB			BIT(0)	/* release amp input shunt */
+#define ES9218P_SHTOUTB			BIT(1)	/* release amp output shunt */
+#define ES9218P_SEL1V			BIT(2)	/* external LDO */
+#define ES9218P_OVERRIDE_EN		BIT(7)
+
+#define ES9218P_CP_OVERRIDE		0x2f	/* "register 47" */
+#define ES9218P_CPL_WEAK		BIT(3)
+#define ES9218P_CPL_STRONG		BIT(4)
+#define ES9218P_ENCP_OE			BIT(5)
+#define ES9218P_ENAUX_OE		BIT(6)
+
+#define ES9218P_HPA_CTRL		0x30	/* "register 48" */
+#define ES9218P_STATE3_CTRL_SEL		0x07	/* minimum state-machine delay */
+#define ES9218P_HPAHIQ			BIT(3)
+#define ES9218P_ENHPA_OUT		BIT(6)
+
+/* ATC (analog volume) floor used while the output stage is brought up. */
+#define ES9218P_ATC_MIN			0x18
 #define ES9218P_CHIP_ID			0x40
 
 #define ES9218P_MAX_REGISTER		0x45
@@ -70,6 +107,7 @@
 
 struct es9218p_priv {
 	struct regmap *regmap;
+	bool internal_ldo;
 	struct gpio_desc *reset_gpio;
 	struct gpio_desc *power_gpio;
 	struct gpio_desc *hph_sw_gpio;
@@ -114,8 +152,13 @@ static const struct snd_kcontrol_new es9218p_snd_controls[] = {
 		   ES9218P_FILTER_BAND_SYSTEM_MUTE, 0, 1, 1),
 };
 
+static int es9218p_dac_event(struct snd_soc_dapm_widget *w,
+			     struct snd_kcontrol *kc, int event);
+
 static const struct snd_soc_dapm_widget es9218p_dapm_widgets[] = {
-	SND_SOC_DAPM_DAC("DAC", NULL, SND_SOC_NOPM, 0, 0),
+	SND_SOC_DAPM_DAC_E("DAC", NULL, SND_SOC_NOPM, 0, 0,
+			   es9218p_dac_event,
+			   SND_SOC_DAPM_POST_PMU | SND_SOC_DAPM_PRE_PMD),
 	SND_SOC_DAPM_OUTPUT("HPOUTL"),
 	SND_SOC_DAPM_OUTPUT("HPOUTR"),
 };
@@ -169,6 +212,149 @@ static int es9218p_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
 	if ((fmt & SND_SOC_DAIFMT_CLOCK_PROVIDER_MASK) !=
 	    SND_SOC_DAIFMT_CBC_CFC)
 		return -EINVAL;
+
+	return 0;
+}
+
+/*
+ * Register init.  Values are LG's (es9218_common_init_registers and
+ * es9218_PCM_init_register); only the entries its tables actually write are
+ * carried over -- the rest of those tables is commented-out reset defaults.
+ */
+static const struct reg_sequence es9218p_init_seq[] = {
+	{ ES9218P_OVERCURRENT_PROTECT,	0x90 },
+	{ ES9218P_DPLL_BANDWIDTH,	0x8a },
+	{ ES9218P_THD_COMP_MONO_MODE,	0x00 },
+	{ ES9218P_SOFT_START_CONFIG,	0x07 },
+	{ ES9218P_GPIO_INPUT_SEL,	0x0f },
+	{ ES9218P_CP_SS_DELAY,		0xc4 },
+	{ ES9218P_GPIO_INVERT_CLKGEAR1,	0x37 },
+	{ ES9218P_GPIO_INVERT_CLKGEAR2,	0x30 },
+
+	/* PCM path: DoP off, slave mode, clock divider M/4. */
+	{ ES9218P_SYSTEM_REG,		0x00 },
+	{ ES9218P_AUTOMUTE_CONFIG,	0x34 },
+	{ ES9218P_DOP_VOL_RAMP_RATE,	0x43 },
+	{ ES9218P_MASTERMODE_SYNC_CONFIG, 0x02 },
+	{ ES9218P_GEN_CONFIG,		0x06 },
+};
+
+/*
+ * Bring the headphone amplifier up.  This is ESS's ordering, transcribed from
+ * LG's es9218p_sabre_bypass2hifi(): the charge pumps are staged weak before
+ * strong, the amplifier is held shunted until its supplies are alive, and the
+ * output stage is enabled last.  Skipping it leaves the part configured and
+ * clocked but silent, which is exactly what we measured.
+ *
+ * LG steps this with a 500 ms delay per write, but that is its
+ * "ESS pop-click debugging step time delay" knob, not a hardware requirement.
+ * The only settle the source documents as required is the 5 ms before
+ * AREG_PDB, so that one is honoured and the rest are short.
+ */
+static int es9218p_amp_power_up(struct es9218p_priv *es9218p)
+{
+	struct regmap *rm = es9218p->regmap;
+	unsigned int r46 = ES9218P_OVERRIDE_EN;
+	int ret;
+
+	if (!es9218p->internal_ldo)
+		r46 |= ES9218P_SEL1V;
+
+	/* Minimum state-machine delay; HPAHiQ toggled as ESS specifies. */
+	ret = regmap_write(rm, ES9218P_HPA_CTRL,
+			   ES9218P_HPAHIQ | ES9218P_STATE3_CTRL_SEL);
+	if (!ret)
+		ret = regmap_write(rm, ES9218P_HPA_CTRL,
+				   ES9218P_STATE3_CTRL_SEL);
+	/* Take manual control; both amp shunts stay engaged for now. */
+	if (!ret)
+		ret = regmap_write(rm, ES9218P_DIGITAL_OVERRIDE, r46);
+	if (!ret)
+		ret = regmap_write(rm, ES9218P_AMP_CONFIG,
+				   ES9218P_AMP_MODE_HIFI1);
+	if (!ret)
+		ret = regmap_write(rm, ES9218P_ANALOG_VOL_CTRL,
+				   ES9218P_ATC_MIN);
+	/* Charge pumps: weak first, then override-enable, then strong. */
+	if (!ret)
+		ret = regmap_write(rm, ES9218P_CP_OVERRIDE, ES9218P_CPL_WEAK);
+	if (!ret)
+		ret = regmap_write(rm, ES9218P_ANALOG_OVERRIDE,
+				   ES9218P_CPH_WEAK);
+	if (!ret)
+		ret = regmap_write(rm, ES9218P_CP_OVERRIDE,
+				   ES9218P_CPL_WEAK | ES9218P_ENCP_OE |
+				   ES9218P_ENAUX_OE);
+	if (!ret)
+		ret = regmap_write(rm, ES9218P_ANALOG_OVERRIDE,
+				   ES9218P_CPH_WEAK | ES9218P_APDB |
+				   ES9218P_CPH_STRONG);
+	if (!ret)
+		ret = regmap_write(rm, ES9218P_CP_OVERRIDE,
+				   ES9218P_CPL_WEAK | ES9218P_ENCP_OE |
+				   ES9218P_ENAUX_OE | ES9218P_CPL_STRONG);
+	if (ret)
+		return ret;
+
+	/* Vref (APDB) must settle before the AVCC_DAC regulator comes up. */
+	usleep_range(5000, 6000);
+
+	ret = regmap_write(rm, ES9218P_ANALOG_OVERRIDE,
+			   ES9218P_CPH_WEAK | ES9218P_APDB |
+			   ES9218P_CPH_STRONG | ES9218P_AREG_PDB |
+			   ES9218P_ENHPA);
+	if (!ret)
+		ret = regmap_write(rm, ES9218P_DIGITAL_OVERRIDE,
+				   r46 | ES9218P_SHTINB);
+	if (!ret)
+		ret = regmap_write(rm, ES9218P_HPA_CTRL,
+				   ES9218P_STATE3_CTRL_SEL |
+				   ES9218P_ENHPA_OUT);
+	/* Restore the analog volume the ATC floor above displaced. */
+	if (!ret)
+		ret = regmap_write(rm, ES9218P_ANALOG_VOL_CTRL, 0x40);
+	/*
+	 * Release the output shunt and hand control back to AMP_CONFIG, which
+	 * holds the part in HiFi1 from here.
+	 */
+	if (!ret)
+		ret = regmap_write(rm, ES9218P_DIGITAL_OVERRIDE,
+				   (r46 & ES9218P_SEL1V) | ES9218P_SHTINB |
+				   ES9218P_SHTOUTB);
+	return ret;
+}
+
+static int es9218p_amp_power_down(struct es9218p_priv *es9218p)
+{
+	struct regmap *rm = es9218p->regmap;
+	unsigned int r46 = ES9218P_OVERRIDE_EN;
+
+	if (!es9218p->internal_ldo)
+		r46 |= ES9218P_SEL1V;
+
+	/* Shunt the output, drop the amp, then the supplies and pumps. */
+	regmap_write(rm, ES9218P_ANALOG_VOL_CTRL, ES9218P_ATC_MIN);
+	regmap_write(rm, ES9218P_DIGITAL_OVERRIDE, r46);
+	regmap_write(rm, ES9218P_HPA_CTRL, ES9218P_STATE3_CTRL_SEL);
+	regmap_write(rm, ES9218P_ANALOG_OVERRIDE, 0);
+	regmap_write(rm, ES9218P_CP_OVERRIDE, 0);
+	regmap_write(rm, ES9218P_AMP_CONFIG, 0);
+
+	return 0;
+}
+
+static int es9218p_dac_event(struct snd_soc_dapm_widget *w,
+			     struct snd_kcontrol *kc, int event)
+{
+	struct snd_soc_component *comp = snd_soc_dapm_to_component(w->dapm);
+	struct es9218p_priv *es9218p = snd_soc_component_get_drvdata(comp);
+
+	switch (event) {
+	case SND_SOC_DAPM_POST_PMU:
+		return es9218p_amp_power_up(es9218p);
+	case SND_SOC_DAPM_PRE_PMD:
+		return es9218p_amp_power_down(es9218p);
+	}
 
 	return 0;
 }
@@ -270,6 +456,14 @@ static int es9218p_i2c_probe(struct i2c_client *i2c)
 		return dev_err_probe(dev, ret, "failed to read chip id\n");
 
 	dev_info(dev, "ES9218P chip id 0x%02x\n", chipid);
+
+	es9218p->internal_ldo = device_property_read_bool(dev,
+							  "ess,internal-ldo");
+
+	ret = regmap_multi_reg_write(es9218p->regmap, es9218p_init_seq,
+				     ARRAY_SIZE(es9218p_init_seq));
+	if (ret)
+		return dev_err_probe(dev, ret, "failed to apply init sequence\n");
 
 	return devm_snd_soc_register_component(dev, &es9218p_component_driver,
 					       &es9218p_dai, 1);

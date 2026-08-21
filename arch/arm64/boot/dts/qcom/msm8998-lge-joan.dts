@@ -771,6 +771,9 @@
 		reset-gpios = <&pmi8998_gpios 2 GPIO_ACTIVE_LOW>;
 		hph-sw-gpios = <&pm8998_gpios 12 GPIO_ACTIVE_HIGH>;
 
+		/* US998 ships dac,use-internal-ldo; SEL1V stays clear. */
+		ess,internal-ldo;
+
 		#sound-dai-cells = <0>;
 	};
 };
