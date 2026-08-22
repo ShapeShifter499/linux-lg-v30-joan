@@ -1875,6 +1875,7 @@ static int wcd934x_trigger(struct snd_pcm_substream *substream, int cmd,
 	struct wcd_slim_codec_dai_data *dai_data;
 	struct wcd934x_codec *wcd;
 	struct slim_stream_config *cfg;
+	int ret;
 
 	wcd = snd_soc_component_get_drvdata(dai->component);
 
@@ -1885,8 +1886,19 @@ static int wcd934x_trigger(struct snd_pcm_substream *substream, int cmd,
 	case SNDRV_PCM_TRIGGER_RESUME:
 	case SNDRV_PCM_TRIGGER_PAUSE_RELEASE:
 		cfg = &dai_data->sconfig;
-		slim_stream_prepare(dai_data->sruntime, cfg);
-		slim_stream_enable(dai_data->sruntime);
+		ret = slim_stream_prepare(dai_data->sruntime, cfg);
+		if (ret) {
+			dev_err(dai->component->dev,
+				"slim_stream_prepare failed: %d\n", ret);
+			return ret;
+		}
+		ret = slim_stream_enable(dai_data->sruntime);
+		if (ret) {
+			dev_err(dai->component->dev,
+				"slim_stream_enable failed: %d\n", ret);
+			slim_stream_unprepare(dai_data->sruntime);
+			return ret;
+		}
 		break;
 	case SNDRV_PCM_TRIGGER_STOP:
 	case SNDRV_PCM_TRIGGER_SUSPEND:
