@@ -7,11 +7,13 @@
  * Copyright (C) 2013 Sony Mobile Communications Inc.
  */
 
+#include <linux/bitfield.h>
 #include <linux/gpio/consumer.h>
 #include <linux/i2c.h>
 #include <linux/module.h>
 #include <linux/regmap.h>
 #include <linux/regulator/consumer.h>
+#include <sound/pcm_params.h>
 #include <sound/soc.h>
 
 #define TFA989X_STATUSREG		0x00
@@ -65,6 +67,29 @@
 #define TFA9872_MANAOOSC		0x01	/* bit 4: 1 MHz oscillator off */
 #define TFA9872_OVP			0xb0	/* bit 3: bypass over-voltage protection */
 
+/*
+ * The TFA9872 ("Probus") does not merely repurpose the low registers: system
+ * control, sample rate and status all live at different addresses than on the
+ * older TFA1 parts, and there is no CoolFlux DSP at all.  Writing the TFA989X_*
+ * offsets on this part is silently ignored - the amplifier then stays in its
+ * power-on default (PWDN set) and never produces any sound.  Field positions
+ * are from NXP's TFA9872N1B2 register definitions as shipped by LG.
+ */
+#define TFA9872_SYS_CONTROL0		0x00
+#define TFA9872_SYS_CONTROL0_PWDN	0
+#define TFA9872_SYS_CONTROL0_I2CR	1	/* I2C reset - auto clear */
+#define TFA9872_SYS_CONTROL1		0x01
+#define TFA9872_SYS_CONTROL1_MANSCONF	2	/* "I2C configured", starts the PLL */
+#define TFA9872_AUDIO_CONTROL		0x02
+#define TFA9872_AUDIO_CONTROL_AUDFS_MSK	GENMASK(3, 0)
+#define TFA9872_STATUS_FLAGS0		0x10
+#define TFA9872_STATUS_FLAGS0_SWS	10	/* amplifier engaged */
+#define TFA9872_TDM_CONFIG1		0x21
+#define TFA9872_TDM_CONFIG1_SLLN_MSK	GENMASK(8, 4)	/* bits per slot, minus one */
+
+/* The manager needs a few tries to leave "wait for I2C settings" state. */
+#define TFA9872_START_RETRIES		20
+
 struct tfa989x_rev {
 	unsigned int rev;
 	int (*init)(struct regmap *regmap);
@@ -73,10 +98,16 @@ struct tfa989x_rev {
 	 * TFA989X_REVISIONNUMBER, which are status-only on the older ones.
 	 */
 	bool low_regs_writeable;
+	/*
+	 * Probus parts (TFA9872) use the register map above and are brought up
+	 * by their own hardware manager rather than by writing AMPE directly.
+	 */
+	bool probus;
 };
 
 struct tfa989x {
 	const struct tfa989x_rev *rev;
+	struct regmap *regmap;
 	struct regulator *vddd_supply;
 	struct gpio_desc *rcv_gpiod;
 };
@@ -115,6 +146,26 @@ static const struct regmap_config tfa989x_regmap_low_rw = {
 	.cache_type	= REGCACHE_RBTREE,
 };
 
+/*
+ * The device manager clears PWDN and MANSCONF by itself whenever it falls back
+ * to waiting for the host, so those registers must never be served from the
+ * cache - otherwise regmap would skip the write that restarts the amplifier.
+ */
+static bool tfa9872_volatile_reg(struct device *dev, unsigned int reg)
+{
+	return reg <= TFA989X_REVISIONNUMBER ||
+	       (reg >= TFA9872_STATUS_FLAGS0 && reg <= 0x14);
+}
+
+static const struct regmap_config tfa9872_regmap = {
+	.reg_bits	= 8,
+	.val_bits	= 16,
+
+	.writeable_reg	= tfa989x_writeable_reg_all,
+	.volatile_reg	= tfa9872_volatile_reg,
+	.cache_type	= REGCACHE_RBTREE,
+};
+
 static const char * const chsa_text[] = { "Left", "Right", /* "DSP" */ };
 static SOC_ENUM_SINGLE_DECL(chsa_enum, TFA989X_I2SREG, TFA989X_I2SREG_CHSA, chsa_text);
 static const struct snd_kcontrol_new chsa_mux = SOC_DAPM_ENUM("Amp Input", chsa_enum);
@@ -135,6 +186,17 @@ static const struct snd_soc_dapm_route tfa989x_dapm_routes[] = {
 	{"AMPE", NULL, "Amp Input"},
 	{"Amp Input", "Left", "AIFINL"},
 	{"Amp Input", "Right", "AIFINR"},
+};
+
+static const struct snd_soc_dapm_widget tfa9872_dapm_widgets[] = {
+	SND_SOC_DAPM_OUTPUT("OUT"),
+	SND_SOC_DAPM_AIF_IN("AIFINL", "HiFi Playback", 0, SND_SOC_NOPM, 0, 0),
+	SND_SOC_DAPM_AIF_IN("AIFINR", "HiFi Playback", 1, SND_SOC_NOPM, 0, 0),
+};
+
+static const struct snd_soc_dapm_route tfa9872_dapm_routes[] = {
+	{"OUT", NULL, "AIFINL"},
+	{"OUT", NULL, "AIFINR"},
 };
 
 static int tfa989x_put_mode(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol)
@@ -163,6 +225,16 @@ static int tfa989x_probe(struct snd_soc_component *component)
 
 	return 0;
 }
+
+static const struct snd_soc_component_driver tfa9872_component = {
+	.probe			= tfa989x_probe,
+	.dapm_widgets		= tfa9872_dapm_widgets,
+	.num_dapm_widgets	= ARRAY_SIZE(tfa9872_dapm_widgets),
+	.dapm_routes		= tfa9872_dapm_routes,
+	.num_dapm_routes	= ARRAY_SIZE(tfa9872_dapm_routes),
+	.use_pmdown_time	= 1,
+	.endianness		= 1,
+};
 
 static const struct snd_soc_component_driver tfa989x_component = {
 	.probe			= tfa989x_probe,
@@ -194,19 +266,110 @@ static int tfa989x_hw_params(struct snd_pcm_substream *substream,
 			     struct snd_soc_dai *dai)
 {
 	struct snd_soc_component *component = dai->component;
-	int sr;
+	struct tfa989x *tfa989x = snd_soc_component_get_drvdata(component);
+	int sr, ret;
 
 	sr = tfa989x_find_sample_rate(params_rate(params));
 	if (sr < 0)
 		return sr;
 
-	return snd_soc_component_update_bits(component, TFA989X_I2SREG,
-					     TFA989X_I2SREG_I2SSR_MSK,
-					     sr << TFA989X_I2SREG_I2SSR);
+	if (!tfa989x->rev->probus)
+		return snd_soc_component_update_bits(component, TFA989X_I2SREG,
+						     TFA989X_I2SREG_I2SSR_MSK,
+						     sr << TFA989X_I2SREG_I2SSR);
+
+	ret = regmap_update_bits(tfa989x->regmap, TFA9872_AUDIO_CONTROL,
+				 TFA9872_AUDIO_CONTROL_AUDFS_MSK, sr);
+	if (ret)
+		return ret;
+
+	/*
+	 * The reset default is 32 bits per slot, which does not fit the two
+	 * slots of the 32 BCK frame the CPU DAI sends for S16_LE stereo.  Left
+	 * that way the amplifier raises TDMERR and drops out of its operating
+	 * state roughly 80 ms after starting.
+	 */
+	return regmap_update_bits(tfa989x->regmap, TFA9872_TDM_CONFIG1,
+				  TFA9872_TDM_CONFIG1_SLLN_MSK,
+				  FIELD_PREP(TFA9872_TDM_CONFIG1_SLLN_MSK,
+					     params_width(params) - 1));
+}
+
+/*
+ * Probus parts are started by their own hardware manager: clearing PWDN only
+ * arms it, and setting MANSCONF ("I2C configured") is what lets it start the
+ * PLL and engage the amplifier.  AMPE is deliberately never written here -
+ * setting it before MANSCONF makes the manager clear it again and refuse to
+ * leave the "wait for I2C settings" state.
+ */
+static int tfa9872_amp_start(struct tfa989x *tfa989x)
+{
+	struct regmap *regmap = tfa989x->regmap;
+	unsigned int val;
+	int ret, i;
+
+	for (i = 0; i < TFA9872_START_RETRIES; i++) {
+		ret = regmap_clear_bits(regmap, TFA9872_SYS_CONTROL0,
+					BIT(TFA9872_SYS_CONTROL0_PWDN));
+		if (ret)
+			return ret;
+
+		/* MANSCONF does not read back as written */
+		ret = regmap_set_bits(regmap, TFA9872_SYS_CONTROL1,
+				      BIT(TFA9872_SYS_CONTROL1_MANSCONF));
+		if (ret)
+			return ret;
+
+		usleep_range(1000, 2000);
+
+		ret = regmap_read(regmap, TFA9872_STATUS_FLAGS0, &val);
+		if (ret)
+			return ret;
+
+		if (val & BIT(TFA9872_STATUS_FLAGS0_SWS))
+			return 0;
+	}
+
+	return -ETIMEDOUT;
+}
+
+static int tfa9872_amp_stop(struct tfa989x *tfa989x)
+{
+	return regmap_set_bits(tfa989x->regmap, TFA9872_SYS_CONTROL0,
+			       BIT(TFA9872_SYS_CONTROL0_PWDN));
+}
+
+static int tfa989x_trigger(struct snd_pcm_substream *substream, int cmd,
+			   struct snd_soc_dai *dai)
+{
+	struct snd_soc_component *component = dai->component;
+	struct tfa989x *tfa989x = snd_soc_component_get_drvdata(component);
+	int ret;
+
+	if (!tfa989x->rev->probus)
+		return 0;
+
+	switch (cmd) {
+	case SNDRV_PCM_TRIGGER_START:
+	case SNDRV_PCM_TRIGGER_RESUME:
+	case SNDRV_PCM_TRIGGER_PAUSE_RELEASE:
+		ret = tfa9872_amp_start(tfa989x);
+		if (ret)
+			dev_err(component->dev,
+				"amplifier failed to start: %d\n", ret);
+		return ret;
+	case SNDRV_PCM_TRIGGER_STOP:
+	case SNDRV_PCM_TRIGGER_SUSPEND:
+	case SNDRV_PCM_TRIGGER_PAUSE_PUSH:
+		return tfa9872_amp_stop(tfa989x);
+	}
+
+	return 0;
 }
 
 static const struct snd_soc_dai_ops tfa989x_dai_ops = {
 	.hw_params = tfa989x_hw_params,
+	.trigger = tfa989x_trigger,
 };
 
 static struct snd_soc_dai_driver tfa989x_dai = {
@@ -358,6 +521,7 @@ static const struct tfa989x_rev tfa9872_rev = {
 	.rev			= TFA9872_REVISION,
 	.init			= tfa9872_init,
 	.low_regs_writeable	= true,
+	.probus			= true,
 };
 
 static const struct tfa989x_rev tfa9897_rev = {
@@ -383,6 +547,15 @@ static const struct tfa989x_rev tfa9897_rev = {
  *
  * Ideally NXP (or now Goodix) should release proper documentation for these
  * amplifiers so that support for the "CoolFlux DSP" can be implemented properly.
+ *
+ * None of the above applies to the TFA9872, which has no CoolFlux DSP to
+ * bypass in the first place: it is one of NXP's "Probus" parts, and its
+ * register map contains none of the DSP interface fields (CFE, SBSL, ACS,
+ * DMEM, MADD, MEMA, RST) that the parts with a DSP expose.  Its amplifier is
+ * brought up by an on-chip manager instead - see tfa9872_amp_start().  On
+ * Probus parts the speaker protection algorithm runs off-chip, which on
+ * Qualcomm platforms means a module inside the ADSP firmware, so there is no
+ * on-chip DSP for this driver to talk to either way.
  */
 static int tfa989x_dsp_bypass(struct regmap *regmap)
 {
@@ -448,11 +621,16 @@ static int tfa989x_i2c_probe(struct i2c_client *i2c)
 			return PTR_ERR(tfa989x->rcv_gpiod);
 	}
 
-	regmap = devm_regmap_init_i2c(i2c,
-				      rev->low_regs_writeable ?
-				      &tfa989x_regmap_low_rw : &tfa989x_regmap);
+	if (rev->probus)
+		regmap = devm_regmap_init_i2c(i2c, &tfa9872_regmap);
+	else
+		regmap = devm_regmap_init_i2c(i2c,
+					      rev->low_regs_writeable ?
+					      &tfa989x_regmap_low_rw :
+					      &tfa989x_regmap);
 	if (IS_ERR(regmap))
 		return PTR_ERR(regmap);
+	tfa989x->regmap = regmap;
 
 	ret = regulator_enable(tfa989x->vddd_supply);
 	if (ret) {
@@ -483,7 +661,12 @@ static int tfa989x_i2c_probe(struct i2c_client *i2c)
 		return -ENODEV;
 	}
 
-	ret = regmap_write(regmap, TFA989X_SYS_CTRL, BIT(TFA989X_SYS_CTRL_I2CR));
+	if (rev->probus)
+		ret = regmap_write(regmap, TFA9872_SYS_CONTROL0,
+				   BIT(TFA9872_SYS_CONTROL0_I2CR));
+	else
+		ret = regmap_write(regmap, TFA989X_SYS_CTRL,
+				   BIT(TFA989X_SYS_CTRL_I2CR));
 	if (ret) {
 		dev_err(dev, "failed to reset I2C registers: %d\n", ret);
 		return ret;
@@ -495,14 +678,19 @@ static int tfa989x_i2c_probe(struct i2c_client *i2c)
 		return ret;
 	}
 
-	ret = tfa989x_dsp_bypass(regmap);
-	if (ret) {
-		dev_err(dev, "failed to enable DSP bypass: %d\n", ret);
-		return ret;
+	/* Probus parts have no CoolFlux DSP, and none of these registers. */
+	if (!rev->probus) {
+		ret = tfa989x_dsp_bypass(regmap);
+		if (ret) {
+			dev_err(dev, "failed to enable DSP bypass: %d\n", ret);
+			return ret;
+		}
 	}
 	regcache_cache_bypass(regmap, false);
 
-	return devm_snd_soc_register_component(dev, &tfa989x_component,
+	return devm_snd_soc_register_component(dev,
+					       rev->probus ? &tfa9872_component
+						           : &tfa989x_component,
 					       &tfa989x_dai, 1);
 }
 
