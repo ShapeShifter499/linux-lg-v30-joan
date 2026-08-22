@@ -90,6 +90,17 @@
 /* The manager needs a few tries to leave "wait for I2C settings" state. */
 #define TFA9872_START_RETRIES		20
 
+/*
+ * TDMSPKG, the amplifier's own level control.  NXP's header calls it "total
+ * gain", but it behaves as an attenuation on this part: 0 is loudest and 15 is
+ * quietest, measured by ear on an LG V30.  Exposed inverted so the mixer
+ * behaves like a volume.  The per-step size is not documented in anything we
+ * have, so no dB scale is attached.
+ */
+#define TFA9872_TDM_SPKG		0x61
+#define TFA9872_TDM_SPKG_SHIFT		6
+#define TFA9872_TDM_SPKG_MAX		15
+
 struct tfa989x_rev {
 	unsigned int rev;
 	int (*init)(struct regmap *regmap);
@@ -188,6 +199,11 @@ static const struct snd_soc_dapm_route tfa989x_dapm_routes[] = {
 	{"Amp Input", "Right", "AIFINR"},
 };
 
+static const struct snd_kcontrol_new tfa9872_snd_controls[] = {
+	SOC_SINGLE("Speaker Playback Volume", TFA9872_TDM_SPKG,
+		   TFA9872_TDM_SPKG_SHIFT, TFA9872_TDM_SPKG_MAX, 1),
+};
+
 static const struct snd_soc_dapm_widget tfa9872_dapm_widgets[] = {
 	SND_SOC_DAPM_OUTPUT("OUT"),
 	SND_SOC_DAPM_AIF_IN("AIFINL", "HiFi Playback", 0, SND_SOC_NOPM, 0, 0),
@@ -228,6 +244,8 @@ static int tfa989x_probe(struct snd_soc_component *component)
 
 static const struct snd_soc_component_driver tfa9872_component = {
 	.probe			= tfa989x_probe,
+	.controls		= tfa9872_snd_controls,
+	.num_controls		= ARRAY_SIZE(tfa9872_snd_controls),
 	.dapm_widgets		= tfa9872_dapm_widgets,
 	.num_dapm_widgets	= ARRAY_SIZE(tfa9872_dapm_widgets),
 	.dapm_routes		= tfa9872_dapm_routes,
