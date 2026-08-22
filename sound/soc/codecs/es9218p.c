@@ -159,12 +159,52 @@ static const struct regmap_config es9218p_regmap_config = {
  */
 static const DECLARE_TLV_DB_SCALE(es9218p_vol_tlv, -12750, 50, 1);
 
+/*
+ * The board's analog jack switch, which selects what the headphone jack is
+ * connected to.  Exposed as a control so the routing can be moved without a
+ * rebuild while the destination of each analog output is still being mapped.
+ */
+static int es9218p_hph_sw_get(struct snd_kcontrol *kcontrol,
+			      struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
+	struct es9218p_priv *es9218p = snd_soc_component_get_drvdata(component);
+
+	if (!es9218p->hph_sw_gpio)
+		return -ENODEV;
+
+	ucontrol->value.integer.value[0] =
+		gpiod_get_value_cansleep(es9218p->hph_sw_gpio);
+
+	return 0;
+}
+
+static int es9218p_hph_sw_put(struct snd_kcontrol *kcontrol,
+			      struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
+	struct es9218p_priv *es9218p = snd_soc_component_get_drvdata(component);
+	int val = !!ucontrol->value.integer.value[0];
+
+	if (!es9218p->hph_sw_gpio)
+		return -ENODEV;
+
+	if (gpiod_get_value_cansleep(es9218p->hph_sw_gpio) == val)
+		return 0;
+
+	gpiod_set_value_cansleep(es9218p->hph_sw_gpio, val);
+
+	return 1;
+}
+
 static const struct snd_kcontrol_new es9218p_snd_controls[] = {
 	SOC_DOUBLE_R_TLV("Headphone Playback Volume",
 			 ES9218P_VOL1_CTRL, ES9218P_VOL2_CTRL,
 			 0, 0xff, 1, es9218p_vol_tlv),
 	SOC_SINGLE("Headphone Playback Switch",
 		   ES9218P_FILTER_BAND_SYSTEM_MUTE, 0, 1, 1),
+	SOC_SINGLE_BOOL_EXT("Headphone Analog Switch", 0,
+			    es9218p_hph_sw_get, es9218p_hph_sw_put),
 };
 
 static int es9218p_dac_event(struct snd_soc_dapm_widget *w,
