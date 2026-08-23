@@ -108,6 +108,15 @@ enum ipa_firmware_loader {
  * called from ipa_probe() after GSI firmware has been successfully
  * loaded, authenticated, and started by Trust Zone.
  */
+/*
+ * JOAN: see ipa_setup().  Default on - IPA runtime suspend deadlocks on this
+ * SoC and silently drops all uplink traffic.
+ */
+static bool ipa_no_runtime_suspend = true;
+module_param_named(no_runtime_suspend, ipa_no_runtime_suspend, bool, 0644);
+MODULE_PARM_DESC(no_runtime_suspend,
+		 "JOAN: hold a runtime PM reference (IPA runtime suspend wedges on msm8998 and drops all TX)");
+
 int ipa_setup(struct ipa *ipa)
 {
 	struct ipa_endpoint *exception_endpoint;
@@ -153,6 +162,28 @@ int ipa_setup(struct ipa *ipa)
 		goto err_default_route_clear;
 
 	ipa->setup_complete = true;
+
+	/*
+	 * JOAN: runtime suspend wedges on msm8998 (IPA v3.1).
+	 * ipa_runtime_suspend() enters ipa_endpoint_suspend()/gsi_suspend() and
+	 * never returns, leaving the device stuck in RPM_SUSPENDING.  After
+	 * that every pm_runtime_get() from ipa_start_xmit() fails and each
+	 * uplink packet is dropped: the bearer connects and gets a valid
+	 * address, rmnet forwards happily, and rmnet_ipa0 counts nothing but
+	 * tx_dropped.  Writing "on" to the device's power/control blocks too,
+	 * because the pending suspend never completes.
+	 *
+	 * Hold a permanent runtime PM reference so the device never idles into
+	 * that path.  Taken here rather than in ipa_power_init(): this runs
+	 * with the driver fully set up, whereas pm_runtime_forbid() during
+	 * power init resumes the device before drvdata is installed and
+	 * dereferences garbage in ipa_runtime_resume().
+	 *
+	 * Costs idle power; it is the difference between working and
+	 * non-working data.
+	 */
+	if (ipa_no_runtime_suspend)
+		pm_runtime_get_noresume(dev);
 
 	dev_info(dev, "IPA driver setup completed successfully\n");
 
