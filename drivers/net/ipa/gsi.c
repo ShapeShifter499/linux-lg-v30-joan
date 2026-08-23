@@ -828,7 +828,8 @@ static void gsi_channel_program(struct gsi_channel *channel, bool doorbell)
 	struct gsi_channel_scratch_gpi *gpi;
 	struct gsi *gsi = channel->gsi;
 	const struct reg *reg;
-	u32 wrr_weight = 0;
+	/* A zero weight starves a channel in the round-robin scheduler */
+	u32 wrr_weight = 1;
 	u32 offset;
 	u32 val;
 
