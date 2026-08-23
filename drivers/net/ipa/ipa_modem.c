@@ -166,6 +166,11 @@ ipa_start_xmit(struct sk_buff *skb, struct net_device *netdev)
 
 		pm_runtime_put_noidle(dev);
 
+		/* JOAN: distinguish "power not ready" from a stalled ring */
+		net_ratelimited_function(dev_info, dev,
+					 "JOAN-IPA: tx busy, pm_runtime_get=%d\n",
+					 ret);
+
 		return NETDEV_TX_BUSY;
 	}
 
@@ -176,6 +181,12 @@ ipa_start_xmit(struct sk_buff *skb, struct net_device *netdev)
 	(void)pm_runtime_put_autosuspend(dev);
 
 	if (ret) {
+		/* JOAN: this path is silent upstream; without it a stalled TX
+		 * ring looks identical to packets never arriving at all.
+		 */
+		net_ratelimited_function(dev_info, dev,
+					 "JOAN-IPA: skb_tx failed %d (len %u)\n",
+					 ret, skb_len);
 		if (ret != -E2BIG)
 			return NETDEV_TX_BUSY;
 		goto err_drop_skb;
