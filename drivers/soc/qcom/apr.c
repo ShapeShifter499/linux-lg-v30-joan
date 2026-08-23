@@ -424,13 +424,35 @@ static int apr_device_probe(struct device *dev)
 {
 	struct apr_device *adev = to_apr_device(dev);
 	struct apr_driver *adrv = to_apr_driver(dev->driver);
+	struct packet_router *apr = dev_get_drvdata(adev->dev.parent);
 	int ret;
 
 	ret = adrv->probe(adev);
-	if (!ret)
-		adev->svc.callback = adrv->gpr_callback;
+	if (ret)
+		return ret;
 
-	return ret;
+	adev->svc.callback = adrv->gpr_callback;
+
+	/*
+	 * Register the service for rx routing only once a driver is bound.
+	 * apr_do_rx_callback() finds services here and requires a bound
+	 * driver, so inserting earlier - at device registration - leaves a
+	 * window where packets are routed to an unbound device, and removing
+	 * at unbind while the entry stays gone across re-probe makes every
+	 * response vanish after a module reload until reboot.
+	 */
+	spin_lock(&apr->svcs_lock);
+	ret = idr_alloc(&apr->svcs_idr, &adev->svc, adev->svc_id,
+			adev->svc_id + 1, GFP_KERNEL);
+	spin_unlock(&apr->svcs_lock);
+	if (ret < 0) {
+		dev_err(dev, "idr_alloc failed: %d\n", ret);
+		if (adrv->remove)
+			adrv->remove(adev);
+		return ret;
+	}
+
+	return 0;
 }
 
 static void apr_device_remove(struct device *dev)
@@ -517,14 +539,6 @@ static int apr_add_device(struct device *dev, struct device_node *np,
 	adev->dev.of_node = np;
 	adev->dev.release = apr_dev_release;
 	adev->dev.driver = NULL;
-
-	spin_lock(&apr->svcs_lock);
-	ret = idr_alloc(&apr->svcs_idr, svc, svc_id, svc_id + 1, GFP_ATOMIC);
-	spin_unlock(&apr->svcs_lock);
-	if (ret < 0) {
-		dev_err(dev, "idr_alloc failed: %d\n", ret);
-		goto out;
-	}
 
 	/* Protection domain is optional, it does not exist on older platforms */
 	ret = of_property_read_string_index(np, "qcom,protection-domain",
