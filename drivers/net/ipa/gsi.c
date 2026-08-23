@@ -978,12 +978,20 @@ static int __gsi_channel_stop(struct gsi_channel *channel, bool suspend)
 	struct gsi *gsi = channel->gsi;
 	int ret;
 
-	/* Wait for any underway transactions to complete before stopping. */
-	gsi_channel_trans_quiesce(channel);
-
-	/* Prior to IPA v4.0 suspend/resume is not implemented by GSI */
+	/* Prior to IPA v4.0 suspend/resume is not implemented by GSI.
+	 *
+	 * Check this before quiescing, not after.  The quiesce is an unbounded
+	 * wait for the last transaction to complete; running it on a path that
+	 * is then a no-op means a suspend can block forever on hardware that
+	 * never delivers the completion.  On msm8998 that hangs
+	 * ipa_runtime_suspend() with the device stuck in RPM_SUSPENDING, after
+	 * which every pm_runtime_get() fails and all uplink traffic is dropped.
+	 */
 	if (suspend && gsi->version < IPA_VERSION_4_0)
 		return 0;
+
+	/* Wait for any underway transactions to complete before stopping. */
+	gsi_channel_trans_quiesce(channel);
 
 	mutex_lock(&gsi->mutex);
 
