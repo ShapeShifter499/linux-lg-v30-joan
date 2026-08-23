@@ -139,6 +139,22 @@ static int q6voice_probe_svc(struct apr_device *adev, struct q6voice_svc *svc)
 }
 
 /*
+ * Drop the binding before the bus tears the APR device down, so no entry
+ * point can send on (or wait for an answer from) an endpoint that is going
+ * away.  Order matters: ->adev first, so a concurrent start bails out with
+ * -ENODEV rather than racing the unbind.
+ */
+static void q6voice_remove_svc(struct q6voice_svc *svc)
+{
+	svc->adev = NULL;
+	svc->handle = 0;
+	svc->resp_received = false;
+	mutex_destroy(&svc->lock);
+
+	pr_info("q6voice: service unbound\n");
+}
+
+/*
  * A create-session command is answered by APR_BASIC_RSP_RESULT.  The handle
  * assigned to the new session arrives as the source port of that response,
  * not in the payload.
@@ -518,6 +534,10 @@ static int q6##_lname##_probe(struct apr_device *adev)			\
 {									\
 	return q6voice_probe_svc(adev, &q6voice_##_lname);		\
 }									\
+static void q6##_lname##_remove(struct apr_device *adev)		\
+{									\
+	q6voice_remove_svc(&q6voice_##_lname);				\
+}									\
 static int q6##_lname##_callback(struct apr_device *adev,		\
 				 const struct apr_resp_pkt *data)	\
 {									\
@@ -530,6 +550,7 @@ static const struct of_device_id q6##_lname##_device_id[] = {		\
 MODULE_DEVICE_TABLE(of, q6##_lname##_device_id);			\
 static struct apr_driver q6##_lname##_driver = {			\
 	.probe = q6##_lname##_probe,					\
+	.remove = q6##_lname##_remove,					\
 	.callback = q6##_lname##_callback,				\
 	.driver = {							\
 		.name = "qcom-q6" #_lname,				\

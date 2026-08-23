@@ -2215,6 +2215,14 @@ static void wcd934x_hw_init(struct wcd934x_codec *wcd)
 {
 	struct regmap *rm = wcd->regmap;
 
+	/*
+	 * Set the Rbuckfly/R_EAR(32) Class-H coefficient.  The WCD934x
+	 * downstream initialization programs this value for every codec
+	 * instance; the reset value is 0x0080.
+	 */
+	regmap_update_bits(rm, WCD934X_CDC_CLSH_K2_MSB, 0x0f, 0x00);
+	regmap_update_bits(rm, WCD934X_CDC_CLSH_K2_LSB, 0xff, 0x60);
+
 	/* set SPKR rate to FS_2P4_3P072 */
 	regmap_update_bits(rm, WCD934X_CDC_RX7_RX_PATH_CFG1, 0x08, 0x08);
 	regmap_update_bits(rm, WCD934X_CDC_RX8_RX_PATH_CFG1, 0x08, 0x08);
