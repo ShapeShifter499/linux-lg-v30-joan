@@ -77,6 +77,15 @@ config SND_SOC_QDSP6_COMMON
 config SND_SOC_QDSP6_CORE
 	tristate
 
+config SND_SOC_QDSP6_VOICE
+	tristate "Qualcomm QDSP6 Core Voice Driver (CVD) client"
+	depends on SND_SOC_QDSP6
+	help
+	  Say Y to enable the ADSP voice services (MVM, CVS, CVP) used for
+	  circuit-switched and VoLTE calls.  Media is vocoded on the ADSP and
+	  RTP is terminated by the modem, so this only builds and routes the
+	  voice session.  Required for call audio; not needed for playback.
+
 config SND_SOC_QDSP6_AFE
 	tristate
 
