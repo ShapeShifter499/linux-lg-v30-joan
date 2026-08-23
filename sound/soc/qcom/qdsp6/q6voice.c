@@ -36,11 +36,51 @@
 #define VSS_IMVM_CMD_START_VOICE			0x00011190
 #define VSS_IMVM_CMD_STOP_VOICE				0x00011192
 
+#define VSS_ISTREAM_CMD_CREATE_PASSIVE_CONTROL_SESSION	0x00011140
+#define VSS_IMVM_CMD_ATTACH_STREAM			0x0001123C
+#define VSS_IMVM_CMD_DETACH_STREAM			0x0001123D
+#define VSS_IMVM_CMD_ATTACH_VOCPROC			0x0001123E
+#define VSS_IMVM_CMD_DETACH_VOCPROC			0x0001123F
+#define VSS_IVOCPROC_CMD_CREATE_FULL_CONTROL_SESSION_V2	0x000112BF
+#define VSS_IVOCPROC_CMD_ENABLE				0x000100C6
+#define VSS_IVOCPROC_CMD_DISABLE			0x000110E1
+
+#define VSS_IVOCPROC_DIRECTION_RX_TX			2
+#define VSS_IVOCPROC_PORT_ID_NONE			0xFFFF
+#define VSS_IVOCPROC_TOPOLOGY_ID_NONE			0x00010F70
+#define VSS_IVOCPROC_TOPOLOGY_ID_TX_SM_ECNS		0x00010F71
+#define VSS_IVOCPROC_TOPOLOGY_ID_RX_DEFAULT		0x00010F77
+
+/* AFE port IDs.  The WCD codec - and so the earpiece and the call mic - is
+ * behind SLIMbus port 0 on this board.
+ */
+#define AFE_PORT_ID_SLIMBUS_0_RX			0x4000
+#define AFE_PORT_ID_SLIMBUS_0_TX			0x4001
+#define VSS_IVOCPROC_VOCPROC_MODE_EC_INT_MIXING		0x00010F7C
+#define VSS_ICOMMON_CAL_NETWORK_ID_NONE			0x0001135E
+
 #define SESSION_NAME_LEN		20
 #define VOICEMMODE1_NAME		"11C05000"
-#define Q6VOICE_TIMEOUT_MS		1000
+#define Q6VOICE_TIMEOUT_MS		5000
 
 struct vss_imvm_cmd_create_control_session {
+	char name[SESSION_NAME_LEN];
+} __packed;
+
+/* Both MVM and CVS attach commands carry a bare session handle. */
+struct vss_cmd_attach_handle {
+	u16 handle;
+} __packed;
+
+struct vss_ivocproc_cmd_create_full_control_session_v2 {
+	u16 direction;
+	u16 tx_port_id;
+	u32 tx_topology_id;
+	u16 rx_port_id;
+	u32 rx_topology_id;
+	u32 profile_id;
+	u32 vocproc_mode;
+	u16 ec_ref_port_id;
 	char name[SESSION_NAME_LEN];
 } __packed;
 
@@ -59,6 +99,27 @@ static struct q6voice_svc q6voice_cvs;
 static struct q6voice_svc q6voice_cvp;
 
 static struct dentry *q6voice_debugfs;
+
+/*
+ * Which AFE ports and topologies the vocproc is built against.  Exposed as
+ * parameters because the right answer depends on how the board routes voice,
+ * and that is still being brought up here.
+ */
+static u16 rx_port = AFE_PORT_ID_SLIMBUS_0_RX;
+module_param(rx_port, ushort, 0644);
+MODULE_PARM_DESC(rx_port, "AFE Rx port ID for the vocproc");
+
+static u16 tx_port = AFE_PORT_ID_SLIMBUS_0_TX;
+module_param(tx_port, ushort, 0644);
+MODULE_PARM_DESC(tx_port, "AFE Tx port ID for the vocproc");
+
+static uint rx_topology = VSS_IVOCPROC_TOPOLOGY_ID_RX_DEFAULT;
+module_param(rx_topology, uint, 0644);
+MODULE_PARM_DESC(rx_topology, "Rx vocproc topology ID");
+
+static uint tx_topology = VSS_IVOCPROC_TOPOLOGY_ID_TX_SM_ECNS;
+module_param(tx_topology, uint, 0644);
+MODULE_PARM_DESC(tx_topology, "Tx vocproc topology ID");
 
 static int q6voice_probe_svc(struct apr_device *adev, struct q6voice_svc *svc)
 {
@@ -86,6 +147,9 @@ static int q6voice_callback_svc(struct apr_device *adev,
 		u32 opcode;
 		u32 status;
 	} *result;
+
+	dev_info(&adev->dev, "q6voice: <- op 0x%08x src 0x%04x size %d\n",
+		 data->hdr.opcode, data->hdr.src_port, data->payload_size);
 
 	if (data->hdr.opcode != APR_BASIC_RSP_RESULT)
 		return 0;
@@ -119,6 +183,9 @@ static int q6voice_send_wait(struct q6voice_svc *svc, struct apr_pkt *pkt)
 	svc->resp_received = false;
 	svc->status = 0;
 
+	dev_info(&svc->adev->dev, "q6voice: -> op 0x%08x dest 0x%04x len %u\n",
+		 pkt->hdr.opcode, pkt->hdr.dest_port, pkt->hdr.pkt_size);
+
 	ret = apr_send_pkt(svc->adev, pkt);
 	if (ret < 0) {
 		dev_err(&svc->adev->dev, "q6voice: send failed: %d\n", ret);
@@ -141,47 +208,177 @@ static int q6voice_send_wait(struct q6voice_svc *svc, struct apr_pkt *pkt)
 	return 0;
 }
 
-static int q6voice_create_mvm_session(const char *name)
+/*
+ * Build and send one CVD command.  @dest is the handle of the session being
+ * addressed, or 0 when creating a session.
+ */
+static int q6voice_cmd(struct q6voice_svc *svc, u32 opcode, u16 dest,
+		       const void *payload, size_t payload_size)
 {
-	struct vss_imvm_cmd_create_control_session *session;
 	struct apr_pkt *pkt;
-	int pkt_size, ret;
+	int pkt_size;
 
-	pkt_size = APR_HDR_SIZE + sizeof(*session);
+	pkt_size = APR_HDR_SIZE + payload_size;
 
 	void *p __free(kfree) = kzalloc(pkt_size, GFP_KERNEL);
 	if (!p)
 		return -ENOMEM;
 
 	pkt = p;
-	session = p + APR_HDR_SIZE;
-
 	pkt->hdr.hdr_field = APR_SEQ_CMD_HDR_FIELD;
 	pkt->hdr.pkt_size = pkt_size;
 	pkt->hdr.src_port = 0;
-	pkt->hdr.dest_port = 0;
+	pkt->hdr.dest_port = dest;
 	pkt->hdr.token = 0;
-	pkt->hdr.opcode = VSS_IMVM_CMD_CREATE_PASSIVE_CONTROL_SESSION;
+	pkt->hdr.opcode = opcode;
 
-	strscpy(session->name, name, sizeof(session->name));
+	if (payload_size)
+		memcpy(p + APR_HDR_SIZE, payload, payload_size);
 
-	ret = q6voice_send_wait(&q6voice_mvm, pkt);
+	return q6voice_send_wait(svc, pkt);
+}
+
+static int q6voice_create_session(struct q6voice_svc *svc, u32 opcode,
+				  const char *name)
+{
+	struct vss_imvm_cmd_create_control_session session = {};
+	int ret;
+
+	strscpy(session.name, name, sizeof(session.name));
+
+	ret = q6voice_cmd(svc, opcode, 0, &session, sizeof(session));
 	if (ret)
 		return ret;
 
-	dev_info(&q6voice_mvm.adev->dev,
-		 "q6voice: MVM session \"%s\" created, handle 0x%04x\n",
-		 name, q6voice_mvm.handle);
+	dev_info(&svc->adev->dev, "q6voice: session \"%s\" created, handle 0x%04x\n",
+		 name, svc->handle);
 
 	return 0;
 }
 
-static int q6voice_start_set(void *data, u64 val)
+static int q6voice_attach(struct q6voice_svc *svc, u32 opcode, u16 dest,
+			  u16 handle)
+{
+	struct vss_cmd_attach_handle attach = { .handle = handle };
+
+	return q6voice_cmd(svc, opcode, dest, &attach, sizeof(attach));
+}
+
+/*
+ * Build the vocproc against the AFE ports the board routes voice over.  The
+ * ADSP will happily create a vocproc with no ports but refuses to enable one,
+ * so the ports have to be real even before any audio flows through them.
+ */
+static int q6voice_create_vocproc(const char *name)
+{
+	struct vss_ivocproc_cmd_create_full_control_session_v2 cvp = {
+		.direction	= VSS_IVOCPROC_DIRECTION_RX_TX,
+		.tx_port_id	= tx_port,
+		.tx_topology_id	= tx_topology,
+		.rx_port_id	= rx_port,
+		.rx_topology_id	= rx_topology,
+		.profile_id	= VSS_ICOMMON_CAL_NETWORK_ID_NONE,
+		.vocproc_mode	= VSS_IVOCPROC_VOCPROC_MODE_EC_INT_MIXING,
+		.ec_ref_port_id	= VSS_IVOCPROC_PORT_ID_NONE,
+	};
+	int ret;
+
+	strscpy(cvp.name, name, sizeof(cvp.name));
+
+	ret = q6voice_cmd(&q6voice_cvp,
+			  VSS_IVOCPROC_CMD_CREATE_FULL_CONTROL_SESSION_V2, 0,
+			  &cvp, sizeof(cvp));
+	if (ret)
+		return ret;
+
+	dev_info(&q6voice_cvp.adev->dev,
+		 "q6voice: vocproc created, handle 0x%04x\n", q6voice_cvp.handle);
+
+	return 0;
+}
+
+/*
+ * Bring up a voice session end to end.  The order matters: the modem owns the
+ * state machine for a passive session, so every object has to exist and be
+ * attached before START_VOICE.
+ */
+static int q6voice_start_voice(const char *name)
+{
+	int ret;
+
+	if (!q6voice_mvm.adev || !q6voice_cvs.adev || !q6voice_cvp.adev)
+		return -ENODEV;
+
+	ret = q6voice_create_session(&q6voice_mvm,
+				     VSS_IMVM_CMD_CREATE_PASSIVE_CONTROL_SESSION,
+				     name);
+	if (ret)
+		return ret;
+
+	ret = q6voice_create_session(&q6voice_cvs,
+				     VSS_ISTREAM_CMD_CREATE_PASSIVE_CONTROL_SESSION,
+				     name);
+	if (ret)
+		return ret;
+
+	ret = q6voice_attach(&q6voice_mvm, VSS_IMVM_CMD_ATTACH_STREAM,
+			     q6voice_mvm.handle, q6voice_cvs.handle);
+	if (ret)
+		return ret;
+
+	ret = q6voice_create_vocproc(name);
+	if (ret)
+		return ret;
+
+	ret = q6voice_cmd(&q6voice_cvp, VSS_IVOCPROC_CMD_ENABLE,
+			  q6voice_cvp.handle, NULL, 0);
+	if (ret)
+		return ret;
+
+	ret = q6voice_attach(&q6voice_mvm, VSS_IMVM_CMD_ATTACH_VOCPROC,
+			     q6voice_mvm.handle, q6voice_cvp.handle);
+	if (ret)
+		return ret;
+
+	ret = q6voice_cmd(&q6voice_mvm, VSS_IMVM_CMD_START_VOICE,
+			  q6voice_mvm.handle, NULL, 0);
+	if (ret)
+		return ret;
+
+	dev_info(&q6voice_mvm.adev->dev, "q6voice: voice session started\n");
+
+	return 0;
+}
+
+static int q6voice_stop_voice(void)
+{
+	if (!q6voice_mvm.adev || !q6voice_mvm.handle)
+		return -ENODEV;
+
+	return q6voice_cmd(&q6voice_mvm, VSS_IMVM_CMD_STOP_VOICE,
+			   q6voice_mvm.handle, NULL, 0);
+}
+
+static int q6voice_create_set(void *data, u64 val)
 {
 	if (!val)
 		return 0;
 
-	return q6voice_create_mvm_session(VOICEMMODE1_NAME);
+	if (!q6voice_mvm.adev)
+		return -ENODEV;
+
+	return q6voice_create_session(&q6voice_mvm,
+				      VSS_IMVM_CMD_CREATE_PASSIVE_CONTROL_SESSION,
+				      VOICEMMODE1_NAME);
+}
+DEFINE_DEBUGFS_ATTRIBUTE(q6voice_create_fops, NULL, q6voice_create_set, "%llu\n");
+
+static int q6voice_start_set(void *data, u64 val)
+{
+	if (val)
+		return q6voice_start_voice(VOICEMMODE1_NAME);
+
+	return q6voice_stop_voice();
 }
 DEFINE_DEBUGFS_ATTRIBUTE(q6voice_start_fops, NULL, q6voice_start_set, "%llu\n");
 
@@ -208,6 +405,8 @@ static void q6voice_debugfs_init(void)
 
 	q6voice_debugfs = debugfs_create_dir("q6voice", NULL);
 	debugfs_create_file("create_session", 0200, q6voice_debugfs, NULL,
+			    &q6voice_create_fops);
+	debugfs_create_file("start_voice", 0200, q6voice_debugfs, NULL,
 			    &q6voice_start_fops);
 	debugfs_create_file("mvm_handle", 0400, q6voice_debugfs, NULL,
 			    &q6voice_handle_fops);
