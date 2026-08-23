@@ -44,6 +44,7 @@
 #define VSS_IVOCPROC_CMD_CREATE_FULL_CONTROL_SESSION_V2	0x000112BF
 #define VSS_IVOCPROC_CMD_ENABLE				0x000100C6
 #define VSS_IVOCPROC_CMD_DISABLE			0x000110E1
+#define APRV2_IBASIC_CMD_DESTROY_SESSION		0x0001003C
 
 #define VSS_IVOCPROC_DIRECTION_RX_TX			2
 #define VSS_IVOCPROC_PORT_ID_NONE			0xFFFF
@@ -99,6 +100,9 @@ static struct q6voice_svc q6voice_cvs;
 static struct q6voice_svc q6voice_cvp;
 
 static struct dentry *q6voice_debugfs;
+
+/* Whether a session has been built, so teardown can be idempotent. */
+static bool q6voice_session_up;
 
 /*
  * Which AFE ports and topologies the vocproc is built against.  Exposed as
@@ -302,12 +306,11 @@ static int q6voice_create_vocproc(const char *name)
  * state machine for a passive session, so every object has to exist and be
  * attached before START_VOICE.
  */
-static int q6voice_start_voice(const char *name)
+static int q6voice_stop_voice(void);
+
+static int q6voice_build_session(const char *name)
 {
 	int ret;
-
-	if (!q6voice_mvm.adev || !q6voice_cvs.adev || !q6voice_cvp.adev)
-		return -ENODEV;
 
 	ret = q6voice_create_session(&q6voice_mvm,
 				     VSS_IMVM_CMD_CREATE_PASSIVE_CONTROL_SESSION,
@@ -345,18 +348,114 @@ static int q6voice_start_voice(const char *name)
 	if (ret)
 		return ret;
 
+	q6voice_session_up = true;
+
 	dev_info(&q6voice_mvm.adev->dev, "q6voice: voice session started\n");
 
 	return 0;
 }
 
-static int q6voice_stop_voice(void)
+static int q6voice_start_voice(const char *name)
 {
-	if (!q6voice_mvm.adev || !q6voice_mvm.handle)
+	int ret;
+
+	if (!q6voice_mvm.adev || !q6voice_cvs.adev || !q6voice_cvp.adev)
 		return -ENODEV;
 
-	return q6voice_cmd(&q6voice_mvm, VSS_IMVM_CMD_STOP_VOICE,
-			   q6voice_mvm.handle, NULL, 0);
+	ret = q6voice_build_session(name);
+	if (ret) {
+		/*
+		 * Whatever was created before the failure still exists on the
+		 * ADSP and would poison the next attempt, so unwind it here.
+		 */
+		q6voice_stop_voice();
+		return ret;
+	}
+
+	return 0;
+}
+
+/*
+ * Tear the session down in the exact reverse of the order it was built.  The
+ * ADSP keeps whatever it was given: a session that is not destroyed survives
+ * module unload, and a later create for the same VSID then goes unanswered
+ * rather than being refused - which presents as a timeout on a command that
+ * worked a moment earlier.
+ *
+ * Every step is attempted even if an earlier one fails; leaving an object
+ * behind is worse than a failed command, because it is what poisons the next
+ * create.
+ */
+static int q6voice_stop_voice(void)
+{
+	int ret, err = 0;
+
+	if (!q6voice_mvm.adev)
+		return -ENODEV;
+
+	if (!q6voice_session_up && !q6voice_mvm.handle &&
+	    !q6voice_cvs.handle && !q6voice_cvp.handle)
+		return 0;
+
+	if (q6voice_session_up && q6voice_mvm.handle) {
+		ret = q6voice_cmd(&q6voice_mvm, VSS_IMVM_CMD_STOP_VOICE,
+				  q6voice_mvm.handle, NULL, 0);
+		if (ret)
+			err = ret;
+	}
+
+	if (q6voice_mvm.handle && q6voice_cvp.handle) {
+		ret = q6voice_attach(&q6voice_mvm, VSS_IMVM_CMD_DETACH_VOCPROC,
+				     q6voice_mvm.handle, q6voice_cvp.handle);
+		if (ret)
+			err = ret;
+	}
+
+	if (q6voice_cvp.handle) {
+		ret = q6voice_cmd(&q6voice_cvp, VSS_IVOCPROC_CMD_DISABLE,
+				  q6voice_cvp.handle, NULL, 0);
+		if (ret)
+			err = ret;
+
+		ret = q6voice_cmd(&q6voice_cvp, APRV2_IBASIC_CMD_DESTROY_SESSION,
+				  q6voice_cvp.handle, NULL, 0);
+		if (ret)
+			err = ret;
+		else
+			q6voice_cvp.handle = 0;
+	}
+
+	if (q6voice_mvm.handle && q6voice_cvs.handle) {
+		ret = q6voice_attach(&q6voice_mvm, VSS_IMVM_CMD_DETACH_STREAM,
+				     q6voice_mvm.handle, q6voice_cvs.handle);
+		if (ret)
+			err = ret;
+	}
+
+	if (q6voice_cvs.handle) {
+		ret = q6voice_cmd(&q6voice_cvs, APRV2_IBASIC_CMD_DESTROY_SESSION,
+				  q6voice_cvs.handle, NULL, 0);
+		if (ret)
+			err = ret;
+		else
+			q6voice_cvs.handle = 0;
+	}
+
+	if (q6voice_mvm.handle) {
+		ret = q6voice_cmd(&q6voice_mvm, APRV2_IBASIC_CMD_DESTROY_SESSION,
+				  q6voice_mvm.handle, NULL, 0);
+		if (ret)
+			err = ret;
+		else
+			q6voice_mvm.handle = 0;
+	}
+
+	q6voice_session_up = false;
+
+	dev_info(&q6voice_mvm.adev->dev, "q6voice: voice session torn down%s\n",
+		 err ? " (with errors)" : "");
+
+	return err;
 }
 
 static int q6voice_create_set(void *data, u64 val)
@@ -473,6 +572,8 @@ module_init(q6voice_init);
 static void __exit q6voice_exit(void)
 {
 	int i;
+
+	q6voice_stop_voice();
 
 	for (i = ARRAY_SIZE(q6voice_drivers); i--; )
 		apr_driver_unregister(q6voice_drivers[i]);
