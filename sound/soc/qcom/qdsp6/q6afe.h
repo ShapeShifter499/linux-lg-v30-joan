@@ -204,6 +204,18 @@ struct q6afe_cdc_dma_cfg {
 	u16	active_channels_mask;
 };
 
+/*
+ * AFE_PARAM_ID_CDC_SLIMBUS_SLAVE_CFG payload.  It identifies the codec
+ * SLIMbus slave and its transmit/receive port bases to the ADSP.
+ */
+struct q6afe_cdc_slimbus_slave_cfg {
+	u32	minor_version;
+	u32	device_enum_addr_lsw;
+	u32	device_enum_addr_msw;
+	u16	tx_slave_port_offset;
+	u16	rx_slave_port_offset;
+} __packed;
+
 /**
  * struct q6afe_usb_cfg
  * @cfg_minor_version: Minor version used for tracking USB audio device
@@ -268,6 +280,8 @@ int q6afe_port_set_sysclk(struct q6afe_port *port, int clk_id,
 			  unsigned int freq, int dir);
 int q6afe_set_lpass_clock(struct device *dev, int clk_id, int attri,
 			  int clk_root, unsigned int freq);
+int q6afe_set_cdc_slimbus_slave_cfg(struct device *dev,
+				    const struct q6afe_cdc_slimbus_slave_cfg *cfg);
 int q6afe_vote_lpass_core_hw(struct device *dev, uint32_t hw_block_id,
 			     const char *client_name, uint32_t *client_handle);
 int q6afe_unvote_lpass_core_hw(struct device *dev, uint32_t hw_block_id,

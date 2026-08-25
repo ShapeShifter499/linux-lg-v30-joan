@@ -1359,6 +1359,11 @@
 	};
 };
 
+/* Match the downstream WCD934x CDC SLIMbus slave configuration. */
+&q6afe {
+	qcom,cdc-slimbus-slave-config = <0x02500100 0x00000217 0 16>;
+};
+
 &q6afedai {
 	dai@20 {
 		reg = <TERTIARY_MI2S_RX>;

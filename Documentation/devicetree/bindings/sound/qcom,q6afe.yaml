@@ -35,6 +35,17 @@ properties:
     unevaluatedProperties: false
     description: Qualcomm DSP USB audio ports
 
+  qcom,cdc-slimbus-slave-config:
+    $ref: /schemas/types.yaml#/definitions/uint32-array
+    minItems: 4
+    maxItems: 4
+    description: |
+      Optional legacy codec SLIMbus configuration for ADSP firmware that
+      requires the CDC elemental address and port offsets before using an
+      AFE SLIMbus port. The four cells are the elemental address least
+      significant word, most significant word, TX port offset, and RX port
+      offset, respectively.
+
 required:
   - compatible
   - dais

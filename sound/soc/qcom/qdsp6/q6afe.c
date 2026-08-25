@@ -34,6 +34,7 @@
 #define AFE_MODULE_AUDIO_DEV_INTERFACE	0x0001020C
 #define AFE_MODULE_TDM			0x0001028A
 
+#define AFE_MODULE_CDC_DEV_CFG		0x00010234
 #define AFE_PARAM_ID_CDC_SLIMBUS_SLAVE_CFG 0x00010235
 #define AFE_PARAM_ID_USB_AUDIO_DEV_PARAMS    0x000102A5
 #define AFE_PARAM_ID_USB_AUDIO_DEV_LPCM_FMT 0x000102AA
@@ -375,6 +376,7 @@
 #define AFE_CMD_RESP_AVAIL	0
 #define AFE_CMD_RESP_NONE	1
 #define AFE_CLK_TOKEN		1024
+#define AFE_CDC_SLIMBUS_TOKEN	1025
 
 struct q6afe {
 	struct apr_device *apr;
@@ -992,7 +994,8 @@ static int q6afe_callback(struct apr_device *adev, const struct apr_resp_pkt *da
 				port->result = *res;
 				wake_up(&port->wait);
 				kref_put(&port->refcount, q6afe_port_free);
-			} else if (hdr->token == AFE_CLK_TOKEN) {
+			} else if (hdr->token == AFE_CLK_TOKEN ||
+				   hdr->token == AFE_CDC_SLIMBUS_TOKEN) {
 				afe->result = *res;
 				wake_up(&afe->wait);
 			}
@@ -1118,6 +1121,23 @@ static int q6afe_set_param(struct q6afe *afe, struct q6afe_port *port,
 
 	return ret;
 }
+
+int q6afe_set_cdc_slimbus_slave_cfg(struct device *dev,
+				    const struct q6afe_cdc_slimbus_slave_cfg *cfg)
+{
+	struct q6afe *afe = dev_get_drvdata(dev);
+
+	if (!afe)
+		return -ENODEV;
+	if (!cfg)
+		return -EINVAL;
+
+	return q6afe_set_param(afe, NULL, (void *)cfg,
+				       AFE_PARAM_ID_CDC_SLIMBUS_SLAVE_CFG,
+				       AFE_MODULE_CDC_DEV_CFG, sizeof(*cfg),
+				       AFE_CDC_SLIMBUS_TOKEN);
+}
+EXPORT_SYMBOL_GPL(q6afe_set_cdc_slimbus_slave_cfg);
 
 static int q6afe_port_set_param(struct q6afe_port *port, void *data,
 				int param_id, int module_id, int psize)

@@ -7,6 +7,7 @@
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/device.h>
+#include <linux/mutex.h>
 #include <linux/platform_device.h>
 #include <linux/slab.h>
 #include <sound/pcm.h>
@@ -32,6 +33,10 @@ struct q6afe_dai_data {
 	struct q6afe_port_config port_config[AFE_PORT_MAX];
 	bool is_port_started[AFE_PORT_MAX];
 	struct q6afe_dai_priv_data priv[AFE_PORT_MAX];
+	struct q6afe_cdc_slimbus_slave_cfg cdc_slimbus_cfg;
+	struct mutex cdc_slimbus_cfg_lock;
+	bool cdc_slimbus_cfg_valid;
+	bool cdc_slimbus_configured;
 };
 
 static int q6slim_hw_params(struct snd_pcm_substream *substream,
@@ -386,6 +391,44 @@ static void q6afe_dai_shutdown(struct snd_pcm_substream *substream,
 
 }
 
+static int q6afe_dai_configure_cdc_slimbus(struct snd_soc_dai *dai)
+{
+	struct q6afe_dai_data *dai_data = dev_get_drvdata(dai->dev);
+	struct q6afe_cdc_slimbus_slave_cfg *cfg = &dai_data->cdc_slimbus_cfg;
+	int rc;
+
+	mutex_lock(&dai_data->cdc_slimbus_cfg_lock);
+
+	if (!dai_data->cdc_slimbus_cfg_valid ||
+	    dai_data->cdc_slimbus_configured) {
+		rc = 0;
+		goto unlock;
+	}
+
+	if (!dai->dev->parent) {
+		rc = -ENODEV;
+		goto unlock;
+	}
+
+	rc = q6afe_set_cdc_slimbus_slave_cfg(dai->dev->parent, cfg);
+	if (rc) {
+		dev_err(dai->dev,
+			"failed to configure CDC SLIMbus slave: %d\n", rc);
+		goto unlock;
+	}
+
+	dai_data->cdc_slimbus_configured = true;
+	dev_info(dai->dev,
+		 "configured CDC SLIMbus slave %08x:%08x (tx %u, rx %u)\n",
+		 cfg->device_enum_addr_msw, cfg->device_enum_addr_lsw,
+		 cfg->tx_slave_port_offset, cfg->rx_slave_port_offset);
+
+unlock:
+	mutex_unlock(&dai_data->cdc_slimbus_cfg_lock);
+
+	return rc;
+}
+
 static int q6afe_dai_prepare(struct snd_pcm_substream *substream,
 		struct snd_soc_dai *dai)
 {
@@ -411,6 +454,10 @@ static int q6afe_dai_prepare(struct snd_pcm_substream *substream,
 					&dai_data->port_config[dai->id].hdmi);
 		break;
 	case SLIMBUS_0_RX ... SLIMBUS_6_TX:
+		rc = q6afe_dai_configure_cdc_slimbus(dai);
+		if (rc)
+			return rc;
+
 		q6afe_slim_port_prepare(dai_data->port[dai->id],
 					&dai_data->port_config[dai->id].slim);
 		break;
@@ -1111,6 +1158,39 @@ static void of_q6afe_parse_dai_data(struct device *dev,
 	}
 }
 
+static void of_q6afe_parse_cdc_slimbus_cfg(struct device *dev,
+					    struct q6afe_dai_data *data)
+{
+	struct device_node *node;
+	u32 cfg[4];
+	int ret;
+
+	if (!dev->parent)
+		return;
+
+	node = dev->parent->of_node;
+	if (!node)
+		return;
+
+	ret = of_property_read_u32_array(node,
+					 "qcom,cdc-slimbus-slave-config",
+					 cfg, ARRAY_SIZE(cfg));
+	if (ret)
+		return;
+
+	if (cfg[2] > 0xffff || cfg[3] > 0xffff) {
+		dev_err(dev, "invalid CDC SLIMbus port offsets\n");
+		return;
+	}
+
+	data->cdc_slimbus_cfg.minor_version = 1;
+	data->cdc_slimbus_cfg.device_enum_addr_lsw = cfg[0];
+	data->cdc_slimbus_cfg.device_enum_addr_msw = cfg[1];
+	data->cdc_slimbus_cfg.tx_slave_port_offset = cfg[2];
+	data->cdc_slimbus_cfg.rx_slave_port_offset = cfg[3];
+	data->cdc_slimbus_cfg_valid = true;
+}
+
 static int q6afe_dai_dev_probe(struct platform_device *pdev)
 {
 	struct q6dsp_audio_port_dai_driver_config cfg;
@@ -1123,8 +1203,10 @@ static int q6afe_dai_dev_probe(struct platform_device *pdev)
 	if (!dai_data)
 		return -ENOMEM;
 
+	mutex_init(&dai_data->cdc_slimbus_cfg_lock);
 	dev_set_drvdata(dev, dai_data);
 	of_q6afe_parse_dai_data(dev, dai_data);
+	of_q6afe_parse_cdc_slimbus_cfg(dev, dai_data);
 
 	cfg.q6hdmi_ops = &q6hdmi_ops;
 	cfg.q6slim_ops = &q6slim_ops;
