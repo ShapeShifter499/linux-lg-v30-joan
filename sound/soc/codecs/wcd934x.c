@@ -3032,6 +3032,18 @@ static int wcd934x_comp_probe(struct snd_soc_component *component)
 	for (i = 0; i < NUM_CODEC_DAIS; i++)
 		INIT_LIST_HEAD(&wcd->dai[i].slim_ch_list);
 
+	/*
+	 * Initialize the slimbus port channel lists.  Without this the
+	 * rx_chs[]/tx_chs[] list heads contain garbage until set_channel_map()
+	 * runs, so list_empty() in slim_rx_mux_put() reports a false "PORT is
+	 * busy" and every SLIM RX/TX MUX write silently fails on a freshly
+	 * probed codec.
+	 */
+	for (i = 0; i < WCD934X_RX_MAX; i++)
+		INIT_LIST_HEAD(&wcd->rx_chs[i].list);
+	for (i = 0; i < WCD934X_TX_MAX; i++)
+		INIT_LIST_HEAD(&wcd->tx_chs[i].list);
+
 
 	ret = wcd934x_init_dmic(component);
 	if (ret) {
