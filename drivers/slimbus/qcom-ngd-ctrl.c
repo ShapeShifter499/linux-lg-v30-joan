@@ -179,9 +179,13 @@ MODULE_PARM_DESC(pm_dbg, "JOAN: breadcrumb every runtime suspend/resume and BAM 
  * no equivalent driver, so the NGD controller does it once before the first
  * codec connect.
  */
-static bool joan_pipes = true;
+/* Default off: apps PGD connects are not on the ADSP<->codec data path
+ * (Ember 2026-08-21). Extra USR CONNECT_SRC/SINK to pgdla only add bus
+ * traffic inside stream enable.
+ */
+static bool joan_pipes;
 module_param_named(joan_pipes, joan_pipes, bool, 0644);
-MODULE_PARM_DESC(joan_pipes, "JOAN: bring up app pipe ports (PGD connect + PGD port regs) before first codec connect");
+MODULE_PARM_DESC(joan_pipes, "JOAN: bring up app PGD pipe ports before first codec connect (default off)");
 
 #define QC_DEVID_PGD		0x5
 #define QC_MFGID_MSB		0x17
@@ -1150,6 +1154,11 @@ static int qcom_slim_ngd_xfer_msg(struct slim_controller *sctrl,
 		wbuf[i++] = txn->msg->wbuf[0];
 		if (txn->mc != SLIM_USR_MC_DISCONNECT_PORT)
 			wbuf[i++] = txn->msg->wbuf[1];
+		if (joan_slim_dbg)
+			pr_info("JOAN-DBG: codec-connect mc=%#x orig_la=%#x port=%u ch=%u\n",
+				txn->mc, txn->la, txn->msg->wbuf[0],
+				txn->mc == SLIM_USR_MC_DISCONNECT_PORT ?
+					0 : txn->msg->wbuf[1]);
 
 		if (pgd_prog) {
 			u8 pn = txn->msg->wbuf[0];
@@ -1408,6 +1417,12 @@ static int qcom_slim_ngd_enable_stream(struct slim_stream_runtime *rt)
 		}
 		wbuf[txn.msg->num_bytes++] = port->ch.id;
 	}
+
+	if (joan_slim_dbg)
+		pr_info("JOAN-DBG: def_act la=%#x nports=%d ch0=%u prot=%u bps=%u bytes=%u\n",
+			sdev->laddr, rt->num_ports,
+			rt->num_ports ? rt->ports[0].ch.id : 0,
+			rt->prot, rt->bps, txn.msg->num_bytes);
 
 	txn.mc = SLIM_USR_MC_DEF_ACT_CHAN;
 	txn.rl = txn.msg->num_bytes + 4;

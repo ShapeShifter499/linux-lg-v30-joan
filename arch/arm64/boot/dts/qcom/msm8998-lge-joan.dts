@@ -1152,6 +1152,17 @@
 			qcom,micbias3-microvolt = <1800000>;
 			qcom,micbias4-microvolt = <1800000>;
 
+			/*
+			 * Without button thresholds, wcd_mbhc_init logs
+			 * "missing qcom,mbhc-buttons-vthreshold-microvolt"
+			 * and never arms jack detect. Downstream
+			 * qcom,msm-mbhc-hphl-swh = <1> is NC.
+			 */
+			qcom,hphl-jack-type-normally-closed;
+			qcom,mbhc-headset-vthreshold-microvolt = <1700000>;
+			qcom,mbhc-headphone-vthreshold-microvolt = <50000>;
+			qcom,mbhc-buttons-vthreshold-microvolt = <75000 150000 237000 500000 500000 500000 500000 500000>;
+
 			#address-cells = <1>;
 			#size-cells = <1>;
 
@@ -1264,6 +1275,7 @@
 			"RX_BIAS", "MCLK",
 			"AMIC1", "MIC BIAS1",
 			"AMIC2", "MIC BIAS2",
+			"MIC BIAS2", "Headset Mic",
 			"AMIC3", "MIC BIAS3";
 
 		mm1-dai-link {
