@@ -160,6 +160,7 @@ static void ipa_server_bye(struct qmi_handle *qmi, unsigned int node)
 	/* initial_boot doesn't change when modem reboots */
 	/* uc_ready doesn't change when modem reboots */
 	ipa_qmi->modem_ready = false;
+	ipa_qmi->dbg_bye++;
 	ipa_qmi->indication_requested = false;
 	ipa_qmi->indication_sent = false;
 }
@@ -193,6 +194,7 @@ static void ipa_server_indication_register(struct qmi_handle *qmi,
 				ipa_indication_register_rsp_ei, &rsp);
 	if (!ret) {
 		ipa_qmi->indication_requested = true;
+		ipa_qmi->dbg_ind_reg++;
 		ipa_qmi_ready(ipa_qmi);		/* We might be ready now */
 	} else {
 		dev_err(ipa->dev,
@@ -222,11 +224,65 @@ static void ipa_server_driver_init_complete(struct qmi_handle *qmi,
 				ipa_driver_init_complete_rsp_ei, &rsp);
 	if (!ret) {
 		ipa_qmi->uc_ready = true;
+		ipa_qmi->dbg_drv_cmplt++;
 		ipa_qmi_ready(ipa_qmi);		/* We might be ready now */
 	} else {
 		dev_err(ipa->dev,
 			"error %d sending init complete response\n", ret);
 	}
+}
+
+/* joan: acknowledge the modem's CONFIG and INSTALL_FILTER_RULE requests.
+ * Both are QMI requests, so the modem blocks waiting for a response that
+ * mainline never sends.  We do not yet act on their contents; this only
+ * establishes whether the missing acknowledgement is what stalls the data
+ * path.
+ */
+static void ipa_server_stub_ack(struct qmi_handle *qmi,
+				struct sockaddr_qrtr *sq, struct qmi_txn *txn,
+				u32 msg_id, u32 *counter)
+{
+	struct ipa_qmi *ipa_qmi;
+	struct ipa_driver_init_complete_rsp rsp = { };
+	struct ipa *ipa;
+	int ret;
+
+	ipa_qmi = container_of(qmi, struct ipa_qmi, server_handle);
+	ipa = container_of(ipa_qmi, struct ipa, qmi);
+
+	(*counter)++;
+
+	rsp.rsp.result = QMI_RESULT_SUCCESS_V01;
+	rsp.rsp.error = QMI_ERR_NONE_V01;
+
+	ret = qmi_send_response(qmi, sq, txn, msg_id,
+				IPA_QMI_DRIVER_INIT_COMPLETE_RSP_SZ,
+				ipa_driver_init_complete_rsp_ei, &rsp);
+	if (ret)
+		dev_err(ipa->dev, "error %d acknowledging QMI %#x\n",
+			ret, msg_id);
+}
+
+static void ipa_server_config(struct qmi_handle *qmi, struct sockaddr_qrtr *sq,
+			      struct qmi_txn *txn, const void *decoded)
+{
+	struct ipa_qmi *ipa_qmi = container_of(qmi, struct ipa_qmi,
+					       server_handle);
+
+	ipa_server_stub_ack(qmi, sq, txn, IPA_QMI_CONFIG,
+			    &ipa_qmi->dbg_config_req);
+}
+
+static void ipa_server_install_filter_rule(struct qmi_handle *qmi,
+					   struct sockaddr_qrtr *sq,
+					   struct qmi_txn *txn,
+					   const void *decoded)
+{
+	struct ipa_qmi *ipa_qmi = container_of(qmi, struct ipa_qmi,
+					       server_handle);
+
+	ipa_server_stub_ack(qmi, sq, txn, IPA_QMI_INSTALL_FILTER_RULE,
+			    &ipa_qmi->dbg_flt_req);
 }
 
 /* The server handles two request message types sent by the modem. */
@@ -245,6 +301,20 @@ static const struct qmi_msg_handler ipa_server_msg_handlers[] = {
 		.decoded_size	= IPA_QMI_DRIVER_INIT_COMPLETE_REQ_SZ,
 		.fn		= ipa_server_driver_init_complete,
 	},
+	{
+		.type		= QMI_REQUEST,
+		.msg_id		= IPA_QMI_CONFIG,
+		.ei		= ipa_stub_req_ei,
+		.decoded_size	= sizeof(u32),
+		.fn		= ipa_server_config,
+	},
+	{
+		.type		= QMI_REQUEST,
+		.msg_id		= IPA_QMI_INSTALL_FILTER_RULE,
+		.ei		= ipa_stub_req_ei,
+		.decoded_size	= sizeof(u32),
+		.fn		= ipa_server_install_filter_rule,
+	},
 	{ },
 };
 
@@ -253,6 +323,10 @@ static void ipa_client_init_driver(struct qmi_handle *qmi,
 				   struct sockaddr_qrtr *sq,
 				   struct qmi_txn *txn, const void *decoded)
 {
+	struct ipa_qmi *ipa_qmi = container_of(qmi, struct ipa_qmi,
+					       client_handle);
+
+	ipa_qmi->dbg_rsp++;
 	txn->result = 0;	/* IPA_QMI_INIT_DRIVER request was successful */
 	complete(&txn->completion);
 }
@@ -415,6 +489,8 @@ static void ipa_client_init_driver_work(struct work_struct *work)
 	ipa = container_of(ipa_qmi, struct ipa, qmi);
 	dev = ipa->dev;
 
+	ipa_qmi->dbg_work++;
+
 	ret = qmi_txn_init(qmi, &txn, NULL, NULL);
 	if (ret < 0) {
 		dev_err(dev, "error %d preparing init driver request\n", ret);
@@ -430,6 +506,8 @@ static void ipa_client_init_driver_work(struct work_struct *work)
 		dev_err(dev, "error %d sending init driver request\n", ret);
 	else if ((ret = qmi_txn_wait(&txn, timeout)))
 		dev_err(dev, "error %d awaiting init driver response\n", ret);
+
+	ipa_qmi->dbg_send_ret = ret;
 
 	if (!ret) {
 		ipa_qmi->modem_ready = true;

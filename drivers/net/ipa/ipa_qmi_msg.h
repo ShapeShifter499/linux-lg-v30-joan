@@ -20,6 +20,13 @@
 #define IPA_QMI_INIT_COMPLETE		0x22	/* AP -> modem indication */
 #define IPA_QMI_DRIVER_INIT_COMPLETE	0x35	/* modem -> AP request */
 
+/* joan: the modem also sends these two requests and waits for a response.
+ * Mainline implements neither, so they are dropped and the modem never
+ * finishes bringing up its side of the data path.
+ */
+#define IPA_QMI_INSTALL_FILTER_RULE	0x23	/* modem -> AP request */
+#define IPA_QMI_CONFIG			0x27	/* modem -> AP request */
+
 /* The maximum size required for message types.  These sizes include
  * the message data, along with type (1 byte) and length (2 byte)
  * information for each field.  The qmi_send_*() interfaces require
@@ -253,6 +260,7 @@ extern const struct qmi_elem_info ipa_indication_register_rsp_ei[];
 extern const struct qmi_elem_info ipa_driver_init_complete_req_ei[];
 extern const struct qmi_elem_info ipa_driver_init_complete_rsp_ei[];
 extern const struct qmi_elem_info ipa_init_complete_ind_ei[];
+extern const struct qmi_elem_info ipa_stub_req_ei[];
 extern const struct qmi_elem_info ipa_mem_bounds_ei[];
 extern const struct qmi_elem_info ipa_mem_array_ei[];
 extern const struct qmi_elem_info ipa_mem_range_ei[];

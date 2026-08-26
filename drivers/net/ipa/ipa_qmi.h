@@ -39,6 +39,19 @@ struct ipa_qmi {
 	bool modem_ready;
 	bool indication_requested;
 	bool indication_sent;
+
+	/* joan: temporary handshake instrumentation.  The modem does not
+	 * touch IPA hardware until this exchange completes, so a silent
+	 * failure here looks exactly like a dead data path.
+	 */
+	u32 dbg_work;			/* INIT_DRIVER work runs */
+	u32 dbg_rsp;			/* INIT_DRIVER responses decoded */
+	u32 dbg_ind_reg;		/* INDICATION_REGISTER from modem */
+	u32 dbg_drv_cmplt;		/* DRIVER_INIT_COMPLETE from modem */
+	u32 dbg_bye;			/* modem QMI service went away */
+	u32 dbg_config_req;		/* CONFIG requests acknowledged */
+	u32 dbg_flt_req;		/* INSTALL_FILTER_RULE acknowledged */
+	int dbg_send_ret;		/* last send/wait result */
 };
 
 /**
