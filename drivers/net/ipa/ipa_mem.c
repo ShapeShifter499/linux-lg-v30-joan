@@ -452,6 +452,74 @@ int ipa_mem_zero_modem(struct ipa *ipa)
  *
  * Note: @addr and @size are not guaranteed to be page-aligned.
  */
+/* JOAN: IPA faults at a tiny IOVA (0x38) the moment the uplink channel really
+ * runs.  Map a scratch page over the bottom of the IOVA space so such an
+ * access lands somewhere harmless instead of taking an SMMU translation
+ * fault.  If the modem then survives, "something DMAs to a near-null address"
+ * is confirmed.  Opt in with ipa.lowmem=1.
+ */
+static bool ipa_lowmem;
+module_param_named(lowmem, ipa_lowmem, bool, 0444);
+MODULE_PARM_DESC(lowmem, "Map scratch memory at IOVA 0 to absorb low DMA");
+
+/* JOAN: fill the scratch with a poison pattern instead of zeroes.  The
+ * faulting access is a read (FSYNR0 WNR is clear, and nothing is ever written
+ * into the scratch), so this answers whether IPA acts on what it reads or
+ * merely needs the read not to fault.
+ */
+static bool ipa_lowmem_poison;
+module_param_named(lowmem_poison, ipa_lowmem_poison, bool, 0444);
+MODULE_PARM_DESC(lowmem_poison, "Poison the IOVA 0 scratch instead of zeroing");
+
+/* JOAN: keep the scratch mapping around so its contents can be read back.
+ * Whatever performs the near-null DMA now writes into memory we own, and the
+ * bytes it leaves behind identify it.
+ */
+void *ipa_lowmem_virt;
+size_t ipa_lowmem_bytes;
+
+#define IPA_LOWMEM_SIZE		SZ_1M
+
+static void ipa_lowmem_init(struct ipa *ipa)
+{
+	struct device *dev = ipa->dev;
+	struct iommu_domain *domain;
+	phys_addr_t phys;
+	void *virt;
+	int ret;
+
+	if (!ipa_lowmem)
+		return;
+
+	domain = iommu_get_domain_for_dev(dev);
+	if (!domain) {
+		dev_err(dev, "JOAN: no IOMMU domain for low scratch\n");
+		return;
+	}
+
+	virt = (void *)__get_free_pages(GFP_KERNEL | __GFP_ZERO,
+					get_order(IPA_LOWMEM_SIZE));
+	if (!virt)
+		return;
+
+	if (ipa_lowmem_poison)
+		memset(virt, 0xa5, IPA_LOWMEM_SIZE);
+
+	phys = virt_to_phys(virt);
+	ret = iommu_map(domain, 0, phys, IPA_LOWMEM_SIZE,
+			IOMMU_READ | IOMMU_WRITE, GFP_KERNEL);
+	if (ret) {
+		dev_err(dev, "JOAN: low scratch map failed %d\n", ret);
+		free_pages((unsigned long)virt, get_order(IPA_LOWMEM_SIZE));
+		return;
+	}
+
+	ipa_lowmem_virt = virt;
+	ipa_lowmem_bytes = IPA_LOWMEM_SIZE;
+
+	dev_info(dev, "JOAN: scratch mapped at IOVA 0, phys %pa\n", &phys);
+}
+
 static int ipa_imem_init(struct ipa *ipa, unsigned long addr, size_t size)
 {
 	struct device *dev = ipa->dev;
@@ -677,6 +745,8 @@ int ipa_mem_init(struct ipa *ipa, struct platform_device *pdev,
 		imem_base = mem_data->imem_addr;
 		imem_size = mem_data->imem_size;
 	}
+
+	ipa_lowmem_init(ipa);
 
 	ret = ipa_imem_init(ipa, imem_base, imem_size);
 	if (ret)
