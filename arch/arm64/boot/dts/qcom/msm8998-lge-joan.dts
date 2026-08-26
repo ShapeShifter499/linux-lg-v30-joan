@@ -1275,7 +1275,6 @@
 			"RX_BIAS", "MCLK",
 			"AMIC1", "MIC BIAS1",
 			"AMIC2", "MIC BIAS2",
-			"MIC BIAS2", "Headset Mic",
 			"AMIC3", "MIC BIAS3";
 
 		mm1-dai-link {
