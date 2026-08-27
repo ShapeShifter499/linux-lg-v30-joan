@@ -699,6 +699,25 @@ static int a5xx_hw_init(struct msm_gpu *gpu)
 	u32 hbb;
 	int ret;
 
+	/*
+	 * A runtime suspend and resume pair can be as little as tens of
+	 * microseconds apart, which is not long enough for the GX rail to
+	 * discharge. The GPU then keeps its state across what the driver
+	 * believes was a power collapse: CP_RB_CNTL still describes the old
+	 * ring and the ME is not halted. Writing the new CP_RB_BASE below
+	 * therefore points a live CP at a ring it has no valid configuration
+	 * for; it starts fetching, and the VBIF traffic that follows ends in an
+	 * external abort that takes the SoC down. Nothing upstream of here
+	 * notices, because runtime PM reports the device as active throughout.
+	 *
+	 * Do not assume the hardware came back reset. Put it through the same
+	 * software reset a5xx_recover() uses to get the GPU into a known state;
+	 * everything hw_init() programs comes after it.
+	 */
+	gpu_write(gpu, REG_A5XX_RBBM_SW_RESET_CMD, 1);
+	gpu_read(gpu, REG_A5XX_RBBM_SW_RESET_CMD);
+	gpu_write(gpu, REG_A5XX_RBBM_SW_RESET_CMD, 0);
+
 	gpu_write(gpu, REG_A5XX_VBIF_ROUND_ROBIN_QOS_ARB, 0x00000003);
 
 	if (adreno_is_a509(adreno_gpu) || adreno_is_a512(adreno_gpu) ||
