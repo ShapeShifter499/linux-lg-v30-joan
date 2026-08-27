@@ -36,6 +36,9 @@
 
 #define AFE_MODULE_CDC_DEV_CFG		0x00010234
 #define AFE_PARAM_ID_CDC_SLIMBUS_SLAVE_CFG 0x00010235
+#define AFE_PARAM_ID_CDC_REG_CFG	0x00010236
+#define AFE_PARAM_ID_CDC_REG_CFG_INIT	0x00010237
+#define AFE_PARAM_ID_CDC_REG_PAGE_CFG	0x00010296
 #define AFE_PARAM_ID_USB_AUDIO_DEV_PARAMS    0x000102A5
 #define AFE_PARAM_ID_USB_AUDIO_DEV_LPCM_FMT 0x000102AA
 
@@ -87,9 +90,12 @@
 #define AFE_PORT_ID_USB_RX                       0x7000
 
 #define AFE_API_VERSION_SLIMBUS_CONFIG 0x1
-/* SLIMbus hardware block ids (8998 firmware validates this; 0 = invalid) */
-#define AFE_SLIMBUS_DEVICE_1 1
-#define AFE_SLIMBUS_DEVICE_2 2
+/* Downstream apr_audio-v2.h: DEVICE_1=0, DEVICE_2=1. Mainline had 1/2
+ * with a joan comment that 0 is invalid; that disagrees with the
+ * firmware header and with tavil/msm-dai (SLIMBUS_0_* uses DEVICE_1).
+ */
+#define AFE_SLIMBUS_DEVICE_1 0
+#define AFE_SLIMBUS_DEVICE_2 1
 /* Clock set API version */
 #define AFE_API_VERSION_CLOCK_SET 1
 #define Q6AFE_LPASS_CLK_CONFIG_API_VERSION	0x1
@@ -1096,7 +1102,11 @@ static int q6afe_set_param(struct q6afe *afe, struct q6afe_port *port,
 	param = p + APR_HDR_SIZE;
 	pdata = p + APR_HDR_SIZE + sizeof(*param);
 	pl = p + APR_HDR_SIZE + sizeof(*param) + sizeof(*pdata);
-	memcpy(pl, data, psize);
+	if (psize) {
+		if (!data)
+			return -EINVAL;
+		memcpy(pl, data, psize);
+	}
 
 	pkt->hdr.hdr_field = APR_HDR_FIELD(APR_MSG_TYPE_SEQ_CMD,
 					   APR_HDR_LEN(APR_HDR_SIZE),
@@ -1133,11 +1143,121 @@ int q6afe_set_cdc_slimbus_slave_cfg(struct device *dev,
 		return -EINVAL;
 
 	return q6afe_set_param(afe, NULL, (void *)cfg,
-				       AFE_PARAM_ID_CDC_SLIMBUS_SLAVE_CFG,
-				       AFE_MODULE_CDC_DEV_CFG, sizeof(*cfg),
-				       AFE_CDC_SLIMBUS_TOKEN);
+			       AFE_PARAM_ID_CDC_SLIMBUS_SLAVE_CFG,
+			       AFE_MODULE_CDC_DEV_CFG, sizeof(*cfg),
+			       AFE_CDC_SLIMBUS_TOKEN);
 }
 EXPORT_SYMBOL_GPL(q6afe_set_cdc_slimbus_slave_cfg);
+
+int q6afe_set_cdc_reg_cfg_init(struct device *dev)
+{
+	struct q6afe *afe = dev_get_drvdata(dev);
+
+	if (!afe)
+		return -ENODEV;
+
+	/*
+	 * Downstream sends AFE_PARAM_ID_CDC_REG_CFG_INIT (empty payload)
+	 * immediately after CDC SLIMbus slave config.  ADSP uses this as
+	 * the "codec register map is ready" barrier before sourcing PCM
+	 * onto SLIMbus shared channels.
+	 */
+	return q6afe_set_param(afe, NULL, NULL,
+			       AFE_PARAM_ID_CDC_REG_CFG_INIT,
+			       AFE_MODULE_CDC_DEV_CFG, 0,
+			       AFE_CDC_SLIMBUS_TOKEN);
+}
+EXPORT_SYMBOL_GPL(q6afe_set_cdc_reg_cfg_init);
+
+/*
+ * Tavil/WCD934x AFE_PARAM_ID_CDC_REG_CFG table from downstream
+ * android_kernel_lge_msm8998 wcd934x.c audio_reg_cfg[].  Addresses are
+ * WCD934X_REGISTER_START_OFFSET (0x800) plus the codec register.  Field
+ * types are the downstream wcd9xxx-common-v2.h enum values.  msm8998
+ * sends this table before SLIMbus slave-cfg + REG_CFG_INIT.
+ */
+struct q6afe_cdc_reg_cfg {
+	u32	minor_version;
+	u32	reg_logical_addr;
+	u32	reg_field_type;
+	u32	reg_field_bit_mask;
+	u16	reg_bit_width;
+	u16	reg_offset_scale;
+} __packed;
+
+static const struct q6afe_cdc_reg_cfg tavil_cdc_reg_cfg[] = {
+	{ 1, 0x0a81,  4, 0x01, 8, 0 }, /* MAD_MAIN_CTL_1 / HW_MAD_AUDIO_ENABLE */
+	{ 1, 0x0a85,  7, 0x0f, 8, 0 }, /* MAD_AUDIO_CTL_3 / SLEEP_TIME */
+	{ 1, 0x0a86, 10, 0x01, 8, 0 }, /* MAD_AUDIO_CTL_4 / TX_AUDIO_SWITCH_OFF */
+	{ 1, 0x0c01, 13, 0x02, 8, 0 }, /* INTR_CFG / MAD_AUDIO_INT_DEST */
+	{ 1, 0x0c24, 18, 0x01, 8, 0 }, /* INTR_PIN2_MASK3 */
+	{ 1, 0x0c2c, 23, 0x01, 8, 0 }, /* INTR_PIN2_STATUS3 */
+	{ 1, 0x0c34, 28, 0x01, 8, 0 }, /* INTR_PIN2_CLEAR3 */
+	{ 1, 0x0850, 33, 0x1e, 8, 1 }, /* PGD TX base / WATERMARK_N */
+	{ 1, 0x0850, 34, 0x01, 8, 1 }, /* PGD TX base / ENABLE_N */
+	{ 1, 0x0840, 35, 0x1e, 8, 1 }, /* PGD RX base / WATERMARK_N */
+	{ 1, 0x0840, 36, 0x01, 8, 1 }, /* PGD RX base / ENABLE_N */
+	{ 1, 0x120b, 41, 0x04, 8, 0 }, /* ANC0_IIR_ADAPT / FF_GAIN_ADAPTIVE */
+	{ 1, 0x120b, 42, 0x08, 8, 0 }, /* ANC0_IIR_ADAPT / FFGAIN_ADAPTIVE_EN */
+	{ 1, 0x120e, 43, 0xff, 8, 0 }, /* ANC0_FF_A_GAIN / GAIN_CONTROL */
+	{ 1, 0x0900, 37, 0xff, 8, 4 }, /* TX MULTI_CHNL_0 */
+	{ 1, 0x0901, 38, 0xff, 8, 4 }, /* TX MULTI_CHNL_1 */
+	{ 1, 0x0980, 39, 0xff, 8, 4 }, /* RX MULTI_CHNL_0 */
+	{ 1, 0x0981, 40, 0xff, 8, 4 }, /* RX MULTI_CHNL_1 */
+};
+
+int q6afe_set_tavil_cdc_registers(struct device *dev)
+{
+	struct q6afe *afe = dev_get_drvdata(dev);
+	int i, rc;
+
+	if (!afe)
+		return -ENODEV;
+
+	for (i = 0; i < ARRAY_SIZE(tavil_cdc_reg_cfg); i++) {
+		rc = q6afe_set_param(afe, NULL,
+				     (void *)&tavil_cdc_reg_cfg[i],
+				     AFE_PARAM_ID_CDC_REG_CFG,
+				     AFE_MODULE_CDC_DEV_CFG,
+				     sizeof(tavil_cdc_reg_cfg[i]),
+				     AFE_CDC_SLIMBUS_TOKEN);
+		if (rc) {
+			dev_err(dev, "CDC_REG_CFG[%d] failed: %d\n", i, rc);
+			return rc;
+		}
+	}
+
+	dev_info(dev, "sent %d Tavil CDC_REG_CFG entries\n", i);
+	return 0;
+}
+EXPORT_SYMBOL_GPL(q6afe_set_tavil_cdc_registers);
+
+int q6afe_set_cdc_reg_page_cfg(struct device *dev)
+{
+	struct q6afe *afe = dev_get_drvdata(dev);
+	struct {
+		u32 minor_version;
+		u32 enable;
+		u32 proc_id;
+	} __packed cfg = {
+		.minor_version = 1,
+		.enable = 1,
+		.proc_id = 1, /* AFE_CDC_REG_PAGE_ASSIGN_PROC_ID_1 */
+	};
+
+	if (!afe)
+		return -ENODEV;
+
+	/*
+	 * Downstream tavil_cdc_reg_page_cfg. msm8998 sends this after
+	 * AFE_CDC_REGISTERS_CONFIG and before AFE_SLIMBUS_SLAVE_CONFIG.
+	 */
+	return q6afe_set_param(afe, NULL, &cfg,
+			       AFE_PARAM_ID_CDC_REG_PAGE_CFG,
+			       AFE_MODULE_CDC_DEV_CFG, sizeof(cfg),
+			       AFE_CDC_SLIMBUS_TOKEN);
+}
+EXPORT_SYMBOL_GPL(q6afe_set_cdc_reg_page_cfg);
 
 static int q6afe_port_set_param(struct q6afe_port *port, void *data,
 				int param_id, int module_id, int psize)

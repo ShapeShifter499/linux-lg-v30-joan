@@ -410,6 +410,18 @@ static int q6afe_dai_configure_cdc_slimbus(struct snd_soc_dai *dai)
 		goto unlock;
 	}
 
+	rc = q6afe_set_tavil_cdc_registers(dai->dev->parent);
+	if (rc) {
+		dev_err(dai->dev, "failed to send CDC_REG_CFG table: %d\n", rc);
+		goto unlock;
+	}
+
+	rc = q6afe_set_cdc_reg_page_cfg(dai->dev->parent);
+	if (rc) {
+		dev_err(dai->dev, "failed to send CDC_REG_PAGE_CFG: %d\n", rc);
+		goto unlock;
+	}
+
 	rc = q6afe_set_cdc_slimbus_slave_cfg(dai->dev->parent, cfg);
 	if (rc) {
 		dev_err(dai->dev,
@@ -417,9 +429,16 @@ static int q6afe_dai_configure_cdc_slimbus(struct snd_soc_dai *dai)
 		goto unlock;
 	}
 
+	rc = q6afe_set_cdc_reg_cfg_init(dai->dev->parent);
+	if (rc) {
+		dev_err(dai->dev,
+			"failed to send CDC_REG_CFG_INIT: %d\n", rc);
+		goto unlock;
+	}
+
 	dai_data->cdc_slimbus_configured = true;
 	dev_info(dai->dev,
-		 "configured CDC SLIMbus slave %08x:%08x (tx %u, rx %u)\n",
+		 "configured CDC SLIMbus slave %08x:%08x (tx %u, rx %u) + REG_CFG + PAGE + REG_CFG_INIT\n",
 		 cfg->device_enum_addr_msw, cfg->device_enum_addr_lsw,
 		 cfg->tx_slave_port_offset, cfg->rx_slave_port_offset);
 

@@ -1155,10 +1155,14 @@
 			/*
 			 * Without button thresholds, wcd_mbhc_init logs
 			 * "missing qcom,mbhc-buttons-vthreshold-microvolt"
-			 * and never arms jack detect. Downstream
-			 * qcom,msm-mbhc-hphl-swh = <1> is NC.
+			 * and never arms jack detect.
+			 *
+			 * Downstream qcom,msm-mbhc-hphl-swh = <1> is NC.
+			 * On joan, that property left removal stuck [on].
+			 * Omit qcom,hphl-jack-type-normally-closed so
+			 * hphl_swh defaults true (NO). Boot-unplugged is
+			 * then [off]; live jack IRQ is still dead.
 			 */
-			qcom,hphl-jack-type-normally-closed;
 			qcom,mbhc-headset-vthreshold-microvolt = <1700000>;
 			qcom,mbhc-headphone-vthreshold-microvolt = <50000>;
 			qcom,mbhc-buttons-vthreshold-microvolt = <75000 150000 237000 500000 500000 500000 500000 500000>;

@@ -1382,7 +1382,13 @@ static int qcom_slim_ngd_enable_stream(struct slim_stream_runtime *rt)
 		if (txn.msg->num_bytes == 0) {
 			int exp = 0, coef = 0;
 
-			wbuf[txn.msg->num_bytes++] = sdev->laddr;
+			/*
+			 * Downstream slim-msm-ngd: first byte is
+			 * (dataf << 5) | (laddr & 0x1f). Only the low 5
+			 * bits are the client number. Sending the full LA
+			 * (e.g. 0xcf) makes ADSP read dataf=6.
+			 */
+			wbuf[txn.msg->num_bytes++] = sdev->laddr & 0x1f;
 			wbuf[txn.msg->num_bytes] = rt->bps >> 2 |
 						   (port->ch.aux_fmt << 6);
 
@@ -1419,8 +1425,8 @@ static int qcom_slim_ngd_enable_stream(struct slim_stream_runtime *rt)
 	}
 
 	if (joan_slim_dbg)
-		pr_info("JOAN-DBG: def_act la=%#x nports=%d ch0=%u prot=%u bps=%u bytes=%u\n",
-			sdev->laddr, rt->num_ports,
+		pr_info("JOAN-DBG: def_act la=%#x hdr0=%#x nports=%d ch0=%u prot=%u bps=%u bytes=%u\n",
+			sdev->laddr, wbuf[0], rt->num_ports,
 			rt->num_ports ? rt->ports[0].ch.id : 0,
 			rt->prot, rt->bps, txn.msg->num_bytes);
 

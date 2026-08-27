@@ -1719,20 +1719,31 @@ static int wcd934x_slim_set_hw_params(struct wcd934x_codec *wcd,
 	list_for_each_entry(ch, slim_ch_list, list) {
 		cfg->chs[i++] = ch->ch_num;
 		if (direction == SNDRV_PCM_STREAM_PLAYBACK) {
+			unsigned int rb_cfg = 0, rb_multi = 0;
+			u16 rx_multi = WCD934X_SLIM_PGD_RX_PORT_MULTI_CHNL_0(ch->port);
+			u16 rx_cfg = WCD934X_SLIM_PGD_RX_PORT_CFG(ch->port);
+
 			/* write to interface device */
-			ret = regmap_write(wcd->if_regmap,
-			   WCD934X_SLIM_PGD_RX_PORT_MULTI_CHNL_0(ch->port),
-			   payload);
+			ret = regmap_write(wcd->if_regmap, rx_multi, payload);
 
 			if (ret < 0)
 				goto err;
 
 			/* configure the slave port for water mark and enable*/
-			ret = regmap_write(wcd->if_regmap,
-					WCD934X_SLIM_PGD_RX_PORT_CFG(ch->port),
+			ret = regmap_write(wcd->if_regmap, rx_cfg,
 					WCD934X_SLIM_WATER_MARK_VAL);
 			if (ret < 0)
 				goto err;
+
+			regmap_read(wcd->if_regmap, rx_multi, &rb_multi);
+			regmap_read(wcd->if_regmap, rx_cfg, &rb_cfg);
+			dev_info(wcd->dev,
+				 "JOAN-DBG: slim-rx port=%u ch=%u payload=%#x wr %#x/%#x rb %#x/%#x if_la=%#x/%d pgd_la=%#x/%d\n",
+				 ch->port, ch->ch_num, payload, rx_multi, rx_cfg,
+				 rb_multi, rb_cfg,
+				 wcd->sidev ? wcd->sidev->laddr : 0xff,
+				 wcd->sidev ? wcd->sidev->is_laddr_valid : 0,
+				 wcd->sdev->laddr, wcd->sdev->is_laddr_valid);
 		} else {
 			ret = regmap_write(wcd->if_regmap,
 				WCD934X_SLIM_PGD_TX_PORT_MULTI_CHNL_0(ch->port),
@@ -1754,6 +1765,22 @@ static int wcd934x_slim_set_hw_params(struct wcd934x_codec *wcd,
 
 			if (ret < 0)
 				goto err;
+
+			{
+				unsigned int rb_cfg = 0, rb_multi = 0;
+				u16 tx_multi = WCD934X_SLIM_PGD_TX_PORT_MULTI_CHNL_0(ch->port);
+				u16 tx_cfg = WCD934X_SLIM_PGD_TX_PORT_CFG(ch->port);
+
+				regmap_read(wcd->if_regmap, tx_multi, &rb_multi);
+				regmap_read(wcd->if_regmap, tx_cfg, &rb_cfg);
+				dev_info(wcd->dev,
+					 "JOAN-DBG: slim-tx port=%u ch=%u payload=%#x wr %#x/%#x rb %#x/%#x if_la=%#x/%d pgd_la=%#x/%d\n",
+					 ch->port, ch->ch_num, payload,
+					 tx_multi, tx_cfg, rb_multi, rb_cfg,
+					 wcd->sidev ? wcd->sidev->laddr : 0xff,
+					 wcd->sidev ? wcd->sidev->is_laddr_valid : 0,
+					 wcd->sdev->laddr, wcd->sdev->is_laddr_valid);
+			}
 		}
 	}
 
@@ -5853,6 +5880,10 @@ static int wcd934x_codec_parse_data(struct wcd934x_codec *wcd)
 		return dev_err_probe(dev, -EINVAL, "Unable to get SLIM Interface device\n");
 
 	slim_get_logical_addr(wcd->sidev);
+	dev_info(dev,
+		 "JOAN-DBG: slim addrs pgd=%#x valid=%d if=%#x valid=%d\n",
+		 wcd->sdev->laddr, wcd->sdev->is_laddr_valid,
+		 wcd->sidev->laddr, wcd->sidev->is_laddr_valid);
 	wcd->if_regmap = devm_regmap_init_slimbus(wcd->sidev,
 				  &wcd934x_ifc_regmap_config);
 	if (IS_ERR(wcd->if_regmap)) {
