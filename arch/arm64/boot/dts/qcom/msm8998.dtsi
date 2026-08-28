@@ -4602,6 +4602,9 @@
 				 <&mmss_smmu 0x42d>,
 				 <&mmss_smmu 0x411>,
 				 <&mmss_smmu 0x431>;
+			interconnects = <&mnoc MAS_VENUS &bimc SLV_EBI>,
+					<&gnoc MAS_APSS_PROC &cnoc SLV_CNOC_MNOC_MMSS_CFG>;
+			interconnect-names = "video-mem", "cpu-cfg";
 			memory-region = <&venus_mem>;
 			status = "disabled";
 
