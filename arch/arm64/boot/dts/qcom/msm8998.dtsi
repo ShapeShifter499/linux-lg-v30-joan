@@ -4580,8 +4580,11 @@
 			clocks = <&mmcc VIDEO_CORE_CLK>,
 				 <&mmcc VIDEO_AHB_CLK>,
 				 <&mmcc VIDEO_AXI_CLK>,
-				 <&mmcc VIDEO_MAXI_CLK>;
-			clock-names = "core", "iface", "bus", "mbus";
+				 <&mmcc VIDEO_MAXI_CLK>,
+				 <&mmcc MNOC_AHB_CLK>,
+				 <&gcc GCC_MMSS_SYS_NOC_AXI_CLK>;
+			clock-names = "core", "iface", "bus", "mbus",
+				      "mnoc_ahb", "noc_axi";
 			iommus = <&mmss_smmu 0x400>,
 				 <&mmss_smmu 0x401>,
 				 <&mmss_smmu 0x40a>,

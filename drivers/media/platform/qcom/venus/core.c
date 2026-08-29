@@ -858,8 +858,23 @@ static const struct venus_resources msm8998_res = {
 	.freq_tbl_size = ARRAY_SIZE(msm8998_freq_table),
 	.reg_tbl = msm8998_reg_preset,
 	.reg_tbl_size = ARRAY_SIZE(msm8998_reg_preset),
-	.clks = { "core", "iface", "bus", "mbus" },
-	.clks_num = 4,
+	/*
+	 * The two NoC clocks are not optional here, whatever msm8996 got away
+	 * with. VBIF is the venus-to-MMSS-NoC bridge, and the first write into
+	 * it -- 0x80124, from venus_set_registers() -- hangs the fabric hard
+	 * enough that only the watchdog recovers. gcc_mmss_sys_noc_axi_clk is
+	 * measurably OFF (enable_count 0, rate 0) on a booted msm8998 with the
+	 * display up, because nothing else votes it; mnoc_ahb_clk happens to be
+	 * on from the display, which is why the AHB config path works while the
+	 * AXI data path does not.
+	 *
+	 * The vendor agrees: its pil-tz venus node lists six clocks, and holds
+	 * all six as proxy clocks across firmware authentication --
+	 *   "core_clk", "mnoc_ahb_clk", "iface_clk",
+	 *   "noc_axi_clk", "bus_clk", "maxi_clk"
+	 */
+	.clks = { "core", "iface", "bus", "mbus", "mnoc_ahb", "noc_axi" },
+	.clks_num = 6,
 	.vcodec0_clks = { "core" },
 	.vcodec1_clks = { "core" },
 	.vcodec_clks_num = 1,
