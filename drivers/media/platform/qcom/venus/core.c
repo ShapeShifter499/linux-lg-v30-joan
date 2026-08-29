@@ -881,6 +881,8 @@ static const struct venus_resources msm8998_res = {
 	.clks_num = 6,
 	.vcodec0_clks = { "core" },
 	.vcodec1_clks = { "core" },
+	.vcodec_clks = { "vcodec0_core", "vcodec1_core" },
+	.vcodec_clks_num = 2,
 	/*
 	 * Measured at the point of the wedge, with venus stopped just after
 	 * core_power(POWER_ON):

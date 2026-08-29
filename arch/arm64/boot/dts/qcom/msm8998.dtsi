@@ -4585,9 +4585,12 @@
 				 <&mmcc VIDEO_AXI_CLK>,
 				 <&mmcc VIDEO_MAXI_CLK>,
 				 <&mmcc MNOC_AHB_CLK>,
-				 <&gcc GCC_MMSS_SYS_NOC_AXI_CLK>;
+				 <&gcc GCC_MMSS_SYS_NOC_AXI_CLK>,
+				 <&mmcc VIDEO_SUBCORE0_CLK>,
+				 <&mmcc VIDEO_SUBCORE1_CLK>;
 			clock-names = "core", "iface", "bus", "mbus",
-				      "mnoc_ahb", "noc_axi";
+				      "mnoc_ahb", "noc_axi",
+				      "vcodec0_core", "vcodec1_core";
 			iommus = <&mmss_smmu 0x400>,
 				 <&mmss_smmu 0x401>,
 				 <&mmss_smmu 0x40a>,
