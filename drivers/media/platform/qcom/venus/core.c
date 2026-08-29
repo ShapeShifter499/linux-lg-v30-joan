@@ -934,10 +934,12 @@ static const struct venus_resources msm8998_res = {
 	 * <0x1000000 0x24800000>. sdm845 independently carries the same four
 	 * values.
 	 */
-	.cp_start = 0,
-	.cp_size = 0x70800000,
-	.cp_nonpixel_start = 0x1000000,
-	.cp_nonpixel_size = 0x24800000,
+	/*
+	 * No cp regions: the call was measured to change nothing for TZ or
+	 * for decode (bit-exact without it), and venus autoloads before the
+	 * radios -- keep the early-boot TZ surface minimal.
+	 */
+
 	.dma_mask = 0xddc00000 - 1,
 	.fwname = "qcom/venus-4.4/venus.mbn",
 };
