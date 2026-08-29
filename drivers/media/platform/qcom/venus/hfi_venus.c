@@ -369,6 +369,31 @@ module_param(preset_limit, int, 0644);
 MODULE_PARM_DESC(preset_limit,
 	"venus bring-up bisect: write only the first N register presets (-1 = all)");
 
+/*
+ * Bring-up bisect, sixth stage -- and the first one taken from the vendor
+ * rather than from bisection.
+ *
+ * preset_limit proved the wedge is the first VBIF write in
+ * venus_set_registers(). The vendor writes the very same table, but on the
+ * other side of the firmware boot. downstream __load_fw() is:
+ *
+ *     __venus_power_on()   regulators -> clocks -> __set_registers()
+ *     subsystem_get_with_fwname("venus")     <- firmware boots AFTER
+ *     memory protect
+ *
+ * mainline is inverted: venus_boot() does qcom_scm_pas_auth_and_reset() and
+ * the CP protect first, and venus_set_registers() only runs later, from
+ * hfi_core_resume(). By then TZ owns the block, which is a coherent reason for
+ * a write into VBIF to never return.
+ *
+ * presets_early=1 restores the vendor order: write the presets from probe,
+ * before venus_boot(), and skip them in venus_run().
+ */
+static int presets_early;
+module_param(presets_early, int, 0644);
+MODULE_PARM_DESC(presets_early,
+	"write the VBIF register presets before venus_boot(), as downstream does");
+
 static void venus_set_registers(struct venus_hfi_device *hdev)
 {
 	const struct venus_resources *res = hdev->core->res;
@@ -606,7 +631,8 @@ static int venus_run(struct venus_hfi_device *hdev)
 	if (venus_stop_boot(2))
 		return 0;
 
-	venus_set_registers(hdev);
+	if (!presets_early)
+		venus_set_registers(hdev);
 
 	if (venus_stop_boot(3))
 		return 0;
@@ -1850,4 +1876,12 @@ void venus_hfi_queues_reinit(struct venus_core *core)
 	wmb();
 
 	mutex_unlock(&hdev->lock);
+}
+
+void venus_hfi_presets_early(struct venus_core *core)
+{
+	struct venus_hfi_device *hdev = to_hfi_priv(core);
+
+	if (presets_early)
+		venus_set_registers(hdev);
 }

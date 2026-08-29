@@ -27,6 +27,7 @@
 #include "core.h"
 #include "firmware.h"
 #include "pm_helpers.h"
+#include "hfi_venus.h"
 #include "hfi_venus_io.h"
 
 /*
@@ -513,6 +514,9 @@ static int venus_probe(struct platform_device *pdev)
 
 	if (venus_stop_before(8))
 		return 0;
+
+	/* Vendor order: the VBIF presets go in before the firmware boots. */
+	venus_hfi_presets_early(core);
 
 	ret = venus_boot(core);
 	if (ret)
