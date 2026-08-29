@@ -631,6 +631,25 @@ static int venus_run(struct venus_hfi_device *hdev)
 	if (venus_stop_boot(2))
 		return 0;
 
+	/*
+	 * msm8998's wrapper powers on with internal clock auto-gating
+	 * (WRAPPER_CLOCK_CONFIG = 0x007f001f) that leaves the VBIF page and
+	 * everything above wrapper+0x1000 unable to answer the config bus:
+	 * the first CPU access into them -- read or write, measured both --
+	 * stalls the MMSS NoC below the level printk can report, and only
+	 * the watchdog recovers. That was the whole msm8998 wedge.
+	 *
+	 * The vendor zeroes both gating registers in __prepare_enable_clks()
+	 * on every power-on before its first register access; msm8996 powers
+	 * on permissive, which is why mainline never needed this before.
+	 * Write them before venus_set_registers() touches VBIF. Scoped to
+	 * 3XX: the 4XX+ wrapper layout differs and those SoCs boot without.
+	 */
+	if (IS_V3(hdev->core)) {
+		writel(0, hdev->core->wrapper_base + WRAPPER_CLOCK_CONFIG);
+		writel(0, hdev->core->wrapper_base + WRAPPER_CPU_CLOCK_CONFIG);
+	}
+
 	if (!presets_early)
 		venus_set_registers(hdev);
 
