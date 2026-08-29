@@ -562,6 +562,13 @@ static int venus_probe(struct platform_device *pdev)
 	if (ret)
 		goto err_of_depopulate;
 
+	/*
+	 * msm8998: the firmware does not survive any power collapse (see
+	 * venus_runtime_resume); keep the core powered while bound.
+	 */
+	if (IS_V3(core))
+		pm_runtime_forbid(dev);
+
 	ret = pm_runtime_put_sync(dev);
 	if (ret) {
 		pm_runtime_get_noresume(dev);
@@ -724,41 +731,6 @@ static __maybe_unused int venus_runtime_resume(struct device *dev)
 
 	if (venus_stop_before(6))
 		return 0;
-
-	/*
-	 * msm8998's TZ restore hands back a wedged firmware: resume is
-	 * accepted, the CTRL_INIT poll passes, and the ARM9 then ignores
-	 * even a manually fired CPU_IC_SOFTINT. When the firmware was up
-	 * before this collapse, reboot it the way sys_error recovery does
-	 * instead of trusting the restore. The fw is dead, so there is no
-	 * HFI goodbye to say -- drop the state and start over.
-	 */
-	if (IS_V3(core) && core->state == CORE_INIT) {
-		mutex_lock(&core->lock);
-		core->state = CORE_UNINIT;
-		venus_shutdown(core);
-		mutex_unlock(&core->lock);
-
-		hfi_reinit(core);
-
-		ret = venus_boot(core);
-		if (ret)
-			return ret;
-
-		ret = hfi_core_resume(core, true);
-		if (ret)
-			goto err_shutdown;
-
-		ret = hfi_core_init(core);
-		if (ret)
-			goto err_shutdown;
-
-		return 0;
-
-err_shutdown:
-		venus_shutdown(core);
-		return ret;
-	}
 
 	return hfi_core_resume(core, false);
 }
