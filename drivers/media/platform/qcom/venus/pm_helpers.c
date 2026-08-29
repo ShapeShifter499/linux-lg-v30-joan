@@ -50,6 +50,25 @@ static int core_clks_get(struct venus_core *core)
  * "mbus". clk_limit=N enables only the first N of them, and the largest N that
  * still boots names the clock.
  */
+/*
+ * Bring-up bisect, seventh stage. Power, all six clocks, both subcore domains
+ * active in SW mode, the TZ handshake, the CP regions and the preset ordering
+ * are each measured innocent, and the preset table matches the vendor byte for
+ * byte. What is left is that the clocks are ENABLED but never RATED:
+ * clk_set_rate() below is gated to V6 and V4-lite, so on 3XX video_core_clk
+ * stays parked on XO --
+ *
+ *   video_core_clk   enable_count 1   rate 19200000
+ *
+ * -- while the vendor calls __scale_clocks() immediately before
+ * __set_registers(). A bridge clocked at 19.2 MHz is a plausible way for one
+ * register write to miss the NoC timeout window.
+ */
+static int set_clk_rate;
+module_param(set_clk_rate, int, 0644);
+MODULE_PARM_DESC(set_clk_rate,
+	"rate the core clocks on 3XX as the vendor does, before any register access");
+
 static int clk_limit = -1;
 module_param(clk_limit, int, 0644);
 MODULE_PARM_DESC(clk_limit,
@@ -79,7 +98,7 @@ static int core_clks_enable(struct venus_core *core)
 		if (clk_limit >= 0 && i >= clk_limit)
 			break;
 
-		if (IS_V6(core) || (IS_V4(core) && is_lite(core))) {
+		if (set_clk_rate || IS_V6(core) || (IS_V4(core) && is_lite(core))) {
 			ret = clk_set_rate(core->clks[i], freq);
 			if (ret)
 				goto err;
