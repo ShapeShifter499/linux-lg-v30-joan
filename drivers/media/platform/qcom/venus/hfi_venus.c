@@ -463,6 +463,39 @@ static int venus_hfi_core_set_resource(struct venus_core *core, u32 id,
 	return 0;
 }
 
+/*
+ * Bring-up bisect, third stage. stop_at proved the msm8998 wedge is in
+ * hfi_core_resume(core, true) and nowhere earlier: power, all four clocks, the
+ * trustzone PAS reset in venus_boot() and venus_firmware_cfg() all survive a
+ * clean boot. That call is the FIRST CPU access to the venus register block,
+ * and it is also what starts the firmware, so "the CPU cannot reach venus" and
+ * "the firmware wedges the bus once started" both fit the evidence and need
+ * completely different fixes.
+ *
+ * boot_stage=N stops before step N, so the largest N that boots separates them:
+ *
+ *   1  venus_set_hw_state_resume()   -- before ANY venus MMIO
+ *   2  venus_set_registers()         -- the reg_tbl presets
+ *   3  the UC_REGION / SCIACMDARG writes
+ *   4  venus_boot_core() itself
+ *   5  the WRAPPER_INTR_MASK write   -- first write inside boot_core
+ *   6  VIDC_CTRL_INIT                -- THIS is what starts the firmware
+ *   7  the CPU_CS_SCIACMDARG0 poll   -- first read after the firmware runs
+ *
+ * A stop at 6 that survives while -1 wedges means the CPU can reach venus fine
+ * and the firmware is what kills the bus. A stop at 5 that wedges means the
+ * access path itself is broken and the firmware never mattered.
+ */
+static int boot_stage = -1;
+module_param(boot_stage, int, 0644);
+MODULE_PARM_DESC(boot_stage,
+	"venus bring-up bisect: stop before venus MMIO step N (1..7); -1 = all");
+
+static bool venus_stop_boot(int n)
+{
+	return boot_stage >= 0 && boot_stage <= n;
+}
+
 static int venus_boot_core(struct venus_hfi_device *hdev)
 {
 	struct device *dev = hdev->core->dev;
@@ -481,11 +514,21 @@ static int venus_boot_core(struct venus_hfi_device *hdev)
 		mask_val = WRAPPER_INTR_MASK_A2HVCODEC_MASK;
 	}
 
+	if (venus_stop_boot(5))
+		return 0;
+
 	writel(mask_val, wrapper_base + WRAPPER_INTR_MASK);
 	if (IS_V1(hdev->core))
 		writel(1, cpu_cs_base + CPU_CS_SCIACMDARG3);
 
+	if (venus_stop_boot(6))
+		return 0;
+
 	writel(BIT(VIDC_CTRL_INIT_CTRL_SHIFT), cpu_cs_base + VIDC_CTRL_INIT);
+
+	if (venus_stop_boot(7))
+		return 0;
+
 	while (!ctrl_status && count < max_tries) {
 		ctrl_status = readl(cpu_cs_base + CPU_CS_SCIACMDARG0);
 		if ((ctrl_status & CPU_CS_SCIACMDARG0_ERROR_STATUS_MASK) == 4) {
@@ -540,7 +583,13 @@ static int venus_run(struct venus_hfi_device *hdev)
 	 * Re-program all of the registers that get reset as a result of
 	 * regulator_disable() and _enable()
 	 */
+	if (venus_stop_boot(2))
+		return 0;
+
 	venus_set_registers(hdev);
+
+	if (venus_stop_boot(3))
+		return 0;
 
 	writel(hdev->ifaceq_table.da, cpu_cs_base + UC_REGION_ADDR);
 	writel(SHARED_QSIZE, cpu_cs_base + UC_REGION_SIZE);
@@ -548,6 +597,9 @@ static int venus_run(struct venus_hfi_device *hdev)
 	writel(0x01, cpu_cs_base + CPU_CS_SCIACMDARG1);
 	if (hdev->sfr.da)
 		writel(hdev->sfr.da, cpu_cs_base + SFR_ADDR);
+
+	if (venus_stop_boot(4))
+		return 0;
 
 	ret = venus_boot_core(hdev);
 	if (ret) {
@@ -668,6 +720,9 @@ static int venus_power_on(struct venus_hfi_device *hdev)
 	int ret;
 
 	if (hdev->power_enabled)
+		return 0;
+
+	if (venus_stop_boot(1))
 		return 0;
 
 	ret = venus_set_hw_state_resume(hdev->core);
