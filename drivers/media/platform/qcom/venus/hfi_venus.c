@@ -364,6 +364,11 @@ static void venus_free(struct venus_hfi_device *hdev, struct mem_desc *mem)
 	dma_free_attrs(dev, mem->size, mem->kva, mem->da, mem->attrs);
 }
 
+static int preset_limit = -1;
+module_param(preset_limit, int, 0644);
+MODULE_PARM_DESC(preset_limit,
+	"venus bring-up bisect: write only the first N register presets (-1 = all)");
+
 static void venus_set_registers(struct venus_hfi_device *hdev)
 {
 	const struct venus_resources *res = hdev->core->res;
@@ -371,8 +376,23 @@ static void venus_set_registers(struct venus_hfi_device *hdev)
 	unsigned int count = res->reg_tbl_size;
 	unsigned int i;
 
-	for (i = 0; i < count; i++)
+	for (i = 0; i < count; i++) {
+		/*
+		 * Bring-up bisect, fourth stage. boot_stage put the msm8998 wedge
+		 * exactly here: stage 2 (this function not yet called) survives,
+		 * stage 3 (called) wedges the bus. msm8998's table is also the odd
+		 * one out -- seven VBIF writes plus one at 0xe2010, which is
+		 * WRAPPER_BASE + 0x2010 and not VBIF at all, where sdm660 and the
+		 * other 3XX parts preset three VBIF registers and nothing else.
+		 *
+		 * preset_limit=N writes only the first N entries, so the largest N
+		 * that still boots names the register whose write never returns.
+		 */
+		if (preset_limit >= 0 && i >= preset_limit)
+			break;
+
 		writel(tbl[i].value, hdev->core->base + tbl[i].reg);
+	}
 }
 
 static void venus_soft_int(struct venus_hfi_device *hdev)
