@@ -9,6 +9,7 @@
 #include <linux/dma-mapping.h>
 #include <linux/interrupt.h>
 #include <linux/iopoll.h>
+#include <linux/firmware/qcom/qcom_scm.h>
 #include <linux/kernel.h>
 #include <linux/slab.h>
 
@@ -682,6 +683,18 @@ static int venus_run(struct venus_hfi_device *hdev)
 	}
 
 	venus_hwversion(hdev);
+
+	/*
+	 * Venus 3.43 (msm8998): registers normally programmed by TZ come out
+	 * of a firmware reboot incorrectly reset, and TZBSP video state 2
+	 * (RESTORE_THRESHOLD) is the agreed handshake that reprograms them.
+	 * The vendor issues it after every __boot_firmware() -- without it the
+	 * firmware never answers another HFI message after a power-collapse
+	 * resume. Cold boots tolerate it; any TZ refusal is not fatal.
+	 */
+	if ((readl(hdev->core->wrapper_base + WRAPPER_HW_VERSION) &
+	     ~GENMASK(15, 0)) == 0x30430000)
+		qcom_scm_set_remote_state(2, 0);
 
 	return 0;
 }
