@@ -4576,7 +4576,10 @@
 			compatible = "qcom,msm8998-venus";
 			reg = <0x0cc00000 0xff000>;
 			interrupts = <GIC_SPI 287 IRQ_TYPE_LEVEL_HIGH>;
-			power-domains = <&mmcc VIDEO_TOP_GDSC>;
+			power-domains = <&mmcc VIDEO_TOP_GDSC>,
+					<&mmcc VIDEO_SUBCORE0_GDSC>,
+					<&mmcc VIDEO_SUBCORE1_GDSC>;
+			power-domain-names = "venus", "vcodec0", "vcodec1";
 			clocks = <&mmcc VIDEO_CORE_CLK>,
 				 <&mmcc VIDEO_AHB_CLK>,
 				 <&mmcc VIDEO_AXI_CLK>,

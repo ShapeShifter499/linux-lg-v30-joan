@@ -881,7 +881,30 @@ static const struct venus_resources msm8998_res = {
 	.clks_num = 6,
 	.vcodec0_clks = { "core" },
 	.vcodec1_clks = { "core" },
-	.vcodec_clks_num = 1,
+	/*
+	 * Measured at the point of the wedge, with venus stopped just after
+	 * core_power(POWER_ON):
+	 *
+	 *   video_subcore1   off-0
+	 *   video_subcore0   off-0
+	 *   video_top        on
+	 *
+	 * Both subcores are unpowered, and venus_set_registers() writes into
+	 * VBIF anyway. Declaring the vcodec pmdomains is what makes
+	 * core_power_v1() call vcodec_domains_enable() first -- which is what
+	 * the vendor does: its pil-tz venus node carries gdsc_venus,
+	 * gdsc_venus_core0 and gdsc_venus_core1, and __enable_regulators()
+	 * brings all three up before __set_registers().
+	 *
+	 * Only the DOMAINS are claimed here, not their clocks. The subcore
+	 * GDSCs are HW_CTRL, so software cannot force video_subcore0_clk on --
+	 * it reports "status stuck at 'off'" and core_power_v1() fails -EBUSY.
+	 * Leaving vcodec_clks unset makes vcodec_clks_enable() walk NULLs and
+	 * no-op, while vcodec_domains_enable() still powers the subcores. The
+	 * per-session clocks stay where they belong, on the child nodes.
+	 */
+	.vcodec_pmdomains = (const char *[]) { "venus", "vcodec0", "vcodec1" },
+	.vcodec_pmdomains_num = 3,
 	.max_load = 2563200,
 	.hfi_version = HFI_VERSION_3XX,
 	.vmem_id = VIDC_RESOURCE_NONE,
