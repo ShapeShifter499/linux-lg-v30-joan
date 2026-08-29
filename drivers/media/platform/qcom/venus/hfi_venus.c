@@ -433,6 +433,11 @@ static void venus_soft_int(struct venus_hfi_device *hdev)
 	writel(clear_bit, cpu_ic_base + CPU_IC_SOFTINT);
 }
 
+/* ponytail: HFI bring-up trace, shared with hfi_msgs.c. Delete when done. */
+int venus_hfi_trace;
+module_param_named(hfi_trace, venus_hfi_trace, int, 0644);
+MODULE_PARM_DESC(hfi_trace, "log every HFI packet in both directions");
+
 static int venus_iface_cmdq_write_nolock(struct venus_hfi_device *hdev,
 					 void *pkt, bool sync)
 {
@@ -447,6 +452,10 @@ static int venus_iface_cmdq_write_nolock(struct venus_hfi_device *hdev,
 
 	cmd_packet = (struct hfi_pkt_hdr *)pkt;
 	hdev->last_packet_type = cmd_packet->pkt_type;
+
+	if (venus_hfi_trace)
+		dev_info(dev, "hfi tx: %#x size %u\n",
+			 cmd_packet->pkt_type, cmd_packet->size);
 
 	queue = &hdev->queues[IFACEQ_CMD_IDX];
 
