@@ -796,9 +796,16 @@ static int a5xx_hw_init(struct msm_gpu *gpu)
 			0xFFFFFFFF);
 	}
 
-	/* Enable fault detection */
+	/* Enable fault detection.
+	 *
+	 * The threshold is in units of 16 GPU cycles. 0xFFFF is about one
+	 * million cycles -- 1.5ms at the a540's top frequency -- which is
+	 * short enough that a single long but perfectly healthy draw trips
+	 * it. Qualcomm's own driver has always used 0x3FFFF here, four
+	 * million cycles, for every a5xx past a530v1. Use their number.
+	 */
 	gpu_write(gpu, REG_A5XX_RBBM_INTERFACE_HANG_INT_CNTL,
-		(1 << 30) | 0xFFFF);
+		(1 << 30) | 0x3FFFF);
 
 	/* Turn on performance counters */
 	gpu_write(gpu, REG_A5XX_RBBM_PERFCTR_CNTL, 0x01);
