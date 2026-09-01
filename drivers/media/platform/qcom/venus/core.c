@@ -864,9 +864,51 @@ static const struct reg_val msm8998_reg_preset[] = {
 	{ 0xe2010, 0x00000000 },
 };
 
+/*
+ * Bandwidth votes for the video-mem path, in kBps, keyed by macroblocks per
+ * second.  Without a table mbs_to_bw() returns zero for every instance and
+ * load_scale_bw() falls back to kbps_to_icc(1000) -- a vote meant for a
+ * released session -- so the decoder runs a full 1080p60 stream on a 1 MB/s
+ * average and a zero peak.  Measured on a Pixel 2 XL: while decoding VP9
+ * 1080p60, mas_venus asks for 125 avg / 0 peak in the interconnect summary
+ * and GStreamer reports buffers arriving too late.
+ *
+ * The values are sdm660's, the closest sibling that carries a table, and every
+ * one of them is far below the ceiling Qualcomm's own msm8998 video node
+ * declares for this path (qcom,bus-range-kbps = <1000 4946000> in
+ * msm8998-vidc.dtsi).  They are therefore conservative rather than invented.
+ *
+ * Nothing above 4k30 is extrapolated: msm8998 decodes to 2563200 mbs/sec, so
+ * anything larger lands on the first row and is under-voted.  That wants
+ * calibrating against the vendor's dynamic governor before 4k60 is trusted.
+ */
+static const struct bw_tbl msm8998_bw_table_dec[] = {
+	{  979200,  2365000, 0, 1892000, 0 },	/* 4k UHD @ 30 */
+	{  864000,  1978000, 0, 1554000, 0 },	/* 720p @ 240 */
+	{  489600,  1133000, 0,  895000, 0 },	/* 1080p @ 60 */
+	{  432000,   994000, 0,  781000, 0 },	/* 720p @ 120 */
+	{  244800,   580000, 0,  460000, 0 },	/* 1080p @ 30 */
+	{  216000,   501000, 0,  301000, 0 },	/* 720p @ 60 */
+	{  108000,   255000, 0,  202000, 0 },	/* 720p @ 30 */
+};
+
+static const struct bw_tbl msm8998_bw_table_enc[] = {
+	{  979200,  1044000, 0, 2446336, 0 },	/* 4k UHD @ 30 */
+	{  864000,   887000, 0, 2108416, 0 },	/* 720p @ 240 */
+	{  489600,   666000, 0, 1207296, 0 },	/* 1080p @ 60 */
+	{  432000,   578000, 0, 1058816, 0 },	/* 720p @ 120 */
+	{  244800,   346000, 0,  616448, 0 },	/* 1080p @ 30 */
+	{  216000,   293000, 0,  534528, 0 },	/* 720p @ 60 */
+	{  108000,   151000, 0,  271360, 0 },	/* 720p @ 30 */
+};
+
 static const struct venus_resources msm8998_res = {
 	.freq_tbl = msm8998_freq_table,
 	.freq_tbl_size = ARRAY_SIZE(msm8998_freq_table),
+	.bw_tbl_enc = msm8998_bw_table_enc,
+	.bw_tbl_enc_size = ARRAY_SIZE(msm8998_bw_table_enc),
+	.bw_tbl_dec = msm8998_bw_table_dec,
+	.bw_tbl_dec_size = ARRAY_SIZE(msm8998_bw_table_dec),
 	.reg_tbl = msm8998_reg_preset,
 	.reg_tbl_size = ARRAY_SIZE(msm8998_reg_preset),
 	/*
