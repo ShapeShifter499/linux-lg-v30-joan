@@ -724,6 +724,17 @@ void dpu_crtc_frame_event_cb(struct drm_crtc *crtc, u32 event)
 	if (event & DPU_ENCODER_FRAME_EVENT_IDLE)
 		return;
 
+	/*
+	 * Frame latched into the panel transfer (cmd mode): send the pending
+	 * pageflip now so userspace can pipeline the next frame into the
+	 * ongoing transfer. complete_commit()'s later call is a no-op once
+	 * the event has been sent.
+	 */
+	if (event & DPU_ENCODER_FRAME_EVENT_STARTED) {
+		_dpu_crtc_complete_flip(crtc);
+		return;
+	}
+
 	dpu_crtc = to_dpu_crtc(crtc);
 	priv = crtc->dev->dev_private;
 	crtc_id = drm_crtc_index(crtc);

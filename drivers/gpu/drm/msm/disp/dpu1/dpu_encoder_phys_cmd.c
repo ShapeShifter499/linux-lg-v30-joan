@@ -121,6 +121,27 @@ static void dpu_encoder_phys_cmd_te_rd_ptr_irq(void *arg)
 
 	dpu_encoder_vblank_callback(phys_enc->parent, phys_enc);
 
+	/*
+	 * The read pointer has started this frame's transfer, so the previous
+	 * framebuffer is no longer referenced -- which is the pageflip event
+	 * semantic. Delivering it here rather than at transfer *completion*
+	 * lets the compositor render the next frame while this one is still
+	 * being pushed over DSI. Without it the whole session is locked to
+	 * half the panel rate: a 14.6 ms transfer inside a 16.7 ms TE slot,
+	 * with the flip at +14.6 ms, serialises everything to 33.4 ms.
+	 *
+	 * Gated on a kickoff being in flight: the tearcheck read pointer also
+	 * ticks on bare TE with no commit pending, and signalling a flip then
+	 * would release a buffer the panel is still being fed from.
+	 *
+	 * MSM8998 cannot use the CTL_START interrupt for this -- it has none
+	 * (see dpu_3_0_msm8998.h) -- but rd_ptr is already its vblank source,
+	 * and DRM delivers pageflip events at vblank anyway.
+	 */
+	if (atomic_read(&phys_enc->pending_kickoff_cnt))
+		dpu_encoder_frame_done_callback(phys_enc->parent, phys_enc,
+						DPU_ENCODER_FRAME_EVENT_STARTED);
+
 	atomic_add_unless(&cmd_enc->pending_vblank_cnt, -1, 0);
 	wake_up_all(&cmd_enc->pending_vblank_wq);
 	DPU_ATRACE_END("rd_ptr_irq");
