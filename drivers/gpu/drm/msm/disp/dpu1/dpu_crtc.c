@@ -53,12 +53,13 @@ static struct dpu_kms *_dpu_crtc_get_kms(struct drm_crtc *crtc)
 
 static struct drm_encoder *get_encoder_from_crtc(struct drm_crtc *crtc)
 {
-	struct drm_device *dev = crtc->dev;
 	struct drm_encoder *encoder;
 
-	drm_for_each_encoder(encoder, dev)
-		if (encoder->crtc == crtc)
-			return encoder;
+	if (!crtc->state)
+		return NULL;
+
+	drm_for_each_encoder_mask(encoder, crtc->dev, crtc->state->encoder_mask)
+		return encoder;
 
 	return NULL;
 }
@@ -189,7 +190,7 @@ static u32 dpu_crtc_get_vblank_counter(struct drm_crtc *crtc)
 {
 	struct drm_encoder *encoder = get_encoder_from_crtc(crtc);
 	if (!encoder) {
-		DRM_ERROR("no encoder found for crtc %d\n", crtc->index);
+		DRM_DEBUG_KMS("no encoder found for crtc %d\n", crtc->index);
 		return 0;
 	}
 
@@ -279,7 +280,7 @@ static bool dpu_crtc_get_scanout_position(struct drm_crtc *crtc,
 
 	encoder = get_encoder_from_crtc(crtc);
 	if (!encoder) {
-		DRM_ERROR("no encoder found for crtc %d\n", pipe);
+		DRM_DEBUG_KMS("no encoder found for crtc %d\n", pipe);
 		return false;
 	}
 
