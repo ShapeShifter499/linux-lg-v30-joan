@@ -492,6 +492,22 @@ static int vdec_s_parm(struct file *file, void *fh, struct v4l2_streamparm *a)
 	return 0;
 }
 
+static int vdec_g_parm(struct file *file, void *fh, struct v4l2_streamparm *a)
+{
+	struct venus_inst *inst = to_inst(file);
+	struct v4l2_captureparm *cap = &a->parm.capture;
+
+	if (a->type != V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE &&
+	    a->type != V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE)
+		return -EINVAL;
+
+	memset(cap, 0, sizeof(*cap));
+	cap->capability = V4L2_CAP_TIMEPERFRAME;
+	cap->timeperframe = inst->timeperframe;
+
+	return 0;
+}
+
 static int vdec_enum_framesizes(struct file *file, void *fh,
 				struct v4l2_frmsizeenum *fsize)
 {
@@ -620,6 +636,7 @@ static const struct v4l2_ioctl_ops vdec_ioctl_ops = {
 	.vidioc_streamon = v4l2_m2m_ioctl_streamon,
 	.vidioc_streamoff = v4l2_m2m_ioctl_streamoff,
 	.vidioc_s_parm = vdec_s_parm,
+	.vidioc_g_parm = vdec_g_parm,
 	.vidioc_enum_framesizes = vdec_enum_framesizes,
 	.vidioc_subscribe_event = vdec_subscribe_event,
 	.vidioc_unsubscribe_event = v4l2_event_unsubscribe,
