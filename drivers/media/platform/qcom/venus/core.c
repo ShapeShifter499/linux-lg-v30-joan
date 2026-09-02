@@ -108,7 +108,8 @@ static void venus_event_notify(struct venus_core *core, u32 event)
 	}
 
 	mutex_lock(&core->lock);
-	set_bit(0, &core->sys_error);
+	if (!test_and_set_bit(0, &core->sys_error))
+		core->sys_error_attempts = 0;
 	set_bit(0, &core->dump_core);
 	list_for_each_entry(inst, &core->instances, list)
 		inst->ops->event_notify(inst, EVT_SESSION_ERROR, NULL);
@@ -123,6 +124,14 @@ static const struct hfi_core_ops venus_core_ops = {
 };
 
 #define RPM_WAIT_FOR_IDLE_MAX_ATTEMPTS 10
+/*
+ * Recovery re-arms itself, so a failure mode that cannot clear -- the video
+ * GDSC refusing to power on after a firmware assert, say -- would otherwise
+ * retry for as long as the machine is up. Give up after this many consecutive
+ * failures and leave core->sys_error set, which makes every HFI entry point
+ * fail cleanly instead of hanging.
+ */
+#define VENUS_MAX_RECOVERY_ATTEMPTS 5
 
 static void venus_sys_error_handler(struct work_struct *work)
 {
@@ -199,14 +208,31 @@ static void venus_sys_error_handler(struct work_struct *work)
 	pm_runtime_put_sync(core->dev);
 
 	if (failed) {
+		unsigned long delay_ms;
+
 		disable_irq_nosync(core->irq);
-		dev_warn_ratelimited(core->dev,
-				     "System error has occurred, recovery failed to %s\n",
-				     err_msg);
-		schedule_delayed_work(&core->work, msecs_to_jiffies(10));
+
+		if (++core->sys_error_attempts >= VENUS_MAX_RECOVERY_ATTEMPTS) {
+			dev_err(core->dev,
+				"System error has occurred, recovery failed to %s after %u attempts, giving up\n",
+				err_msg, core->sys_error_attempts);
+			return;
+		}
+
+		/* Back off: a failure that needs hardware to settle is not helped
+		 * by asking again in 10 ms, and a failure that never clears must
+		 * not spin.
+		 */
+		delay_ms = 10UL << (core->sys_error_attempts - 1);
+		dev_warn(core->dev,
+			 "System error has occurred, recovery failed to %s, retrying in %lu ms (%u/%u)\n",
+			 err_msg, delay_ms, core->sys_error_attempts,
+			 VENUS_MAX_RECOVERY_ATTEMPTS);
+		schedule_delayed_work(&core->work, msecs_to_jiffies(delay_ms));
 		return;
 	}
 
+	core->sys_error_attempts = 0;
 	dev_warn(core->dev, "system error has occurred (recovered)\n");
 
 	mutex_lock(&core->lock);

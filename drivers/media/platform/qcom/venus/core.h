@@ -171,6 +171,7 @@ struct venus_format {
  * @error:	an error returned during last HFI sync operations
  * @sys_error:	an error flag that signal system error event
  * @sys_err_done: a waitqueue to wait for system error recovery end
+ * @sys_error_attempts:	consecutive failed recovery attempts
  * @core_ops:	the core operations
  * @pm_ops:	a pointer to pm operations
  * @pm_lock:	a lock for PM operations
@@ -231,6 +232,7 @@ struct venus_core {
 	struct completion done;
 	unsigned int error;
 	unsigned long sys_error;
+	unsigned int sys_error_attempts;
 	wait_queue_head_t sys_err_done;
 	const struct hfi_core_ops *core_ops;
 	const struct venus_pm_ops *pm_ops;
