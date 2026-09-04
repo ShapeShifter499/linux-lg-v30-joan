@@ -909,6 +909,7 @@ static const struct reg_val msm8998_reg_preset[] = {
  * calibrating against the vendor's dynamic governor before 4k60 is trusted.
  */
 static const struct bw_tbl msm8998_bw_table_dec[] = {
+	{ 1944000,  4730000, 0, 3784000, 0 },	/* 4k UHD @ 60: 2x the 4k30 row, under the vendor's 4946000 kBps ceiling */
 	{  979200,  2365000, 0, 1892000, 0 },	/* 4k UHD @ 30 */
 	{  864000,  1978000, 0, 1554000, 0 },	/* 720p @ 240 */
 	{  489600,  1133000, 0,  895000, 0 },	/* 1080p @ 60 */
