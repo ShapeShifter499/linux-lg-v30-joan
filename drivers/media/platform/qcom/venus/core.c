@@ -27,7 +27,46 @@
 #include "core.h"
 #include "firmware.h"
 #include "pm_helpers.h"
+#include "hfi_venus.h"
 #include "hfi_venus_io.h"
+
+/*
+ * Bring-up bisect for the msm8998 fabric wedge.
+ *
+ * Enabling this node on msm8998 kills the SoC instantly: the probe never
+ * returns, netconsole -- verified end to end seconds earlier -- carries the
+ * marker printed one line before it and then nothing at all, and the phone
+ * comes back on the hardware watchdog. No oops, no SMMU fault. The CPU never
+ * got to report anything, which is a NoC timeout rather than something the
+ * kernel could catch, so anything that PRINTS is the wrong instrument for the
+ * last step of this bring-up.
+ *
+ * This is an instrument that survives an unresponsive fabric instead: it does
+ * not print, it declines to execute. stop_at=N runs everything numbered below
+ * N and stops at the first checkpoint numbered N or above, so the largest N
+ * that still boots names the step that wedges the bus. The checkpoints are
+ * monotonic across probe and runtime_resume, which nest.
+ *
+ *   1  acquire clocks and power domains        7  venus_firmware_init()
+ *   2  request the interrupt                   8  venus_boot()  -- fw + PAS reset
+ *   3  pm_runtime_get_sync()                   9  venus_firmware_cfg()
+ *   4  icc_set_bw() bus votes                 10  hfi_core_resume()
+ *   5  core_power(POWER_ON)  -- GDSC + clks
+ *   6  hfi_core_resume() from resume
+ *
+ * -1 (default) runs the whole probe. Left in the tree deliberately: the wedge
+ * is not closed, and re-deriving this costs a session.
+ */
+static int stop_at = -1;
+module_param(stop_at, int, 0644);
+MODULE_PARM_DESC(stop_at,
+	"venus bring-up bisect: stop at the first checkpoint >= N (1..10); -1 = run everything");
+
+/* Stop at the first checkpoint numbered N or above. */
+static bool venus_stop_before(int n)
+{
+	return stop_at >= 0 && stop_at <= n;
+}
 
 static void venus_coredump(struct venus_core *core)
 {
@@ -69,7 +108,8 @@ static void venus_event_notify(struct venus_core *core, u32 event)
 	}
 
 	mutex_lock(&core->lock);
-	set_bit(0, &core->sys_error);
+	if (!test_and_set_bit(0, &core->sys_error))
+		core->sys_error_attempts = 0;
 	set_bit(0, &core->dump_core);
 	list_for_each_entry(inst, &core->instances, list)
 		inst->ops->event_notify(inst, EVT_SESSION_ERROR, NULL);
@@ -84,6 +124,14 @@ static const struct hfi_core_ops venus_core_ops = {
 };
 
 #define RPM_WAIT_FOR_IDLE_MAX_ATTEMPTS 10
+/*
+ * Recovery re-arms itself, so a failure mode that cannot clear -- the video
+ * GDSC refusing to power on after a firmware assert, say -- would otherwise
+ * retry for as long as the machine is up. Give up after this many consecutive
+ * failures and leave core->sys_error set, which makes every HFI entry point
+ * fail cleanly instead of hanging.
+ */
+#define VENUS_MAX_RECOVERY_ATTEMPTS 5
 
 static void venus_sys_error_handler(struct work_struct *work)
 {
@@ -160,14 +208,31 @@ static void venus_sys_error_handler(struct work_struct *work)
 	pm_runtime_put_sync(core->dev);
 
 	if (failed) {
+		unsigned long delay_ms;
+
 		disable_irq_nosync(core->irq);
-		dev_warn_ratelimited(core->dev,
-				     "System error has occurred, recovery failed to %s\n",
-				     err_msg);
-		schedule_delayed_work(&core->work, msecs_to_jiffies(10));
+
+		if (++core->sys_error_attempts >= VENUS_MAX_RECOVERY_ATTEMPTS) {
+			dev_err(core->dev,
+				"System error has occurred, recovery failed to %s after %u attempts, giving up\n",
+				err_msg, core->sys_error_attempts);
+			return;
+		}
+
+		/* Back off: a failure that needs hardware to settle is not helped
+		 * by asking again in 10 ms, and a failure that never clears must
+		 * not spin.
+		 */
+		delay_ms = 10UL << (core->sys_error_attempts - 1);
+		dev_warn(core->dev,
+			 "System error has occurred, recovery failed to %s, retrying in %lu ms (%u/%u)\n",
+			 err_msg, delay_ms, core->sys_error_attempts,
+			 VENUS_MAX_RECOVERY_ATTEMPTS);
+		schedule_delayed_work(&core->work, msecs_to_jiffies(delay_ms));
 		return;
 	}
 
+	core->sys_error_attempts = 0;
 	dev_warn(core->dev, "system error has occurred (recovered)\n");
 
 	mutex_lock(&core->lock);
@@ -415,6 +480,9 @@ static int venus_probe(struct platform_device *pdev)
 	if (!core->pm_ops)
 		return -ENODEV;
 
+	if (venus_stop_before(1))
+		return 0;
+
 	if (core->pm_ops->core_get) {
 		ret = core->pm_ops->core_get(core);
 		if (ret)
@@ -436,6 +504,9 @@ static int venus_probe(struct platform_device *pdev)
 	if (ret)
 		goto err_core_put;
 
+	if (venus_stop_before(2))
+		return 0;
+
 	ret = devm_request_threaded_irq(dev, core->irq, hfi_isr, venus_isr_thread,
 					IRQF_TRIGGER_HIGH | IRQF_ONESHOT,
 					"venus", core);
@@ -452,21 +523,40 @@ static int venus_probe(struct platform_device *pdev)
 
 	pm_runtime_enable(dev);
 
+	if (venus_stop_before(3))
+		return 0;
+
 	ret = pm_runtime_get_sync(dev);
 	if (ret < 0)
 		goto err_runtime_disable;
+
+	/* 4..6 live in venus_runtime_resume(), which the get_sync above ran. */
+	if (venus_stop_before(7))
+		return 0;
 
 	ret = venus_firmware_init(core);
 	if (ret)
 		goto err_runtime_disable;
 
+	if (venus_stop_before(8))
+		return 0;
+
+	/* Vendor order: the VBIF presets go in before the firmware boots. */
+	venus_hfi_presets_early(core);
+
 	ret = venus_boot(core);
 	if (ret)
 		goto err_firmware_deinit;
 
+	if (venus_stop_before(9))
+		return 0;
+
 	ret = venus_firmware_cfg(core);
 	if (ret)
 		goto err_venus_shutdown;
+
+	if (venus_stop_before(10))
+		return 0;
 
 	ret = hfi_core_resume(core, true);
 	if (ret)
@@ -497,6 +587,13 @@ static int venus_probe(struct platform_device *pdev)
 	ret = venus_enumerate_codecs(core, VIDC_SESSION_TYPE_ENC);
 	if (ret)
 		goto err_of_depopulate;
+
+	/*
+	 * msm8998: the firmware does not survive any power collapse (see
+	 * venus_runtime_resume); keep the core powered while bound.
+	 */
+	if (IS_V3(core))
+		pm_runtime_forbid(dev);
 
 	ret = pm_runtime_put_sync(dev);
 	if (ret) {
@@ -638,6 +735,9 @@ static __maybe_unused int venus_runtime_resume(struct device *dev)
 	const struct venus_pm_ops *pm_ops = core->pm_ops;
 	int ret;
 
+	if (venus_stop_before(4))
+		return 0;
+
 	ret = icc_set_bw(core->video_path, kbps_to_icc(20000), 0);
 	if (ret)
 		return ret;
@@ -646,11 +746,17 @@ static __maybe_unused int venus_runtime_resume(struct device *dev)
 	if (ret)
 		return ret;
 
+	if (venus_stop_before(5))
+		return 0;
+
 	if (pm_ops->core_power) {
 		ret = pm_ops->core_power(core, POWER_ON);
 		if (ret)
 			return ret;
 	}
+
+	if (venus_stop_before(6))
+		return 0;
 
 	return hfi_core_resume(core, false);
 }
@@ -784,21 +890,125 @@ static const struct reg_val msm8998_reg_preset[] = {
 	{ 0xe2010, 0x00000000 },
 };
 
+/*
+ * Bandwidth votes for the video-mem path, in kBps, keyed by macroblocks per
+ * second.  Without a table mbs_to_bw() returns zero for every instance and
+ * load_scale_bw() falls back to kbps_to_icc(1000) -- a vote meant for a
+ * released session -- so the decoder runs a full 1080p60 stream on a 1 MB/s
+ * average and a zero peak.  Measured on a Pixel 2 XL: while decoding VP9
+ * 1080p60, mas_venus asks for 125 avg / 0 peak in the interconnect summary
+ * and GStreamer reports buffers arriving too late.
+ *
+ * The values are sdm660's, the closest sibling that carries a table, and every
+ * one of them is far below the ceiling Qualcomm's own msm8998 video node
+ * declares for this path (qcom,bus-range-kbps = <1000 4946000> in
+ * msm8998-vidc.dtsi).  They are therefore conservative rather than invented.
+ *
+ * Nothing above 4k30 is extrapolated: msm8998 decodes to 2563200 mbs/sec, so
+ * anything larger lands on the first row and is under-voted.  That wants
+ * calibrating against the vendor's dynamic governor before 4k60 is trusted.
+ */
+static const struct bw_tbl msm8998_bw_table_dec[] = {
+	{ 1944000,  4730000, 0, 3784000, 0 },	/* 4k UHD @ 60: 2x the 4k30 row, under the vendor's 4946000 kBps ceiling */
+	{  979200,  2365000, 0, 1892000, 0 },	/* 4k UHD @ 30 */
+	{  864000,  1978000, 0, 1554000, 0 },	/* 720p @ 240 */
+	{  489600,  1133000, 0,  895000, 0 },	/* 1080p @ 60 */
+	{  432000,   994000, 0,  781000, 0 },	/* 720p @ 120 */
+	{  244800,   580000, 0,  460000, 0 },	/* 1080p @ 30 */
+	{  216000,   501000, 0,  301000, 0 },	/* 720p @ 60 */
+	{  108000,   255000, 0,  202000, 0 },	/* 720p @ 30 */
+};
+
+static const struct bw_tbl msm8998_bw_table_enc[] = {
+	{  979200,  1044000, 0, 2446336, 0 },	/* 4k UHD @ 30 */
+	{  864000,   887000, 0, 2108416, 0 },	/* 720p @ 240 */
+	{  489600,   666000, 0, 1207296, 0 },	/* 1080p @ 60 */
+	{  432000,   578000, 0, 1058816, 0 },	/* 720p @ 120 */
+	{  244800,   346000, 0,  616448, 0 },	/* 1080p @ 30 */
+	{  216000,   293000, 0,  534528, 0 },	/* 720p @ 60 */
+	{  108000,   151000, 0,  271360, 0 },	/* 720p @ 30 */
+};
+
 static const struct venus_resources msm8998_res = {
 	.freq_tbl = msm8998_freq_table,
 	.freq_tbl_size = ARRAY_SIZE(msm8998_freq_table),
+	.bw_tbl_enc = msm8998_bw_table_enc,
+	.bw_tbl_enc_size = ARRAY_SIZE(msm8998_bw_table_enc),
+	.bw_tbl_dec = msm8998_bw_table_dec,
+	.bw_tbl_dec_size = ARRAY_SIZE(msm8998_bw_table_dec),
 	.reg_tbl = msm8998_reg_preset,
 	.reg_tbl_size = ARRAY_SIZE(msm8998_reg_preset),
-	.clks = { "core", "iface", "bus", "mbus" },
-	.clks_num = 4,
+	/*
+	 * The two NoC clocks are not optional here, whatever msm8996 got away
+	 * with. VBIF is the venus-to-MMSS-NoC bridge, and the first write into
+	 * it -- 0x80124, from venus_set_registers() -- hangs the fabric hard
+	 * enough that only the watchdog recovers. gcc_mmss_sys_noc_axi_clk is
+	 * measurably OFF (enable_count 0, rate 0) on a booted msm8998 with the
+	 * display up, because nothing else votes it; mnoc_ahb_clk happens to be
+	 * on from the display, which is why the AHB config path works while the
+	 * AXI data path does not.
+	 *
+	 * The vendor agrees: its pil-tz venus node lists six clocks, and holds
+	 * all six as proxy clocks across firmware authentication --
+	 *   "core_clk", "mnoc_ahb_clk", "iface_clk",
+	 *   "noc_axi_clk", "bus_clk", "maxi_clk"
+	 */
+	.clks = { "core", "iface", "bus", "mbus", "mnoc_ahb", "noc_axi" },
+	.clks_num = 6,
 	.vcodec0_clks = { "core" },
 	.vcodec1_clks = { "core" },
-	.vcodec_clks_num = 1,
+	.vcodec_clks = { "vcodec0_core", "vcodec1_core" },
+	.vcodec_clks_num = 2,
+	/*
+	 * Measured at the point of the wedge, with venus stopped just after
+	 * core_power(POWER_ON):
+	 *
+	 *   video_subcore1   off-0
+	 *   video_subcore0   off-0
+	 *   video_top        on
+	 *
+	 * Both subcores are unpowered, and venus_set_registers() writes into
+	 * VBIF anyway. Declaring the vcodec pmdomains is what makes
+	 * core_power_v1() call vcodec_domains_enable() first -- which is what
+	 * the vendor does: its pil-tz venus node carries gdsc_venus,
+	 * gdsc_venus_core0 and gdsc_venus_core1, and __enable_regulators()
+	 * brings all three up before __set_registers().
+	 *
+	 * Only the DOMAINS are claimed here, not their clocks. The subcore
+	 * GDSCs are HW_CTRL, so software cannot force video_subcore0_clk on --
+	 * it reports "status stuck at 'off'" and core_power_v1() fails -EBUSY.
+	 * Leaving vcodec_clks unset makes vcodec_clks_enable() walk NULLs and
+	 * no-op, while vcodec_domains_enable() still powers the subcores. The
+	 * per-session clocks stay where they belong, on the child nodes.
+	 */
+	.vcodec_pmdomains = (const char *[]) { "venus", "vcodec0", "vcodec1" },
+	.vcodec_pmdomains_num = 3,
 	.max_load = 2563200,
 	.hfi_version = HFI_VERSION_3XX,
 	.vmem_id = VIDC_RESOURCE_NONE,
 	.vmem_size = 0,
 	.vmem_addr = 0,
+	/*
+	 * Without these venus_boot() skips qcom_scm_mem_protect_video_var(), TZ
+	 * then refuses qcom_scm_set_remote_state(resume) with -EINVAL -- which
+	 * venus_set_hw_state() maps to success -- and the venus CPU is never
+	 * released. The whole subsystem stays dark: the first VBIF write in
+	 * venus_set_registers() (0x80124) takes the NoC down, and with the
+	 * presets skipped the firmware never answers and boot_core times out.
+	 *
+	 * Taken from the downstream context banks, per the porting note in
+	 * venus_boot(): cp_size is venus_ns/virtual-addr-pool[0] and the
+	 * nonpixel pair is venus_sec_non_pixel/virtual-addr-pool, which in
+	 * msm8998-vidc.dtsi are <0x70800000 0x6f800000> and
+	 * <0x1000000 0x24800000>. sdm845 independently carries the same four
+	 * values.
+	 */
+	/*
+	 * No cp regions: the call was measured to change nothing for TZ or
+	 * for decode (bit-exact without it), and venus autoloads before the
+	 * radios -- keep the early-boot TZ surface minimal.
+	 */
+
 	.dma_mask = 0xddc00000 - 1,
 	.fwname = "qcom/venus-4.4/venus.mbn",
 };
