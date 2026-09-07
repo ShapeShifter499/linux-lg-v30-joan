@@ -1147,25 +1147,54 @@
 			pinctrl-0 = <&wcd_intr_default>;
 			pinctrl-names = "default";
 
-			qcom,micbias1-microvolt = <1800000>;
-			qcom,micbias2-microvolt = <1800000>;
-			qcom,micbias3-microvolt = <1800000>;
-			qcom,micbias4-microvolt = <1800000>;
+			/*
+			 * Micbias levels read out of the stock LG device tree,
+			 * decompiled from the DTBs appended to the retail
+			 * boot.img (qcom,cdc-micbiasN-mv, in mV): MICBIAS1/3/4
+			 * = 0xabe = 2750, MICBIAS2 = 0x7d0 = 2000.  All ten
+			 * board revisions LG ships agree on these.
+			 *
+			 * These were previously all 1800000, which is
+			 * wcd-common.c's WCD_DEF_MICBIAS_MV fallback rather than
+			 * a measured value; it underbiases the analog mics.
+			 * MICBIAS2 additionally feeds MBHC -- wcd934x uses
+			 * common.micb_mv[1] as cfg->micb_mv -- so a wrong value
+			 * skews the jack-type and button comparator maths too.
+			 */
+			qcom,micbias1-microvolt = <2750000>;
+			qcom,micbias2-microvolt = <2000000>;
+			qcom,micbias3-microvolt = <2750000>;
+			qcom,micbias4-microvolt = <2750000>;
 
 			/*
-			 * Without button thresholds, wcd_mbhc_init logs
-			 * "missing qcom,mbhc-buttons-vthreshold-microvolt"
-			 * and never arms jack detect.
+			 * Headset (MBHC) jack detection and in-line remote.
+			 * The jack is qcom,mbhc-audio-jack-type = "4-pole-jack"
+			 * downstream, i.e. it carries a mic and a remote.
 			 *
-			 * Downstream qcom,msm-mbhc-hphl-swh = <1> is NC.
-			 * On joan, that property left removal stuck [on].
-			 * Omit qcom,hphl-jack-type-normally-closed so
-			 * hphl_swh defaults true (NO). Boot-unplugged is
-			 * then [off]; live jack IRQ is still dead.
+			 * Switch types, from the stock DTB:
+			 *   qcom,msm-mbhc-hphl-swh = <1>  normally open
+			 *   qcom,msm-mbhc-gnd-swh  = <0>  normally closed
+			 *
+			 * Qualcomm's encoding is 1 = normally open, 0 = normally
+			 * closed, so HPHL wants mainline's default (property
+			 * absent leaves hphl_swh true) and ground needs telling
+			 * explicitly.  An earlier revision of this node had that
+			 * mapping inverted in a comment and left gnd_swh at its
+			 * default true, which writes the wrong value into
+			 * WCD_MBHC_GND_PLUG_TYPE; that is a candidate cause of
+			 * the live insert/remove IRQ never behaving.
+			 *
+			 * Without the button ladder, wcd_dt_parse_mbhc_data()
+			 * defaults btn_high[0..7] to 500000, so every button on
+			 * an in-line remote compares equal and decodes as BTN_0.
+			 * 75/150/237 mV is the standard Qualcomm ladder and what
+			 * qcom,wcd934x.yaml documents.
 			 */
+			qcom,ground-jack-type-normally-closed;
 			qcom,mbhc-headset-vthreshold-microvolt = <1700000>;
 			qcom,mbhc-headphone-vthreshold-microvolt = <50000>;
-			qcom,mbhc-buttons-vthreshold-microvolt = <75000 150000 237000 500000 500000 500000 500000 500000>;
+			qcom,mbhc-buttons-vthreshold-microvolt = <75000 150000 237000 500000
+								 500000 500000 500000 500000>;
 
 			#address-cells = <1>;
 			#size-cells = <1>;
@@ -1275,11 +1304,29 @@
 		 * SND_SOC_DAPM_OUTPUT endpoints and need no board route to be
 		 * usable; they are reached by the RX INTn chain kcontrols.
 		 */
+		/*
+		 * joan has three built-in analog mics plus the headset mic; LG's
+		 * own factory test path ("mictest-allmic" in the stock
+		 * mixer_paths_tavil.xml) captures ADC1, ADC2, ADC3 and ADC4
+		 * together, and the camcorder paths use ADC1+ADC3+ADC4.  AMIC4
+		 * reaches ADC4 through the codec's AMIC4_5 SEL mux.
+		 *
+		 * No DMIC route is added.  Every path LG names "*-dmic-*"
+		 * selects analog mics despite the name, and the factory all-mic
+		 * test -- which one would expect to exercise every fitted mic --
+		 * uses only the four analog inputs.  Against that, the camcorder
+		 * paths do select DMIC0 on TX8, and qcom,cdc-dmic-sample-rate is
+		 * set to 4800000 in the stock DTB, so a digital mic cannot be
+		 * ruled out; both of those also appear in Qualcomm's generic
+		 * 8998 configuration, which is the likelier explanation.  Left
+		 * out until something can actually be captured from it.
+		 */
 		audio-routing =
 			"RX_BIAS", "MCLK",
 			"AMIC1", "MIC BIAS1",
 			"AMIC2", "MIC BIAS2",
-			"AMIC3", "MIC BIAS3";
+			"AMIC3", "MIC BIAS3",
+			"AMIC4", "MIC BIAS4";
 
 		mm1-dai-link {
 			link-name = "MultiMedia1";
