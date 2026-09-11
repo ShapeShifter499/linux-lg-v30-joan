@@ -1467,6 +1467,15 @@ int wcd_dt_parse_mbhc_data(struct device *dev, struct wcd_mbhc_config *cfg)
 	else
 		cfg->gnd_swh = true;
 
+	/*
+	 * A normally-closed ground switch means insertion has to be sensed on
+	 * the ground contact, so the ground detection comparator has to be
+	 * armed.  cfg->gnd_det_en is never assigned anywhere else in the tree,
+	 * which left wcd_mbhc_start()'s call to mbhc_gnd_det_ctrl() as dead
+	 * code on every codec that implements the callback.
+	 */
+	cfg->gnd_det_en = !cfg->gnd_swh;
+
 	ret = of_property_read_u32(np, "qcom,mbhc-headset-vthreshold-microvolt",
 				   &microvolt);
 	if (ret)
