@@ -182,6 +182,21 @@ static int wcd934x_slim_status_up(struct slim_device *sdev)
 		return ret;
 	}
 
+	/*
+	 * Initialise the per-source LEVEL configuration the way downstream
+	 * does before any child can run: INTR source 0 (SLIMBUS) is
+	 * level-high, every other source is pulse.  Without this the four
+	 * LEVEL bytes keep their reset values and a level-in-nature source
+	 * configured as pulse asserts the INTR1 line exactly once and never
+	 * re-arms it -- the parent fires once at probe and then the whole
+	 * interrupt controller goes quiet, taking MBHC jack detection and
+	 * every other child with it.
+	 */
+	regmap_write(ddata->regmap, WCD934X_INTR_LEVEL0, 0x01);
+	regmap_write(ddata->regmap, WCD934X_INTR_LEVEL0 + 1, 0x00);
+	regmap_write(ddata->regmap, WCD934X_INTR_LEVEL0 + 2, 0x00);
+	regmap_write(ddata->regmap, WCD934X_INTR_LEVEL0 + 3, 0x00);
+
 	ret = mfd_add_devices(dev, PLATFORM_DEVID_AUTO, wcd934x_devices,
 			      ARRAY_SIZE(wcd934x_devices), NULL, 0, NULL);
 	if (ret) {
