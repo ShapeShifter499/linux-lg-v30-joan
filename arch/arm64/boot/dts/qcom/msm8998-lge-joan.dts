@@ -1220,12 +1220,13 @@
 				compatible = "qcom,soundwire-v1.3.0";
 				reg = <0xc85 0x40>;
 				/*
-				 * WCD934X_IRQ_SOUNDWIRE is entry 8 of the MFD's
-				 * regmap-irq table (the domain is 0-based).
-				 * 20 was downstream's 32-source numbering and
-				 * cannot map into the 9-slot mainline domain.
+				 * WCD934X_IRQ_SOUNDWIRE, which is 20: the MFD's
+				 * wcd934x_irqs[] is indexed by IRQ number via
+				 * designated initialisers, so the domain spans
+				 * 0-20 with nine entries populated.  Matches
+				 * sdm845-wcd9340.dtsi for the same codec.
 				 */
-				interrupts-extended = <&wcd9340 8>;
+				interrupts-extended = <&wcd9340 20>;
 
 				qcom,dout-ports = <6>;
 				qcom,din-ports = <2>;
