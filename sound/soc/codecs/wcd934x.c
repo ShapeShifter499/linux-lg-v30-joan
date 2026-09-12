@@ -5948,9 +5948,15 @@ static int wcd934x_codec_probe(struct platform_device *pdev)
 	if (irq < 0)
 		return dev_err_probe(wcd->dev, irq, "Failed to get SLIM IRQ\n");
 
+	/*
+	 * The source is asserted for as long as the codec has slave-port
+	 * status left to report and the handler is what clears it, so ask
+	 * for it level-high -- which is also what tells the MFD's interrupt
+	 * controller to leave the matching LEVEL bit set.
+	 */
 	ret = devm_request_threaded_irq(dev, irq, NULL,
 					wcd934x_slim_irq_handler,
-					IRQF_TRIGGER_RISING | IRQF_ONESHOT,
+					IRQF_TRIGGER_HIGH | IRQF_ONESHOT,
 					"slim", wcd);
 	if (ret)
 		return dev_err_probe(dev, ret, "Failed to request slimbus irq\n");
