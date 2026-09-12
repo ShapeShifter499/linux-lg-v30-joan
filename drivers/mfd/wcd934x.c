@@ -16,13 +16,13 @@
 #include <linux/regulator/consumer.h>
 #include <linux/slimbus.h>
 
-#define WCD934X_REGMAP_IRQ_REG(_irq, _off, _mask)		\
+#define WCD934X_REGMAP_IRQ_REG_TYPES(_irq, _off, _mask, _types)	\
 	[_irq] = {						\
 		.reg_offset = (_off),				\
 		.mask = (_mask),				\
 		.type = {					\
 			.type_reg_offset = (_off),		\
-			.types_supported = IRQ_TYPE_EDGE_BOTH,	\
+			.types_supported = (_types),		\
 			.type_reg_mask  = (_mask),		\
 			.type_level_low_val = (_mask),		\
 			.type_level_high_val = (_mask),		\
@@ -30,6 +30,9 @@
 			.type_rising_val = 0,			\
 		},						\
 	}
+
+#define WCD934X_REGMAP_IRQ_REG(_irq, _off, _mask)		\
+	WCD934X_REGMAP_IRQ_REG_TYPES(_irq, _off, _mask, IRQ_TYPE_EDGE_BOTH)
 
 static const struct mfd_cell wcd934x_devices[] = {
 	{
@@ -44,7 +47,15 @@ static const struct mfd_cell wcd934x_devices[] = {
 };
 
 static const struct regmap_irq wcd934x_irqs[] = {
-	WCD934X_REGMAP_IRQ_REG(WCD934X_IRQ_SLIMBUS, 0, BIT(0)),
+	/*
+	 * The SLIMBUS source stays asserted while the codec still has
+	 * slave-port status to report, so it is level-high in nature and
+	 * is the one source downstream marks level-high (irq_level_high[0])
+	 * in these same LEVEL registers.  Advertise the type so a level-high
+	 * request keeps the bit set instead of clearing it to pulse.
+	 */
+	WCD934X_REGMAP_IRQ_REG_TYPES(WCD934X_IRQ_SLIMBUS, 0, BIT(0),
+				     IRQ_TYPE_EDGE_BOTH | IRQ_TYPE_LEVEL_HIGH),
 	WCD934X_REGMAP_IRQ_REG(WCD934X_IRQ_HPH_PA_OCPL_FAULT, 0, BIT(2)),
 	WCD934X_REGMAP_IRQ_REG(WCD934X_IRQ_HPH_PA_OCPR_FAULT, 0, BIT(3)),
 	WCD934X_REGMAP_IRQ_REG(WCD934X_IRQ_MBHC_SW_DET, 1, BIT(0)),
@@ -181,21 +192,6 @@ static int wcd934x_slim_status_up(struct slim_device *sdev)
 		dev_err(dev, "Failed to add IRQ chip: err = %d\n", ret);
 		return ret;
 	}
-
-	/*
-	 * Initialise the per-source LEVEL configuration the way downstream
-	 * does before any child can run: INTR source 0 (SLIMBUS) is
-	 * level-high, every other source is pulse.  Without this the four
-	 * LEVEL bytes keep their reset values and a level-in-nature source
-	 * configured as pulse asserts the INTR1 line exactly once and never
-	 * re-arms it -- the parent fires once at probe and then the whole
-	 * interrupt controller goes quiet, taking MBHC jack detection and
-	 * every other child with it.
-	 */
-	regmap_write(ddata->regmap, WCD934X_INTR_LEVEL0, 0x01);
-	regmap_write(ddata->regmap, WCD934X_INTR_LEVEL0 + 1, 0x00);
-	regmap_write(ddata->regmap, WCD934X_INTR_LEVEL0 + 2, 0x00);
-	regmap_write(ddata->regmap, WCD934X_INTR_LEVEL0 + 3, 0x00);
 
 	ret = mfd_add_devices(dev, PLATFORM_DEVID_AUTO, wcd934x_devices,
 			      ARRAY_SIZE(wcd934x_devices), NULL, 0, NULL);
