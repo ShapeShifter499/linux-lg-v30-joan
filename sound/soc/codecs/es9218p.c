@@ -68,6 +68,8 @@
 #define ES9218P_GPIO_INVERT_CLKGEAR2	0x1f
 #define ES9218P_AMP_CONFIG		0x20
 #define ES9218P_AMP_MODE_HIFI1		0x02
+/* Amp mode joan's downstream hands to the mode pin when entering bypass. */
+#define ES9218P_AMP_MODE_BYPASS		0x01
 
 /*
  * Analog output block.  LG's driver drives these directly with no symbolic
@@ -257,15 +259,21 @@ static int es9218p_mode_put(struct snd_kcontrol *kcontrol,
 	/*
 	 * Leaving an amplifier mode has to hand amp-mode control back to the
 	 * mode pin before RESET_N drops, or the part does not reach bypass.
-	 * Downstream's es9218p_sabre_hifione2lpb() writes AMP_CONFIG = 0 --
-	 * "amp mode core on, amp mode gpio set to trigger Core On", which it
-	 * notes leaves the part in LowFi under GPIO2 control -- waits, and only
-	 * then pulls RESETb low. The 100 ms settle is what LG compiles in for
-	 * this board specifically (CONFIG_MACH_MSM8998_JOAN); the generic path
-	 * has no delay there.
+	 *
+	 * Write AMP_MODE_BYPASS (0x01), not 0.  joan's own downstream driver
+	 * does this in es9218_sabre_hifi2bypass() for the ESS_B revision --
+	 * AMP_CONFIG = 0x01, then MODE2 high, then RESETb low.  AMP_CONFIG = 0
+	 * powers the amplifier block down entirely, which leaves the WCD9340's
+	 * HPHL/HPHR stranded: the mode pins say bypass but no analog path is
+	 * established to the jack, so the low-power headphone route is silent
+	 * and MBHC's L_DET -- which senses HPHL -- has nothing to sense.
+	 *
+	 * The 100 ms settle is what LG compiles in for this board specifically
+	 * (CONFIG_MACH_MSM8998_JOAN); the generic path has no delay there.
 	 */
 	if (es9218p_mode_pins[mode][0] == 1 && rst == 0) {
-		regmap_write(es9218p->regmap, ES9218P_AMP_CONFIG, 0);
+		regmap_write(es9218p->regmap, ES9218P_AMP_CONFIG,
+			     ES9218P_AMP_MODE_BYPASS);
 		gpiod_set_value_cansleep(es9218p->hph_sw_gpio,
 					 es9218p_mode_pins[mode][1]);
 		msleep(100);
