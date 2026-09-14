@@ -1177,6 +1177,13 @@ pkt_session_set_property_3xx(struct hfi_session_set_property_pkt *pkt,
 	case HFI_PROPERTY_PARAM_VDEC_CONTINUE_DATA_TRANSFER:
 		/* for 3xx fw version session_continue is used */
 		break;
+	case HFI_PROPERTY_PARAM_VENC_H264_TRANSFORM_8X8: {
+		struct hfi_h264_8x8_transform *in = pdata, *tm = prop_data;
+
+		tm->enable_type = in->enable_type;
+		pkt->shdr.hdr.size += sizeof(u32) + sizeof(*tm);
+		break;
+	}
 	default:
 		ret = pkt_session_set_property_1x(pkt, cookie, ptype, pdata);
 		break;
