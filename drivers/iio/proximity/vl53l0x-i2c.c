@@ -325,13 +325,6 @@ static int vl53l0x_probe(struct i2c_client *client)
 				     I2C_FUNC_SMBUS_BYTE_DATA))
 		return -EOPNOTSUPP;
 
-	ret = i2c_smbus_read_byte_data(data->client, VL_REG_IDENTIFICATION_MODEL_ID);
-	if (ret < 0)
-		return -EINVAL;
-
-	if (ret != VL53L0X_MODEL_ID_VAL)
-		dev_info(&client->dev, "Unknown model id: 0x%x", ret);
-
 	data->vdd_supply = devm_regulator_get(&client->dev, "vdd");
 	if (IS_ERR(data->vdd_supply))
 		return dev_err_probe(&client->dev, PTR_ERR(data->vdd_supply),
@@ -350,6 +343,15 @@ static int vl53l0x_probe(struct i2c_client *client)
 	ret = devm_add_action_or_reset(&client->dev, vl53l0x_power_off, data);
 	if (ret)
 		return ret;
+
+	/* only a powered sensor out of shutdown answers on the bus */
+	ret = i2c_smbus_read_byte_data(data->client, VL_REG_IDENTIFICATION_MODEL_ID);
+	if (ret < 0)
+		return dev_err_probe(&client->dev, ret,
+				     "Failed to read the model ID\n");
+
+	if (ret != VL53L0X_MODEL_ID_VAL)
+		dev_info(&client->dev, "Unknown model id: 0x%x", ret);
 
 	indio_dev->name = "vl53l0x";
 	indio_dev->info = &vl53l0x_info;
