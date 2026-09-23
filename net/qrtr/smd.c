@@ -73,9 +73,6 @@ static int qcom_smd_qrtr_probe(struct rpmsg_device *rpdev)
 	if (rc)
 		return rc;
 
-	dev_info(&rpdev->dev, "JOAN-DBG: IPCRTR channel up on %s\n",
-		 dev_name(rpdev->dev.parent));
-
 	dev_set_drvdata(&rpdev->dev, qdev);
 
 	dev_dbg(&rpdev->dev, "Qualcomm SMD QRTR driver probed\n");
@@ -86,9 +83,6 @@ static int qcom_smd_qrtr_probe(struct rpmsg_device *rpdev)
 static void qcom_smd_qrtr_remove(struct rpmsg_device *rpdev)
 {
 	struct qrtr_smd_dev *qdev = dev_get_drvdata(&rpdev->dev);
-
-	dev_info(&rpdev->dev, "JOAN-DBG: IPCRTR channel down on %s\n",
-		 dev_name(rpdev->dev.parent));
 
 	qrtr_endpoint_unregister(&qdev->ep);
 

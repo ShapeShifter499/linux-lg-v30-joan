@@ -2898,38 +2898,6 @@ static int dpcm_fe_dai_open(struct snd_pcm_substream *fe_substream)
 		dev_err_once(fe->dev, "ASoC: no backend DAIs enabled for %s, possibly missing ALSA mixer-based routing or UCM profile\n",
 			     fe->dai_link->name);
 		dev_dbg(fe->dev, "ASoC: no backend DAIs enabled for %s\n", fe->dai_link->name);
-		{
-			int k;
-			dev_info(fe->dev, "JOAN-DBG: FE %s stream %d: dpcm_path_get found %d widgets\n",
-				 fe->dai_link->name, stream,
-				 list ? list->num_widgets : -1);
-			for (k = 0; list && k < list->num_widgets && k < 12; k++)
-				dev_info(fe->dev, "JOAN-DBG:   w[%d] = %s (id %d)\n",
-					 k, list->widgets[k]->name, list->widgets[k]->id);
-		}
-		{
-			struct snd_soc_dapm_widget *fw;
-			struct snd_soc_dapm_path *p, *q;
-
-			/* JOAN: dump the FE widget's outgoing DAPM paths with
-			 * their connect states so a broken hop is visible.
-			 */
-			fw = snd_soc_dai_get_widget(snd_soc_rtd_to_cpu(fe, 0), stream);
-			if (fw) {
-				snd_soc_dapm_widget_for_each_sink_path(fw, p) {
-					dev_info(fe->dev,
-						 "JOAN-DBG: FE path %s -> %s (connect %d)\n",
-						 p->source->name, p->sink->name,
-						 p->connect);
-					snd_soc_dapm_widget_for_each_sink_path(p->sink, q) {
-						dev_info(fe->dev,
-							 "JOAN-DBG:   2nd %s -> %s (connect %d)\n",
-							 q->source->name, q->sink->name,
-							 q->connect);
-					}
-				}
-			}
-		}
 
 		ret = -EINVAL;
 		goto put_path;
