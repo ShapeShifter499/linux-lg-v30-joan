@@ -15,12 +15,6 @@
 #include <linux/rpmsg.h>
 #include <linux/of.h>
 
-/* JOAN-DBG: skip registering APR/GPR service devices (no q6 driver probes,
- * zero APR interaction with the ADSP). Set via cmdline: apr.skip_devices=1
- */
-static bool skip_devices;
-module_param(skip_devices, bool, 0644);
-
 enum {
 	PR_TYPE_APR = 0,
 	PR_TYPE_GPR,
@@ -58,42 +52,6 @@ struct apr_rx_buf {
  *
  * Return: Will be an negative on packet size on success.
  */
-/* JOAN: audio bring-up instrumentation.
- *
- * Boots 21a/21b located the V30's silent SoC reset to 32 ms after the AFE
- * SLIMbus port config, on the seventh apr_audio_svc response -- but the
- * glink breadcrumb only reports a length, so we cannot tell which command
- * the ADSP was answering, nor whether the apps CPU survives the moment.
- *
- * apr_dbg logs the APR header (opcode / services / token) on both
- * directions, and brackets the service callback so a wedge *inside* the
- * dispatch is distinguishable from one after it.
- *
- * apr_hb_ms runs a heartbeat so a run that goes quiet can be told apart
- * from a run that stopped executing.
- */
-static bool apr_dbg;
-module_param_named(apr_dbg, apr_dbg, bool, 0644);
-MODULE_PARM_DESC(apr_dbg, "JOAN: log APR packet headers on tx and rx, and bracket the rx dispatch");
-
-static int apr_hb_ms;
-module_param_named(apr_hb_ms, apr_hb_ms, int, 0644);
-MODULE_PARM_DESC(apr_hb_ms, "JOAN: heartbeat period in ms (0 = off); proves whether the apps CPU outlives the ADSP");
-
-static void apr_joan_heartbeat(struct work_struct *work);
-static DECLARE_DELAYED_WORK(apr_joan_hb_work, apr_joan_heartbeat);
-static unsigned int apr_joan_hb_seq;
-
-static void apr_joan_heartbeat(struct work_struct *work)
-{
-	pr_info("JOAN-HB seq=%u jiffies=%lu cpu=%d\n",
-		++apr_joan_hb_seq, jiffies, raw_smp_processor_id());
-
-	if (apr_hb_ms > 0)
-		schedule_delayed_work(&apr_joan_hb_work,
-				      msecs_to_jiffies(apr_hb_ms));
-}
-
 int apr_send_pkt(struct apr_device *adev, struct apr_pkt *pkt)
 {
 	struct packet_router *apr = dev_get_drvdata(adev->dev.parent);
@@ -111,13 +69,6 @@ int apr_send_pkt(struct apr_device *adev, struct apr_pkt *pkt)
 
 	ret = rpmsg_trysend(apr->ch, pkt, hdr->pkt_size);
 	spin_unlock_irqrestore(&adev->svc.lock, flags);
-
-	if (apr_dbg)
-		pr_info("JOAN-APR tx opcode=%#x svc=%u->%u dom=%u->%u port=%#x->%#x token=%#x size=%u ret=%d\n",
-			hdr->opcode, hdr->src_svc, hdr->dest_svc,
-			hdr->src_domain, hdr->dest_domain,
-			hdr->src_port, hdr->dest_port, hdr->token,
-			hdr->pkt_size, ret);
 
 	return ret ? ret : hdr->pkt_size;
 }
@@ -303,17 +254,7 @@ static int apr_do_rx_callback(struct packet_router *apr, struct apr_rx_buf *abuf
 	if (resp.payload_size > 0)
 		resp.payload = buf + hdr_size;
 
-	if (apr_dbg)
-		pr_info("JOAN-APR rx opcode=%#x svc=%u->%u mt=%u port=%#x->%#x token=%#x size=%u -> dispatch\n",
-			hdr->opcode, hdr->src_svc, hdr->dest_svc, msg_type,
-			hdr->src_port, hdr->dest_port, hdr->token,
-			hdr->pkt_size);
-
 	adrv->callback(adev, &resp);
-
-	if (apr_dbg)
-		pr_info("JOAN-APR rx opcode=%#x token=%#x dispatch returned\n",
-			hdr->opcode, hdr->token);
 
 	return 0;
 }
@@ -434,16 +375,15 @@ static int apr_device_probe(struct device *dev)
 	adev->svc.callback = adrv->gpr_callback;
 
 	/*
-	 * Register the service for rx routing only once a driver is bound.
-	 * apr_do_rx_callback() finds services here and requires a bound
-	 * driver, so inserting earlier - at device registration - leaves a
-	 * window where packets are routed to an unbound device, and removing
-	 * at unbind while the entry stays gone across re-probe makes every
-	 * response vanish after a module reload until reboot.
+	 * Make the service reachable for rx routing only while a driver is
+	 * bound.  apr_device_remove() drops the entry at unbind, so inserting
+	 * it once at device registration would leave it missing after the
+	 * first unbind, and every response to a re-probed driver would then
+	 * be discarded until reboot.
 	 */
 	spin_lock(&apr->svcs_lock);
 	ret = idr_alloc(&apr->svcs_idr, &adev->svc, adev->svc_id,
-			adev->svc_id + 1, GFP_KERNEL);
+			adev->svc_id + 1, GFP_ATOMIC);
 	spin_unlock(&apr->svcs_lock);
 	if (ret < 0) {
 		dev_err(dev, "idr_alloc failed: %d\n", ret);
@@ -496,12 +436,6 @@ static int apr_add_device(struct device *dev, struct device_node *np,
 	struct apr_device *adev = NULL;
 	struct pkt_router_svc *svc;
 	int ret;
-
-	if (skip_devices) {
-		dev_info(dev, "JOAN-DBG: apr.skip_devices gate active, skipping svc %x\n",
-			 svc_id);
-		return 0;
-	}
 
 	adev = kzalloc_obj(*adev);
 	if (!adev)
@@ -696,13 +630,6 @@ static int apr_probe(struct rpmsg_device *rpdev)
 	dev_set_drvdata(dev, apr);
 	apr->ch = rpdev->ept;
 	apr->dev = dev;
-
-	if (apr_hb_ms > 0 && !delayed_work_pending(&apr_joan_hb_work)) {
-		dev_info(dev, "JOAN-HB: heartbeat every %d ms\n", apr_hb_ms);
-		schedule_delayed_work(&apr_joan_hb_work,
-				      msecs_to_jiffies(apr_hb_ms));
-	}
-
 	apr->rxwq = create_singlethread_workqueue("qcom_apr_rx");
 	if (!apr->rxwq) {
 		dev_err(apr->dev, "Failed to start Rx WQ\n");
