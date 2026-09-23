@@ -5,7 +5,6 @@
 #include <linux/irq.h>
 #include <linux/kernel.h>
 #include <linux/init.h>
-#include <linux/module.h>
 #include <linux/slab.h>
 #include <linux/interrupt.h>
 #include <linux/platform_device.h>
@@ -23,13 +22,6 @@
 #include <linux/soc/qcom/pdr.h>
 #include <net/sock.h>
 #include "slimbus.h"
-
-/* JOAN-DBG: skip the ADSP QMI handshake entirely (no connect, no
- * select-instance, no capability exchange). Set via cmdline:
- * slimbus.skip_select=1
- */
-static bool skip_select;
-module_param(skip_select, bool, 0644);
 
 /* NGD (Non-ported Generic Device) registers */
 #define	NGD_CFG			0x0
@@ -71,10 +63,9 @@ module_param(skip_select, bool, 0644);
 #define SLIMBUS_QMI_SELECT_INSTANCE_RESP_MAX_MSG_LEN	7
 #define SLIMBUS_QMI_CHECK_FRAMER_STAT_RESP_MAX_MSG_LEN	7
 /*
- * LG's downstream kernel carries a 3 s QMI response timeout for SLIMbus as
- * a board workaround (CONFIG_MACH_LGE, "LGE W/A"): the ADSP can take longer
- * than the default 1 s to answer during its init, and the stock 500 ms/1 s
- * loses the race intermittently. Use the same value.
+ * QMI response timeout.  The ADSP can take well over a second to answer
+ * while it is still initialising, so LG's msm8998 kernel carries 3 s here
+ * as a board workaround; with 1 s the handshake is lost intermittently.
  */
 #define SLIMBUS_QMI_RESP_TOUT	3000
 
@@ -103,95 +94,6 @@ module_param(skip_select, bool, 0644);
 /* Per spec.max 40 bytes per received message */
 #define SLIM_MSGQ_BUF_LEN	40
 #define QCOM_SLIM_NGD_DESC_NUM	32
-
-/* JOAN: PGD (peripheral group device) port registers, NGD v2.0 layout
- * (msm8998). Downstream programs PGD_PORT_CFGn before sending
- * connect/disconnect USR messages to the codec; without it the NGD stalls
- * the TX queue on those messages. Offsets are relative to the slim-ngd
- * component base (ctrl->base). Ports 0..5 stay inside the 0x2c000 map.
- */
-#define PGD_PORT_CFGn_V2	0x14000
-#define PGD_PORT_STATn_V2	0x14004
-#define PGD_PORT_BLKn_V2	0x1400C
-#define PGD_PORT_TRANn_V2	0x14010
-#define PGD_PORT_STRIDE_V2	0x1000
-#define PGD_CFG_V2		0x800
-#define PGD_OWN_EEn_V2		0x300C
-
-/* DEF_WATERMARK (8<<1)=0x10 | DEF_PACK=0x40 | ENABLE_PORT=1 (downstream
- * defaults from slim-msm.h, msm_hw_set_port).
- */
-#define PGD_PORT_CFG_DEF	0x51
-
-/* msm8998 apps-ch-pipes = 0x1f80: APPS owns bus ports 7..12, port_b = bus
- * port - 7 (identity mapping for codec ports 0..5).
- */
-#define JOAN_MAX_APPS_PORT	5
-
-static bool joan_slim_dbg = true;
-module_param_named(slim_dbg, joan_slim_dbg, bool, 0644);
-MODULE_PARM_DESC(slim_dbg, "JOAN: log connect/disconnect USR messages and PGD port state");
-
-static bool reconf_passthrough;
-module_param_named(reconf_passthrough, reconf_passthrough, bool, 0644);
-MODULE_PARM_DESC(reconf_passthrough, "JOAN: send (not drop) core messages in the reconfigure range (MC 0x40-0x5F)");
-
-static bool portb_rewrite;
-module_param_named(portb_rewrite, portb_rewrite, bool, 0644);
-MODULE_PARM_DESC(portb_rewrite, "JOAN: rewrite connect/disconnect msg port to manager-side port_b (default off: only valid for PGD-addressed msgs)");
-
-static bool pgd_prog;
-module_param_named(pgd_prog, pgd_prog, bool, 0644);
-MODULE_PARM_DESC(pgd_prog, "JOAN: program PGD port cfg/blk/tran registers before connect/disconnect TX");
-
-static bool pgd_enable;
-module_param_named(pgd_enable, pgd_enable, bool, 0644);
-MODULE_PARM_DESC(pgd_enable, "JOAN: enable PGD + claim port ownership at bring-up (DANGEROUS: hangs the controller on current mainline; needs the downstream framer/MGR/INTF init sequence first)");
-
-/* JOAN: runtime-PM experiment knobs.
- *
- * Mainline autosuspends the NGD 100 ms after the last apps-side bus
- * access and, in the suspend callback, tears the BAM msgq channels down
- * (qcom_slim_ngd_exit_dma -> bam_free_chan -> BAM_P_RST writes into the
- * qcom,controlled-remotely slimbus BAM at 0x17184000).  Downstream waits
- * 1000 ms (MSM_SLIM_AUTOSUSPEND), refuses to suspend while any TID is
- * outstanding, and never touches its pipes on runtime suspend.  The
- * observed kill window (silent SoC reset 0.3-1.3 s after the AFE port
- * config, ahead of the PCM trigger) sits exactly on that 100 ms timer.
- */
-static int autosuspend_ms = 100;
-module_param_named(autosuspend_ms, autosuspend_ms, int, 0644);
-MODULE_PARM_DESC(autosuspend_ms, "JOAN: NGD runtime-PM autosuspend delay in ms (mainline 100, downstream 1000; large values keep the bus awake through ADSP stream setup)");
-
-static bool keep_dma;
-module_param_named(keep_dma, keep_dma, bool, 0644);
-MODULE_PARM_DESC(keep_dma, "JOAN: keep the BAM msgq channels allocated across runtime suspend (downstream never resets its pipes on power-down)");
-
-static bool pm_dbg = true;
-module_param_named(pm_dbg, pm_dbg, bool, 0644);
-MODULE_PARM_DESC(pm_dbg, "JOAN: breadcrumb every runtime suspend/resume and BAM msgq init/exit");
-
-/* JOAN pipe-port bring-up: the msm8998 ADSP expects the app CPU to connect
- * its pipe ports to the PGD (ported generic device) and program the PGD
- * port registers BEFORE codec connects can complete. Downstream does this
- * from msm-dai-slim via slim_connect_sink to the PGD slave +
- * msm_slim_connect_pipe_port (sps connect + msm_hw_set_port). Mainline has
- * no equivalent driver, so the NGD controller does it once before the first
- * codec connect.
- */
-/* Default off: apps PGD connects are not on the ADSP<->codec data path
- * (Ember 2026-08-21). Extra USR CONNECT_SRC/SINK to pgdla only add bus
- * traffic inside stream enable.
- */
-static bool joan_pipes;
-module_param_named(joan_pipes, joan_pipes, bool, 0644);
-MODULE_PARM_DESC(joan_pipes, "JOAN: bring up app PGD pipe ports before first codec connect (default off)");
-
-#define QC_DEVID_PGD		0x5
-#define QC_MFGID_MSB		0x17
-#define QC_MFGID_LSB		0x2
-#define JOAN_EAPC		0x210
-#define JOAN_PGD_EA		{ 0, QC_DEVID_PGD, JOAN_EAPC & 0xff, (JOAN_EAPC >> 8) & 0xff, QC_MFGID_MSB, QC_MFGID_LSB }
 
 #define SLIM_MSG_ASM_FIRST_WORD(l, mt, mc, dt, ad) \
 		((l) | ((mt) << 5) | ((mc) << 8) | ((dt) << 15) | ((ad) << 16))
@@ -277,96 +179,7 @@ struct qcom_slim_ngd_ctrl {
 	int tx_tail;
 	int tx_head;
 	u32 ver;
-	bool joan_pipe_done;
-	u8 joan_pgdla;
-	struct work_struct joan_pipe_work;
 };
-
-static void qcom_slim_ngd_timeout_recover(struct qcom_slim_ngd_ctrl *ctrl)
-{
-	unsigned long flags;
-	int i, p;
-
-	if (joan_slim_dbg) {
-		pr_info("JOAN-DBG: tx timeout state tx_head=%d tx_tail=%d\n",
-			ctrl->tx_head, ctrl->tx_tail);
-		pr_info("JOAN-DBG: ngd int_stat=%#x int_en=%#x rx_msgq_cfg=%#x\n",
-			readl_relaxed(ctrl->ngd->base + NGD_INT_STAT),
-			readl_relaxed(ctrl->ngd->base + NGD_INT_EN),
-			readl_relaxed(ctrl->ngd->base + NGD_RX_MSGQ_CFG));
-		for (p = 0; p <= JOAN_MAX_APPS_PORT; p++)
-			pr_info("JOAN-DBG: pgd port %d cfg=%#x stat=%#x\n", p,
-				readl_relaxed(ctrl->base + PGD_PORT_CFGn_V2 +
-					      p * PGD_PORT_STRIDE_V2),
-				readl_relaxed(ctrl->base + PGD_PORT_STATn_V2 +
-					      p * PGD_PORT_STRIDE_V2));
-	}
-
-	/* Unwedge the TX ring. The timed-out descriptor still references an
-	 * on-stack completion; a late DMA callback would complete() dead
-	 * stack. Drop all pending completions and reset the ring -- the bus
-	 * is stalled, so every in-flight slot is dead.
-	 */
-	spin_lock_irqsave(&ctrl->tx_buf_lock, flags);
-	for (i = 0; i < QCOM_SLIM_NGD_DESC_NUM; i++)
-		ctrl->txdesc[i].comp = NULL;
-	ctrl->tx_head = ctrl->tx_tail;
-	spin_unlock_irqrestore(&ctrl->tx_buf_lock, flags);
-}
-
-static void qcom_slim_ngd_pgd_init(struct qcom_slim_ngd_ctrl *ctrl)
-{
-	/*
-	 * JOAN: downstream controller-enable sequence (slim-msm-ctrl.c
-	 * probe path), ported and gated behind pgd_enable. Mainline only
-	 * ever enables the NGD sub-block (0x1000); the component-level
-	 * blocks (COMP/TRUST/MGR/FRM/INTF/PGD) are untouched upstream and
-	 * the PGD writes hang without them. Downstream order:
-	 *   clk -> COMP + trust -> MGR ints -> MGR cfg -> FRM cfg ->
-	 *   MGR enable+msgq -> INTF -> PGD + ownership -> COMP
-	 * (clk skipped: on mainline the NGD already works, so the SLIM
-	 * root clock is running -- the ADSP provides it on 8998).
-	 */
-	if (!pgd_enable)
-		return;
-
-#define PGD_SEQ(step, reg, val) do { \
-	writel_relaxed((val), ctrl->base + (reg)); \
-	if (joan_slim_dbg) \
-		pr_info("JOAN-DBG: pgd seq step %d reg=%#x val=%#x done\n", \
-			(step), (reg), (val)); \
-} while (0)
-
-	PGD_SEQ(1, 0x4, 1);		/* COMP_CFG_V2 enable */
-	PGD_SEQ(2, 0x3000, 0x480);	/* COMP_TRUST_CFG_V2:
-					 * EE_MGR_RSC_GRP | EE_NGD_2 | EE_NGD_1 */
-	PGD_SEQ(3, 0x210, 0xE6000000);	/* MGR_INT_EN (msgq variant) */
-	PGD_SEQ(4, 0x200, 1);		/* MGR_CFG enable */
-	wmb();
-	PGD_SEQ(5, 0x400, 0xD0503);	/* FRM_CFG: INTR_WAKE | 0xA<<REF_CLK_GEAR |
-					 * 0xA<<CLK_GEAR | ROOT_FREQ | FRM_ACTIVE
-					 * | enable */
-	mb();
-	PGD_SEQ(6, 0x200, 3);		/* MGR_CFG: enable + RX_MSGQ_EN */
-	mb();
-	PGD_SEQ(7, 0x600, 1);		/* INTF_CFG enable */
-	mb();
-	PGD_SEQ(8, PGD_CFG_V2, 1);	/* PGD_CFG enable */
-	PGD_SEQ(9, PGD_OWN_EEn_V2 + 4 * 1, 0x3F << 17); /* claim ports 0..5, ee 1 */
-	mb();
-	PGD_SEQ(10, 0x4, 1);		/* final COMP_CFG enable */
-
-	if (joan_slim_dbg)
-		pr_info("JOAN-DBG: pgd init seq complete: comp=%#x trust=%#x mgr=%#x frm=%#x intf=%#x pgd=%#x own=%#x\n",
-			readl_relaxed(ctrl->base + 0x4),
-			readl_relaxed(ctrl->base + 0x3000),
-			readl_relaxed(ctrl->base + 0x200),
-			readl_relaxed(ctrl->base + 0x400),
-			readl_relaxed(ctrl->base + 0x600),
-			readl_relaxed(ctrl->base + PGD_CFG_V2),
-			readl_relaxed(ctrl->base + PGD_OWN_EEn_V2 + 4 * 1));
-#undef PGD_SEQ
-}
 
 enum slimbus_mode_enum_type_v01 {
 	/* To force a 32 bit signed enum. Do not change or use*/
@@ -754,6 +567,25 @@ static void qcom_slim_ngd_tx_msg_dma_cb(void *args)
 	spin_unlock_irqrestore(&ctrl->tx_buf_lock, flags);
 }
 
+/*
+ * A caller that gave up waiting for its message to go out is about to
+ * return, taking the on-stack completion it handed to
+ * qcom_slim_ngd_tx_msg_get() with it.  Detach that completion from the
+ * descriptor so a late DMA callback cannot complete() dead stack.
+ */
+static void qcom_slim_ngd_tx_msg_abandon(struct qcom_slim_ngd_ctrl *ctrl,
+					 struct completion *comp)
+{
+	unsigned long flags;
+	int i;
+
+	spin_lock_irqsave(&ctrl->tx_buf_lock, flags);
+	for (i = 0; i < QCOM_SLIM_NGD_DESC_NUM; i++)
+		if (ctrl->txdesc[i].comp == comp)
+			ctrl->txdesc[i].comp = NULL;
+	spin_unlock_irqrestore(&ctrl->tx_buf_lock, flags);
+}
+
 static int qcom_slim_ngd_tx_msg_post(struct qcom_slim_ngd_ctrl *ctrl,
 				     void *buf, int len)
 {
@@ -936,20 +768,6 @@ static int qcom_slim_ngd_init_dma(struct qcom_slim_ngd_ctrl *ctrl)
 {
 	int ret = 0;
 
-	if (pm_dbg)
-		dev_info(ctrl->dev, "JOAN-PM: init_dma enter (rx=%p tx=%p)\n",
-			 ctrl->dma_rx_channel, ctrl->dma_tx_channel);
-
-	/* keep_dma left the channels allocated across the suspend; the BAM
-	 * pipes and the NGD msgq CFG registers were never torn down, so
-	 * re-requesting them would just fail with -EBUSY.
-	 */
-	if (keep_dma && ctrl->dma_rx_channel && ctrl->dma_tx_channel) {
-		if (pm_dbg)
-			dev_info(ctrl->dev, "JOAN-PM: init_dma skipped (keep_dma)\n");
-		return 0;
-	}
-
 	ret = qcom_slim_ngd_init_rx_msgq(ctrl);
 	if (ret) {
 		dev_err(ctrl->dev, "rx dma init failed\n");
@@ -959,9 +777,6 @@ static int qcom_slim_ngd_init_dma(struct qcom_slim_ngd_ctrl *ctrl)
 	ret = qcom_slim_ngd_init_tx_msgq(ctrl);
 	if (ret)
 		dev_err(ctrl->dev, "tx dma init failed\n");
-
-	if (pm_dbg)
-		dev_info(ctrl->dev, "JOAN-PM: init_dma done ret=%d\n", ret);
 
 	return ret;
 }
@@ -990,108 +805,6 @@ static irqreturn_t qcom_slim_ngd_interrupt(int irq, void *d)
 	return IRQ_HANDLED;
 }
 
-/* Post a single pipe connect/disconnect user message to the PGD.
- * Wire format mirrors downstream slim-msm-ngd.c: la = pgdla, no TID,
- * wbuf = { pgdla, pn }.
- */
-static int qcom_slim_ngd_joan_pipe_connect(struct qcom_slim_ngd_ctrl *ctrl,
-					   u8 pgdla, u8 pn, u8 mc)
-{
-	DECLARE_COMPLETION_ONSTACK(tx_sent);
-	u32 *pbuf;
-	u8 *puc;
-	u8 wbuf[2] = { pgdla, pn };
-	int rl = 2 + 3;	/* body + first word minus length field */
-	int ret;
-
-	pbuf = qcom_slim_ngd_tx_msg_get(ctrl, rl, &tx_sent);
-	if (!pbuf)
-		return -ENOMEM;
-
-	*pbuf = SLIM_MSG_ASM_FIRST_WORD(rl, SLIM_MSG_MT_DEST_REFERRED_USER,
-					mc, 0, pgdla);
-	puc = ((u8 *)pbuf) + 3;
-	memcpy(puc, wbuf, 2);
-
-	mutex_lock(&ctrl->tx_lock);
-	ret = qcom_slim_ngd_tx_msg_post(ctrl, pbuf, rl);
-	mutex_unlock(&ctrl->tx_lock);
-	if (!ret)
-		wait_for_completion_timeout(&tx_sent, HZ);
-
-	if (joan_slim_dbg)
-		pr_info("JOAN-DBG: pipe conn mc=%#x pgdla=%#x pn=%u ret=%d\n",
-			mc, pgdla, pn, ret);
-	return ret;
-}
-
-static void qcom_slim_ngd_joan_pipe_bringup(struct qcom_slim_ngd_ctrl *ctrl,
-					    struct slim_controller *sctrl)
-{
-	struct slim_device *pgd;
-	struct slim_eaddr ea = {
-		.instance = 0,
-		.dev_index = QC_DEVID_PGD,
-		.prod_code = JOAN_EAPC,
-		.manf_id = (QC_MFGID_LSB << 8) | QC_MFGID_MSB,
-	};
-	u8 pgdla;
-	int pn, ret;
-
-	if (!joan_pipes || ctrl->joan_pipe_done)
-		return;
-
-	pgd = slim_get_device(sctrl, &ea);
-	if (IS_ERR(pgd)) {
-		dev_err(ctrl->dev, "JOAN: PGD device lookup failed %ld\n",
-			PTR_ERR(pgd));
-		return;
-	}
-
-	/*
-	 * Query the ADSP manager directly (downstream does the same via
-	 * dev->ctrl.get_laddr). slim_get_logical_addr() short-circuits on
-	 * the device's cached is_laddr_valid state, and a freshly
-	 * allocated device can come back with a stale 0x0 LA (Boot 20g:
-	 * the pipe connects went to LA 0 and every one drew a bus error).
-	 */
-	ret = ctrl->ctrl.get_laddr(&ctrl->ctrl, &ea, &pgdla);
-	if (ret < 0 || pgdla == SLIM_LA_MGR) {
-		dev_err(ctrl->dev, "JOAN: PGD laddr query failed %d la %#x\n",
-			ret, pgdla);
-		return;
-	}
-	pgd->laddr = pgdla;
-	ctrl->joan_pipe_done = true;
-	ctrl->joan_pgdla = pgdla;
-
-	if (joan_slim_dbg)
-		pr_info("JOAN-DBG: pipe bringup pgdla=%#x (no app-side PGD reg writes: ADSP owns the PGD block, app writes hang the CPU)\n",
-			pgdla);
-
-	for (pn = 0; pn <= JOAN_MAX_APPS_PORT; pn++) {
-		ret = qcom_slim_ngd_joan_pipe_connect(ctrl, pgdla, pn,
-						     SLIM_USR_MC_CONNECT_SRC);
-		if (ret)
-			dev_err(ctrl->dev, "JOAN: pipe SRC connect pn=%u ret=%d\n",
-				pn, ret);
-		ret = qcom_slim_ngd_joan_pipe_connect(ctrl, pgdla, pn,
-						     SLIM_USR_MC_CONNECT_SINK);
-		if (ret)
-			dev_err(ctrl->dev, "JOAN: pipe SINK connect pn=%u ret=%d\n",
-				pn, ret);
-	}
-}
-
-static void qcom_slim_ngd_joan_pipe_worker(struct work_struct *work)
-{
-	struct qcom_slim_ngd_ctrl *ctrl = container_of(work,
-			struct qcom_slim_ngd_ctrl, joan_pipe_work);
-
-	if (!ctrl->joan_pipe_done)
-		qcom_slim_ngd_joan_pipe_bringup(ctrl, &ctrl->ctrl);
-}
-
 static int qcom_slim_ngd_xfer_msg(struct slim_controller *sctrl,
 				  struct slim_msg_txn *txn)
 {
@@ -1108,9 +821,8 @@ static int qcom_slim_ngd_xfer_msg(struct slim_controller *sctrl,
 	bool usr_msg = false;
 
 	if (txn->mt == SLIM_MSG_MT_CORE &&
-	    (txn->mc >= SLIM_MSG_MC_BEGIN_RECONFIGURATION &&
-	     txn->mc <= SLIM_MSG_MC_RECONFIGURE_NOW) &&
-	    !reconf_passthrough)
+		(txn->mc >= SLIM_MSG_MC_BEGIN_RECONFIGURATION &&
+		 txn->mc <= SLIM_MSG_MC_RECONFIGURE_NOW))
 		return 0;
 
 	if (txn->dt == SLIM_MSG_DEST_ENUMADDR)
@@ -1154,41 +866,6 @@ static int qcom_slim_ngd_xfer_msg(struct slim_controller *sctrl,
 		wbuf[i++] = txn->msg->wbuf[0];
 		if (txn->mc != SLIM_USR_MC_DISCONNECT_PORT)
 			wbuf[i++] = txn->msg->wbuf[1];
-		if (joan_slim_dbg)
-			pr_info("JOAN-DBG: codec-connect mc=%#x orig_la=%#x port=%u ch=%u\n",
-				txn->mc, txn->la, txn->msg->wbuf[0],
-				txn->mc == SLIM_USR_MC_DISCONNECT_PORT ?
-					0 : txn->msg->wbuf[1]);
-
-		if (pgd_prog) {
-			u8 pn = txn->msg->wbuf[0];
-			void __iomem *pgd = ctrl->base;
-			u32 cfg_off = PGD_PORT_CFGn_V2 +
-				      pn * PGD_PORT_STRIDE_V2;
-
-			if (txn->mc != SLIM_USR_MC_DISCONNECT_PORT &&
-			    pn <= JOAN_MAX_APPS_PORT) {
-				/* port_b == pn on msm8998
-				 * (apps-ch-pipes 0x1f80)
-				 */
-				if (portb_rewrite)
-					wbuf[1] = pn;
-				writel_relaxed(PGD_PORT_CFG_DEF,
-					       pgd + cfg_off);
-				writel_relaxed(0, pgd + PGD_PORT_BLKn_V2 +
-					       pn * PGD_PORT_STRIDE_V2);
-				writel_relaxed(0, pgd + PGD_PORT_TRANn_V2 +
-					       pn * PGD_PORT_STRIDE_V2);
-			} else if (txn->mc == SLIM_USR_MC_DISCONNECT_PORT &&
-				   pn <= JOAN_MAX_APPS_PORT) {
-				writel_relaxed(0, pgd + cfg_off);
-			}
-			if (joan_slim_dbg && pn <= JOAN_MAX_APPS_PORT)
-				pr_info("JOAN-DBG: usr msg mc=%#x la=%#x port=%u pgd_cfg=%#x\n",
-					txn->mc, txn->la, pn,
-					readl_relaxed(pgd + PGD_PORT_CFGn_V2 +
-						      pn * PGD_PORT_STRIDE_V2));
-		}
 
 		txn->comp = &done;
 		ret = slim_alloc_txn_tid(sctrl, txn);
@@ -1204,16 +881,6 @@ static int qcom_slim_ngd_xfer_msg(struct slim_controller *sctrl,
 		txn->msg->rbuf = rbuf;
 		txn->rl = txn->msg->num_bytes + 4;
 	}
-
-	/* JOAN: bring up the app-side pipe ports once before the first
-	 * codec connect reaches the bus (msm8998 ADSP protocol: the ADSP
-	 * blocks on codec connects until the app ports are connected).
-	 */
-	if (txn->mc == SLIM_MSG_MC_CONNECT_SOURCE ||
-	    txn->mc == SLIM_MSG_MC_CONNECT_SINK ||
-	    txn->mc == SLIM_USR_MC_CONNECT_SRC ||
-	    txn->mc == SLIM_USR_MC_CONNECT_SINK)
-		qcom_slim_ngd_joan_pipe_bringup(ctrl, sctrl);
 
 	/* HW expects length field to be excluded */
 	txn->rl--;
@@ -1241,9 +908,6 @@ static int qcom_slim_ngd_xfer_msg(struct slim_controller *sctrl,
 		memcpy(puc, txn->msg->wbuf, txn->msg->num_bytes);
 
 	mutex_lock(&ctrl->tx_lock);
-	if (joan_slim_dbg)
-		pr_info("JOAN-DBG: posting mc=%#x mt=%#x la=%#x\n",
-			txn->mc, txn->mt, la);
 	ret = qcom_slim_ngd_tx_msg_post(ctrl, pbuf, txn->rl);
 	if (ret) {
 		mutex_unlock(&ctrl->tx_lock);
@@ -1251,13 +915,10 @@ static int qcom_slim_ngd_xfer_msg(struct slim_controller *sctrl,
 	}
 
 	time_left = wait_for_completion_timeout(&tx_sent, HZ);
-	if (joan_slim_dbg)
-		pr_info("JOAN-DBG: posted mc=%#x mt=%#x la=%#x time_left=%ld\n",
-			txn->mc, txn->mt, la, time_left);
 	if (!time_left) {
 		dev_err(sctrl->dev, "TX timed out:MC:0x%x,mt:0x%x", txn->mc,
-				txn->mt);
-		qcom_slim_ngd_timeout_recover(ctrl);
+					txn->mt);
+		qcom_slim_ngd_tx_msg_abandon(ctrl, &tx_sent);
 		mutex_unlock(&ctrl->tx_lock);
 		return -ETIMEDOUT;
 	}
@@ -1267,7 +928,6 @@ static int qcom_slim_ngd_xfer_msg(struct slim_controller *sctrl,
 		if (!time_left) {
 			dev_err(sctrl->dev, "TX timed out:MC:0x%x,mt:0x%x",
 				txn->mc, txn->mt);
-			qcom_slim_ngd_timeout_recover(ctrl);
 			mutex_unlock(&ctrl->tx_lock);
 			return -ETIMEDOUT;
 		}
@@ -1383,10 +1043,10 @@ static int qcom_slim_ngd_enable_stream(struct slim_stream_runtime *rt)
 			int exp = 0, coef = 0;
 
 			/*
-			 * Downstream slim-msm-ngd: first byte is
-			 * (dataf << 5) | (laddr & 0x1f). Only the low 5
-			 * bits are the client number. Sending the full LA
-			 * (e.g. 0xcf) makes ADSP read dataf=6.
+			 * Only the low five bits carry the client number;
+			 * the ADSP reads the bits above them as the data
+			 * format, so a full logical address such as 0xcf
+			 * would be taken as data format 6.
 			 */
 			wbuf[txn.msg->num_bytes++] = sdev->laddr & 0x1f;
 			wbuf[txn.msg->num_bytes] = rt->bps >> 2 |
@@ -1423,12 +1083,6 @@ static int qcom_slim_ngd_enable_stream(struct slim_stream_runtime *rt)
 		}
 		wbuf[txn.msg->num_bytes++] = port->ch.id;
 	}
-
-	if (joan_slim_dbg)
-		pr_info("JOAN-DBG: def_act la=%#x hdr0=%#x nports=%d ch0=%u prot=%u bps=%u bytes=%u\n",
-			sdev->laddr, wbuf[0], rt->num_ports,
-			rt->num_ports ? rt->ports[0].ch.id : 0,
-			rt->prot, rt->bps, txn.msg->num_bytes);
 
 	txn.mc = SLIM_USR_MC_DEF_ACT_CHAN;
 	txn.rl = txn.msg->num_bytes + 4;
@@ -1472,9 +1126,6 @@ static int qcom_slim_ngd_get_laddr(struct slim_controller *ctrl,
 	u8 rbuf[10] = {0};
 	int ret;
 
-	if (joan_slim_dbg)
-		dump_stack();
-
 	txn.mt = SLIM_MSG_MT_DEST_REFERRED_USER;
 	txn.dt = SLIM_MSG_DEST_LOGICALADDR;
 	txn.la = SLIM_LA_MGR;
@@ -1510,10 +1161,6 @@ static int qcom_slim_ngd_get_laddr(struct slim_controller *ctrl,
 
 static int qcom_slim_ngd_exit_dma(struct qcom_slim_ngd_ctrl *ctrl)
 {
-	if (pm_dbg)
-		dev_info(ctrl->dev, "JOAN-PM: exit_dma enter (rx=%p tx=%p)\n",
-			 ctrl->dma_rx_channel, ctrl->dma_tx_channel);
-
 	if (ctrl->dma_rx_channel) {
 		dmaengine_terminate_sync(ctrl->dma_rx_channel);
 		dma_release_channel(ctrl->dma_rx_channel);
@@ -1526,18 +1173,12 @@ static int qcom_slim_ngd_exit_dma(struct qcom_slim_ngd_ctrl *ctrl)
 
 	ctrl->dma_tx_channel = ctrl->dma_rx_channel = NULL;
 
-	if (pm_dbg)
-		dev_info(ctrl->dev, "JOAN-PM: exit_dma done\n");
-
 	return 0;
 }
 
 static void qcom_slim_ngd_setup(struct qcom_slim_ngd_ctrl *ctrl)
 {
 	u32 cfg = readl_relaxed(ctrl->ngd->base);
-
-	ctrl->joan_pipe_done = false;
-	ctrl->joan_pgdla = SLIM_LA_MGR;
 
 	if (ctrl->state == QCOM_SLIM_NGD_CTRL_DOWN ||
 		ctrl->state == QCOM_SLIM_NGD_CTRL_ASLEEP)
@@ -1561,10 +1202,6 @@ static int qcom_slim_ngd_power_up(struct qcom_slim_ngd_ctrl *ctrl)
 	u32 laddr, rx_msgq;
 	int ret = 0;
 	unsigned long time_left;
-
-	if (joan_slim_dbg)
-		dev_info(ctrl->dev, "JOAN-DBG: power_up entered (state %d)\n",
-			 cur_state);
 
 	if (ctrl->state == QCOM_SLIM_NGD_CTRL_DOWN) {
 		time_left = wait_for_completion_timeout(&ctrl->qmi.qmi_comp, HZ);
@@ -1596,13 +1233,6 @@ static int qcom_slim_ngd_power_up(struct qcom_slim_ngd_ctrl *ctrl)
 			dev_info(ctrl->dev, "Subsys restart: ADSP active framer\n");
 			return 0;
 		}
-		/* JOAN: downstream writes the component-level init sequence
-		 * (COMP/TRUST/MGR/FRM/INTF/PGD) BEFORE the manager/NGD is
-		 * enabled. Writing COMP_CFG to an already-live controller
-		 * hangs the CPU (Boot V RCU stall evidence); do the init
-		 * first, then bring the NGD up.
-		 */
-		qcom_slim_ngd_pgd_init(ctrl);
 		qcom_slim_ngd_setup(ctrl);
 		return 0;
 	}
@@ -1617,11 +1247,7 @@ static int qcom_slim_ngd_power_up(struct qcom_slim_ngd_ctrl *ctrl)
 	rx_msgq = readl_relaxed(ngd->base + NGD_RX_MSGQ_CFG);
 
 	writel_relaxed(rx_msgq|SLIM_RX_MSGQ_TIMEOUT_VAL,
-			ngd->base + NGD_RX_MSGQ_CFG);
-	/* JOAN: component-level init before the NGD is enabled (see the
-	 * ADSP-framer branch comment above).
-	 */
-	qcom_slim_ngd_pgd_init(ctrl);
+				ngd->base + NGD_RX_MSGQ_CFG);
 	qcom_slim_ngd_setup(ctrl);
 
 	time_left = wait_for_completion_timeout(&ctrl->reconf, HZ);
@@ -1709,12 +1335,7 @@ static int qcom_slim_ngd_update_device_status(struct device *dev, void *null)
 static int qcom_slim_ngd_runtime_resume(struct device *dev)
 {
 	struct qcom_slim_ngd_ctrl *ctrl = dev_get_drvdata(dev);
-	enum qcom_slim_ngd_state prev_state = ctrl->state;
 	int ret = 0;
-
-	if (pm_dbg)
-		dev_info(ctrl->dev, "JOAN-PM: runtime_resume enter (state %d)\n",
-			 ctrl->state);
 
 	if (!ctrl->qmi.handle)
 		return 0;
@@ -1730,25 +1351,6 @@ static int qcom_slim_ngd_runtime_resume(struct device *dev)
 	} else {
 		ctrl->state = QCOM_SLIM_NGD_CTRL_AWAKE;
 	}
-
-	/*
-	 * JOAN: on a bus RE-activation (not the initial DOWN->AWAKE boot
-	 * power-up, when the controller is not registered yet), bring up
-	 * the app-side pipe ports immediately. Evidence (Boot 20e r3/r4):
-	 * the stream setup reaches the AFE port config, the ADSP then
-	 * wedges waiting for the app pipe-port connect and its watchdog
-	 * resets the SoC ~1.3 s later -- BEFORE the PCM trigger ever runs.
-	 * Sending the USR connect messages at wake time pre-empts the wait.
-	 * Deferred to a worker: this runs inside the runtime_resume
-	 * callback (RPM_RESUMING) and the bring-up's ADDR_QUERY does
-	 * pm_runtime_get_sync, which would deadlock waiting on itself.
-	 */
-	if (prev_state != QCOM_SLIM_NGD_CTRL_DOWN && !ctrl->joan_pipe_done)
-		queue_work(ctrl->mwq, &ctrl->joan_pipe_work);
-
-	if (pm_dbg)
-		dev_info(ctrl->dev, "JOAN-PM: runtime_resume done ret=%d state=%d prev=%d\n",
-			 ret, ctrl->state, prev_state);
 
 	return 0;
 }
@@ -1801,18 +1403,13 @@ static int qcom_slim_ngd_qmi_new_server(struct qmi_handle *hdl,
 	qmi->svc_info.sq_node = service->node;
 	qmi->svc_info.sq_port = service->port;
 
-	dev_info(ctrl->dev, "JOAN-DBG: SLIMbus QMI server up node %u port %u (state %d)\n",
-		 service->node, service->port, ctrl->state);
-
 	complete(&ctrl->qmi_up);
 
 	/*
-	 * The up worker only waits one second for this server to appear.
-	 * If the ADSP registers the SLIMbus service after that window has
-	 * closed, the completion above fires into the void and nothing ever
-	 * enables the controller. Re-arm the bring-up work here so a late
-	 * registration still brings the bus up; the worker re-checks the
-	 * controller state under ssr_lock before acting.
+	 * The up worker waits only a second for this server.  If the ADSP
+	 * registers the service after that window has closed, nothing else
+	 * would ever enable the controller, so run the worker again.  It
+	 * rechecks the controller state under ssr_lock before acting.
 	 */
 	if (ctrl->state == QCOM_SLIM_NGD_CTRL_DOWN)
 		schedule_work(&ctrl->ngd_up_work);
@@ -1829,8 +1426,6 @@ static void qcom_slim_ngd_qmi_del_server(struct qmi_handle *hdl,
 		container_of(qmi, struct qcom_slim_ngd_ctrl, qmi);
 
 	reinit_completion(&ctrl->qmi_up);
-	dev_info(ctrl->dev, "JOAN-DBG: SLIMbus QMI server down node %u port %u (state %d)\n",
-		 service->node, service->port, ctrl->state);
 	qmi->svc_info.sq_node = 0;
 	qmi->svc_info.sq_port = 0;
 }
@@ -1898,32 +1493,16 @@ static void qcom_slim_ngd_up_worker(struct work_struct *work)
 	ctrl = container_of(work, struct qcom_slim_ngd_ctrl, ngd_up_work);
 
 	/* Make sure qmi service is up before continuing */
-	dev_info(ctrl->dev, "JOAN-DBG: up_worker entering wait (state %d)\n", ctrl->state);
 	if (!wait_for_completion_interruptible_timeout(&ctrl->qmi_up,
 						       msecs_to_jiffies(MSEC_PER_SEC))) {
 		dev_err(ctrl->dev, "QMI wait timeout\n");
 		return;
 	}
-	dev_info(ctrl->dev, "JOAN-DBG: up_worker wait returned (state %d)\n", ctrl->state);
-
-	dev_info(ctrl->dev, "JOAN-DBG: up_worker proceeding (state %d, server %u:%u)\n",
-		 ctrl->state, ctrl->qmi.svc_info.sq_node, ctrl->qmi.svc_info.sq_port);
 
 	mutex_lock(&ctrl->ssr_lock);
-	/* A concurrent new_server re-arm may have queued a second run; if
-	 * the controller was already brought up (or taken down again),
-	 * there is nothing to do.
-	 */
-	if (ctrl->state != QCOM_SLIM_NGD_CTRL_DOWN) {
-		mutex_unlock(&ctrl->ssr_lock);
-		return;
-	}
-	if (skip_select) {
-		dev_info(ctrl->dev, "JOAN-DBG: skip_select gate active, skipping enable\n");
-		mutex_unlock(&ctrl->ssr_lock);
-		return;
-	}
-	qcom_slim_ngd_enable(ctrl, true);
+	/* A late new_server may have queued a second run; enable only once. */
+	if (ctrl->state == QCOM_SLIM_NGD_CTRL_DOWN)
+		qcom_slim_ngd_enable(ctrl, true);
 	mutex_unlock(&ctrl->ssr_lock);
 }
 
@@ -2036,10 +1615,7 @@ static int qcom_slim_ngd_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, ctrl);
 	pm_runtime_use_autosuspend(dev);
-	pm_runtime_set_autosuspend_delay(dev, autosuspend_ms);
-	if (pm_dbg)
-		dev_info(dev, "JOAN-PM: autosuspend delay %d ms, keep_dma=%d\n",
-			 autosuspend_ms, keep_dma);
+	pm_runtime_set_autosuspend_delay(dev, 100);
 	pm_runtime_set_suspended(dev);
 	pm_runtime_enable(dev);
 	pm_runtime_get_noresume(dev);
@@ -2103,7 +1679,6 @@ static int qcom_slim_ngd_ctrl_probe(struct platform_device *pdev)
 
 	INIT_WORK(&ctrl->m_work, qcom_slim_ngd_master_worker);
 	INIT_WORK(&ctrl->ngd_up_work, qcom_slim_ngd_up_worker);
-	INIT_WORK(&ctrl->joan_pipe_work, qcom_slim_ngd_joan_pipe_worker);
 
 	ctrl->mwq = create_singlethread_workqueue("ngd_master");
 	if (!ctrl->mwq)
@@ -2187,30 +1762,15 @@ static int __maybe_unused qcom_slim_ngd_runtime_suspend(struct device *dev)
 	struct qcom_slim_ngd_ctrl *ctrl = dev_get_drvdata(dev);
 	int ret = 0;
 
-	if (pm_dbg)
-		dev_info(ctrl->dev, "JOAN-PM: runtime_suspend enter (state %d)\n",
-			 ctrl->state);
-
-	if (!keep_dma)
-		qcom_slim_ngd_exit_dma(ctrl);
-	if (!ctrl->qmi.handle) {
-		if (pm_dbg)
-			dev_info(ctrl->dev, "JOAN-PM: runtime_suspend exit (no qmi handle)\n");
+	qcom_slim_ngd_exit_dma(ctrl);
+	if (!ctrl->qmi.handle)
 		return 0;
-	}
-
-	if (pm_dbg)
-		dev_info(ctrl->dev, "JOAN-PM: qmi power_request(false)\n");
 
 	ret = qcom_slim_qmi_power_request(ctrl, false);
 	if (ret && ret != -EBUSY)
 		dev_info(ctrl->dev, "slim resource not idle:%d\n", ret);
 	if (!ret || ret == -ETIMEDOUT)
 		ctrl->state = QCOM_SLIM_NGD_CTRL_ASLEEP;
-
-	if (pm_dbg)
-		dev_info(ctrl->dev, "JOAN-PM: runtime_suspend done ret=%d state=%d\n",
-			 ret, ctrl->state);
 
 	return ret;
 }
