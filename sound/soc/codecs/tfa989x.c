@@ -105,13 +105,10 @@ struct tfa989x_rev {
 	unsigned int rev;
 	int (*init)(struct regmap *regmap);
 	/*
-	 * Later parts (TFA9872) repurpose the registers below
-	 * TFA989X_REVISIONNUMBER, which are status-only on the older ones.
-	 */
-	bool low_regs_writeable;
-	/*
-	 * Probus parts (TFA9872) use the register map above and are brought up
-	 * by their own hardware manager rather than by writing AMPE directly.
+	 * Probus parts (TFA9872) use the register map above, including the
+	 * registers below TFA989X_REVISIONNUMBER that are status-only on the
+	 * older parts, and are brought up by their own hardware manager rather
+	 * than by writing AMPE directly.
 	 */
 	bool probus;
 };
@@ -133,26 +130,11 @@ static bool tfa989x_volatile_reg(struct device *dev, unsigned int reg)
 	return reg < TFA989X_REVISIONNUMBER;
 }
 
-static bool tfa989x_writeable_reg_all(struct device *dev, unsigned int reg)
-{
-	return true;
-}
-
 static const struct regmap_config tfa989x_regmap = {
 	.reg_bits = 8,
 	.val_bits = 16,
 
 	.writeable_reg	= tfa989x_writeable_reg,
-	.volatile_reg	= tfa989x_volatile_reg,
-	.cache_type	= REGCACHE_RBTREE,
-};
-
-/* Same, but for parts whose low registers are not status-only. */
-static const struct regmap_config tfa989x_regmap_low_rw = {
-	.reg_bits	= 8,
-	.val_bits	= 16,
-
-	.writeable_reg	= tfa989x_writeable_reg_all,
 	.volatile_reg	= tfa989x_volatile_reg,
 	.cache_type	= REGCACHE_RBTREE,
 };
@@ -168,11 +150,11 @@ static bool tfa9872_volatile_reg(struct device *dev, unsigned int reg)
 	       (reg >= TFA9872_STATUS_FLAGS0 && reg <= 0x14);
 }
 
+/* Every register is writeable on the TFA9872, including the low ones. */
 static const struct regmap_config tfa9872_regmap = {
 	.reg_bits	= 8,
 	.val_bits	= 16,
 
-	.writeable_reg	= tfa989x_writeable_reg_all,
 	.volatile_reg	= tfa9872_volatile_reg,
 	.cache_type	= REGCACHE_RBTREE,
 };
@@ -481,8 +463,8 @@ static int tfa9897_init(struct regmap *regmap)
  * behaviour; the vendor source lists the POR value beside each one.
  *
  * The table writes 0x02 and the tail touches 0x01, both of which are
- * status-only on the older parts; the 9872 repurposes them, which is what
- * low_regs_writeable selects a permissive regmap for.
+ * status-only on the older parts; the 9872 repurposes them, which is why it
+ * gets a regmap that allows writes below TFA989X_REVISIONNUMBER.
  */
 static const struct reg_sequence tfa9872_reg_init[] = {
 	{ 0x02, 0x2dc8 },
@@ -538,7 +520,6 @@ static int tfa9872_init(struct regmap *regmap)
 static const struct tfa989x_rev tfa9872_rev = {
 	.rev			= TFA9872_REVISION,
 	.init			= tfa9872_init,
-	.low_regs_writeable	= true,
 	.probus			= true,
 };
 
@@ -639,13 +620,8 @@ static int tfa989x_i2c_probe(struct i2c_client *i2c)
 			return PTR_ERR(tfa989x->rcv_gpiod);
 	}
 
-	if (rev->probus)
-		regmap = devm_regmap_init_i2c(i2c, &tfa9872_regmap);
-	else
-		regmap = devm_regmap_init_i2c(i2c,
-					      rev->low_regs_writeable ?
-					      &tfa989x_regmap_low_rw :
-					      &tfa989x_regmap);
+	regmap = devm_regmap_init_i2c(i2c, rev->probus ? &tfa9872_regmap
+						       : &tfa989x_regmap);
 	if (IS_ERR(regmap))
 		return PTR_ERR(regmap);
 	tfa989x->regmap = regmap;
