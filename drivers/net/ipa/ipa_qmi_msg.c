@@ -169,10 +169,10 @@ const struct qmi_elem_info ipa_driver_init_complete_rsp_ei[] = {
 	},
 };
 
-/* joan: decode nothing from the modem's config and filter-rule requests;
- * we only need to acknowledge them.  Unrecognised TLVs are skipped.
+/* Decodes nothing: used for requests whose content the AP ignores.  The
+ * QMI decoder skips TLVs it has no element for.
  */
-const struct qmi_elem_info ipa_stub_req_ei[] = {
+const struct qmi_elem_info ipa_empty_req_ei[] = {
 	{
 		.data_type	= QMI_EOTI,
 	},
