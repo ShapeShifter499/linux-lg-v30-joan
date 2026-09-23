@@ -46,9 +46,6 @@ static int q6slim_hw_params(struct snd_pcm_substream *substream,
 	struct q6afe_dai_data *dai_data = dev_get_drvdata(dai->dev);
 	struct q6afe_slim_cfg *slim = &dai_data->port_config[dai->id].slim;
 
-	pr_info("JOAN-DBG: q6slim_hw_params dai id %d rate %d fmt %d\n",
-		dai->id, params_rate(params), params_format(params));
-
 	slim->sample_rate = params_rate(params);
 
 	switch (params_format(params)) {
@@ -437,10 +434,10 @@ static int q6afe_dai_configure_cdc_slimbus(struct snd_soc_dai *dai)
 	}
 
 	dai_data->cdc_slimbus_configured = true;
-	dev_info(dai->dev,
-		 "configured CDC SLIMbus slave %08x:%08x (tx %u, rx %u) + REG_CFG + PAGE + REG_CFG_INIT\n",
-		 cfg->device_enum_addr_msw, cfg->device_enum_addr_lsw,
-		 cfg->tx_slave_port_offset, cfg->rx_slave_port_offset);
+	dev_dbg(dai->dev,
+		"configured CDC SLIMbus slave %08x:%08x (tx %u, rx %u)\n",
+		cfg->device_enum_addr_msw, cfg->device_enum_addr_lsw,
+		cfg->tx_slave_port_offset, cfg->rx_slave_port_offset);
 
 unlock:
 	mutex_unlock(&dai_data->cdc_slimbus_cfg_lock);
@@ -453,9 +450,6 @@ static int q6afe_dai_prepare(struct snd_pcm_substream *substream,
 {
 	struct q6afe_dai_data *dai_data = dev_get_drvdata(dai->dev);
 	int rc;
-
-	pr_info("JOAN-DBG: q6afe_dai_prepare dai id %d started %d\n",
-		dai->id, dai_data->is_port_started[dai->id]);
 
 	if (dai_data->is_port_started[dai->id]) {
 		/* stop the port and restart with new port config */
@@ -1216,13 +1210,16 @@ static int q6afe_dai_dev_probe(struct platform_device *pdev)
 	struct snd_soc_dai_driver *dais;
 	struct q6afe_dai_data *dai_data;
 	struct device *dev = &pdev->dev;
-	int num_dais;
+	int num_dais, ret;
 
 	dai_data = devm_kzalloc(dev, sizeof(*dai_data), GFP_KERNEL);
 	if (!dai_data)
 		return -ENOMEM;
 
-	mutex_init(&dai_data->cdc_slimbus_cfg_lock);
+	ret = devm_mutex_init(dev, &dai_data->cdc_slimbus_cfg_lock);
+	if (ret)
+		return ret;
+
 	dev_set_drvdata(dev, dai_data);
 	of_q6afe_parse_dai_data(dev, dai_data);
 	of_q6afe_parse_cdc_slimbus_cfg(dev, dai_data);

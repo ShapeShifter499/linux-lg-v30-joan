@@ -90,10 +90,7 @@
 #define AFE_PORT_ID_USB_RX                       0x7000
 
 #define AFE_API_VERSION_SLIMBUS_CONFIG 0x1
-/* Downstream apr_audio-v2.h: DEVICE_1=0, DEVICE_2=1. Mainline had 1/2
- * with a joan comment that 0 is invalid; that disagrees with the
- * firmware header and with tavil/msm-dai (SLIMBUS_0_* uses DEVICE_1).
- */
+/* SLIMbus device IDs, numbered from 0 as in the ADSP's apr_audio-v2.h */
 #define AFE_SLIMBUS_DEVICE_1 0
 #define AFE_SLIMBUS_DEVICE_2 1
 /* Clock set API version */
@@ -1227,7 +1224,6 @@ int q6afe_set_tavil_cdc_registers(struct device *dev)
 		}
 	}
 
-	dev_info(dev, "sent %d Tavil CDC_REG_CFG entries\n", i);
 	return 0;
 }
 EXPORT_SYMBOL_GPL(q6afe_set_tavil_cdc_registers);
@@ -1482,15 +1478,6 @@ void q6afe_slim_port_prepare(struct q6afe_port *port,
 	pcfg->slim_cfg.shared_ch_mapping[1] = cfg->ch_mapping[1];
 	pcfg->slim_cfg.shared_ch_mapping[2] = cfg->ch_mapping[2];
 	pcfg->slim_cfg.shared_ch_mapping[3] = cfg->ch_mapping[3];
-
-	pr_info("JOAN-DBG: slim port %d cfg: dev %u rate %u width %u ch %u fmt %u map %u/%u/%u/%u\n",
-		port->id, pcfg->slim_cfg.slimbus_dev_id,
-		pcfg->slim_cfg.sample_rate, pcfg->slim_cfg.bit_width,
-		pcfg->slim_cfg.num_channels, pcfg->slim_cfg.data_format,
-		pcfg->slim_cfg.shared_ch_mapping[0],
-		pcfg->slim_cfg.shared_ch_mapping[1],
-		pcfg->slim_cfg.shared_ch_mapping[2],
-		pcfg->slim_cfg.shared_ch_mapping[3]);
 }
 EXPORT_SYMBOL_GPL(q6afe_slim_port_prepare);
 
@@ -1674,11 +1661,6 @@ int q6afe_i2s_port_prepare(struct q6afe_port *port, struct q6afe_i2s_cfg *cfg)
 		break;
 	}
 
-	dev_info(dev, "JOAN-I2S port=%d ver=%#x rate=%u bw=%u fmt=%#x ws_src=%u sd_mask=%#x\n",
-		 port->id, pcfg->i2s_cfg.i2s_cfg_minor_version,
-		 pcfg->i2s_cfg.sample_rate, pcfg->i2s_cfg.bit_width,
-		 cfg->fmt, pcfg->i2s_cfg.ws_src, cfg->sd_line_mask);
-
 	num_sd_lines = hweight_long(cfg->sd_line_mask);
 
 	switch (num_sd_lines) {
@@ -1787,10 +1769,6 @@ int q6afe_i2s_port_prepare(struct q6afe_port *port, struct q6afe_i2s_cfg *cfg)
 	default:
 		break;
 	}
-
-	dev_info(dev, "JOAN-I2S port=%d chan_mode=%u mono_stereo=%u data_fmt=%u\n",
-		 port->id, pcfg->i2s_cfg.channel_mode,
-		 pcfg->i2s_cfg.mono_stereo, pcfg->i2s_cfg.data_format);
 
 	return 0;
 }
