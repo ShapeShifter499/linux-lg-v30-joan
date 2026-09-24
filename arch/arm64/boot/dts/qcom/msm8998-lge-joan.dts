@@ -1184,14 +1184,17 @@
 			 * Without the button ladder, wcd_dt_parse_mbhc_data()
 			 * defaults btn_high[0..7] to 500000, so every button on
 			 * an in-line remote compares equal and decodes as BTN_0.
-			 * 75/150/237 mV is the standard Qualcomm ladder and what
-			 * qcom,wcd934x.yaml documents.
+			 * The thresholds are LG's own calibration for joan
+			 * (def_tavil_mbhc_cal() in its msm8998 machine driver,
+			 * for the models with the ES9218P): a 1.5 V headset
+			 * threshold, and 80/130/240/450 mV for media, assistant,
+			 * volume up and volume down.
 			 */
 			qcom,ground-jack-type-normally-closed;
-			qcom,mbhc-headset-vthreshold-microvolt = <1700000>;
+			qcom,mbhc-headset-vthreshold-microvolt = <1500000>;
 			qcom,mbhc-headphone-vthreshold-microvolt = <50000>;
-			qcom,mbhc-buttons-vthreshold-microvolt = <75000 150000 237000 500000
-								 500000 500000 500000 500000>;
+			qcom,mbhc-buttons-vthreshold-microvolt = <80000 130000 240000 450000
+								 450000 450000 450000 450000>;
 
 			#address-cells = <1>;
 			#size-cells = <1>;
