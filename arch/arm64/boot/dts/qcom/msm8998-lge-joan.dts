@@ -13,6 +13,7 @@
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/input/input.h>
 #include <dt-bindings/pinctrl/qcom,pmic-gpio.h>
+#include <dt-bindings/usb/pd.h>
 #include "msm8998.dtsi"
 #include "pm8005.dtsi"
 #include "pm8998.dtsi"
@@ -217,6 +218,59 @@
 &pm8998_resin {
 	linux,code = <KEY_VOLUMEDOWN>;
 	status = "okay";
+};
+
+/*
+ * USB-C.  PMI8998 runs the Type-C port and PD; LG's kernel limits the OTG
+ * boost to 1.25 A on joan (qcom,otg-cl-ua) and prefers the sink role.  The
+ * port driver has the hardware do that Try.SNK itself, so there is no
+ * try-power-role here: TCPM cannot move this port's terminations, and its
+ * own Try.SNK would only stall each attach.  Only a 5 V contract is offered
+ * or requested until the charger is known to handle higher input voltages.
+ */
+&pmi8998_vbus {
+	regulator-min-microamp = <1250000>;
+	regulator-max-microamp = <1250000>;
+	status = "okay";
+};
+
+&pmi8998_typec {
+	vdd-pdphy-supply = <&vreg_l24a_3p075>;
+	status = "okay";
+
+	connector {
+		compatible = "usb-c-connector";
+		label = "USB-C";
+
+		power-role = "dual";
+		data-role = "dual";
+		self-powered;
+
+		vbus-supply = <&pmi8998_vbus>;
+
+		source-pdos = <PDO_FIXED(5000, 1250,
+					 PDO_FIXED_DUAL_ROLE |
+					 PDO_FIXED_USB_COMM |
+					 PDO_FIXED_DATA_SWAP)>;
+		sink-pdos = <PDO_FIXED(5000, 3000,
+				       PDO_FIXED_DUAL_ROLE |
+				       PDO_FIXED_USB_COMM |
+				       PDO_FIXED_DATA_SWAP)>;
+		op-sink-microwatt = <15000000>;
+
+		ports {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			port@0 {
+				reg = <0>;
+
+				pmi8998_hs_in: endpoint {
+					remote-endpoint = <&usb3_dwc3_hs>;
+				};
+			};
+		};
+	};
 };
 
 &pmi8998_charger {
@@ -615,24 +669,24 @@
 
 &usb3_dwc3 {
 	/*
-	 * USB 2, peripheral only. The SuperSpeed + dr_mode="otg" +
-	 * usb-role-switch variant was tried on device 2026-08-16 with
-	 * CONFIG_PHY_QCOM_QMP_USB=y and it produced NO USB AT ALL: the kernel
-	 * boots (fastboot returns, pmOS runs) but no gadget ever enumerates.
-	 * So the modular-PHY theory is dead -- the DT change itself is what
-	 * breaks it. Most likely dr_mode="otg" + usb-role-switch with no
-	 * role-switch provider on this SoC: dwc3 registers the switch, nothing
-	 * ever sets a role, and the gadget never starts.
+	 * USB 2 for now; SuperSpeed is left to a separate change.
 	 *
-	 * Next experiment should be dr_mode="host" (no role provider needed)
-	 * to isolate whether the USB3 PHY itself is fine, and it must be
-	 * tested ALONE -- bundling it with the adsp_mem change cost a boot
-	 * and made the result unattributable.
+	 * The data role comes from the PMI8998 Type-C port.  Whenever no role
+	 * is set -- nothing attached, or the port driver not loaded -- dwc3
+	 * stays a gadget, so the RAM-boot USB console does not depend on it.
 	 */
 	phys = <&qusb2phy>;
 	phy-names = "usb2-phy";
 	maximum-speed = "high-speed";
-	dr_mode = "peripheral";
+	dr_mode = "otg";
+	usb-role-switch;
+	role-switch-default-mode = "peripheral";
+
+	port {
+		usb3_dwc3_hs: endpoint {
+			remote-endpoint = <&pmi8998_hs_in>;
+		};
+	};
 };
 
 &wifi {
