@@ -18,6 +18,7 @@ properties:
     oneOf:
       - enum:
           - ti,bq25890
+          - ti,bq25898s
       - items:
           - enum:
               - ti,bq25892
