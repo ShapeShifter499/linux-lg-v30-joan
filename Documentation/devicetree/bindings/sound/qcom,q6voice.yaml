@@ -1,0 +1,55 @@
+# SPDX-License-Identifier: GPL-2.0 OR BSD-2-Clause
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/sound/qcom,q6voice.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Qualcomm ADSP Core Voice services (MVM, CVS, CVP)
+
+maintainers:
+  - Lance <Gero3977@gmail.com>
+
+description:
+  The Core Voice Driver services of the ADSP carry circuit-switched and VoLTE
+  calls.  The Multimode Voice Manager (MVM) owns a voice session, the Core
+  Voice Stream (CVS) runs the vocoder, and the Core Voice Processor (CVP)
+  applies the voice topology and connects the session to AFE ports.
+
+allOf:
+  - $ref: /schemas/soc/qcom/qcom,apr-services.yaml#
+
+properties:
+  compatible:
+    enum:
+      - qcom,q6mvm
+      - qcom,q6cvs
+      - qcom,q6cvp
+
+required:
+  - compatible
+
+unevaluatedProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/soc/qcom,apr.h>
+
+    apr {
+        #address-cells = <1>;
+        #size-cells = <0>;
+
+        service@9 {
+            compatible = "qcom,q6mvm";
+            reg = <APR_SVC_ADSP_MVM>;
+        };
+
+        service@a {
+            compatible = "qcom,q6cvs";
+            reg = <APR_SVC_ADSP_CVS>;
+        };
+
+        service@b {
+            compatible = "qcom,q6cvp";
+            reg = <APR_SVC_ADSP_CVP>;
+        };
+    };

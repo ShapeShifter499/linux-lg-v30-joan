@@ -104,6 +104,9 @@ patternProperties:
           - qcom,q6afe
           - qcom,q6adm
           - qcom,q6apm
+          - qcom,q6cvp
+          - qcom,q6cvs
+          - qcom,q6mvm
           - qcom,q6prm
 
 required:
