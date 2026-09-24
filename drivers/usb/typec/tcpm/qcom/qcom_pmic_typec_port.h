@@ -32,4 +32,8 @@ int qcom_pmic_typec_port_probe(struct platform_device *pdev,
 			       struct regmap *regmap,
 			       u32 base);
 
+int qcom_pmic_typec_pmi8998_port_probe(struct platform_device *pdev,
+				       struct pmic_typec *tcpm,
+				       struct regmap *regmap, u32 base);
+
 #endif /* __QCOM_PMIC_TYPE_C_PORT_H__ */
