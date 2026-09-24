@@ -29,6 +29,7 @@ properties:
               - qcom,glymur-cci
               - qcom,kaanapali-cci
               - qcom,milos-cci
+              - qcom,msm8998-cci
               - qcom,qcm2290-cci
               - qcom,qcs8300-cci
               - qcom,sa8775p-cci
@@ -160,6 +161,7 @@ allOf:
                 enum:
                   - qcom,msm8916-cci
                   - qcom,msm8953-cci
+                  - qcom,msm8998-cci
 
             - const: qcom,msm8996-cci
     then:
