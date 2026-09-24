@@ -902,14 +902,17 @@ static const struct camss_subdev_resources csiphy_res_8998[] = {
 };
 
 
-/* CSID: sdm660 shape. regulators left empty -- downstream's msm8998
- * CSID supplies are GDSCs (power-domains here), not board rails.
+/* CSID: sdm660 shape, supplies included: downstream's msm8998 CSIDs take
+ * mipi-csi-vdd from L2 (1.2 V) and vdd_sec from L1, as sdm660's do.
  * csi_src rate 274290000 from downstream msm8998-camera.dtsi.
  */
 static const struct camss_subdev_resources csid_res_8998[] = {
 	/* CSID0 */
 	{
-		.regulators = {},
+		.regulators = {
+			{ .supply = "vdda", .init_load_uA = 0 },
+			{ .supply = "vdd_sec", .init_load_uA = 0 }
+		},
 		.clock = { "top_ahb", "ispif_ahb", "csi0_ahb", "ahb",
 			   "csi0", "csi0_phy", "csi0_pix", "csi0_rdi",
 			   "cphy_csid0" },
@@ -933,7 +936,10 @@ static const struct camss_subdev_resources csid_res_8998[] = {
 
 	/* CSID1 */
 	{
-		.regulators = {},
+		.regulators = {
+			{ .supply = "vdda", .init_load_uA = 0 },
+			{ .supply = "vdd_sec", .init_load_uA = 0 }
+		},
 		.clock = { "top_ahb", "ispif_ahb", "csi1_ahb", "ahb",
 			   "csi1", "csi1_phy", "csi1_pix", "csi1_rdi",
 			   "cphy_csid1" },
@@ -957,7 +963,10 @@ static const struct camss_subdev_resources csid_res_8998[] = {
 
 	/* CSID2 */
 	{
-		.regulators = {},
+		.regulators = {
+			{ .supply = "vdda", .init_load_uA = 0 },
+			{ .supply = "vdd_sec", .init_load_uA = 0 }
+		},
 		.clock = { "top_ahb", "ispif_ahb", "csi2_ahb", "ahb",
 			   "csi2", "csi2_phy", "csi2_pix", "csi2_rdi",
 			   "cphy_csid2" },
@@ -981,7 +990,10 @@ static const struct camss_subdev_resources csid_res_8998[] = {
 
 	/* CSID3 */
 	{
-		.regulators = {},
+		.regulators = {
+			{ .supply = "vdda", .init_load_uA = 0 },
+			{ .supply = "vdd_sec", .init_load_uA = 0 }
+		},
 		.clock = { "top_ahb", "ispif_ahb", "csi3_ahb", "ahb",
 			   "csi3", "csi3_phy", "csi3_pix", "csi3_rdi",
 			   "cphy_csid3" },
