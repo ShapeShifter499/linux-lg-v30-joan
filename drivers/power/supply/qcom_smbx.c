@@ -797,8 +797,8 @@ static const struct power_supply_desc smb_psy_desc = {
 static const struct smb_init_register smb_init_seq[] = {
 	{ .addr = AICL_RERUN_TIME_CFG, .mask = AICL_RERUN_TIME_MASK, .val = 0 },
 	/*
-	 * By default configure us as an upstream facing port
-	 * FIXME: This will be handled by the type-c driver
+	 * By default configure us as an upstream facing port, unless a Type-C
+	 * port driver owns this register (see smb_typec_port_managed()).
 	 */
 	{ .addr = TYPE_C_INTRPT_ENB_SOFTWARE_CTRL,
 	  .mask = TYPEC_POWER_ROLE_CMD_MASK | VCONN_EN_SRC_BIT |
@@ -896,11 +896,35 @@ static const struct smb_init_register smb_init_seq[] = {
 	  .val = 1000000 / CURRENT_SCALE_FACTOR },
 };
 
+/*
+ * The Type-C port shares the USBIN peripheral with the charger.  When it is
+ * described and enabled, its driver runs the port state machine, and the
+ * power role and VCONN controls in TYPE_C_INTRPT_ENB_SOFTWARE_CTRL are its to
+ * program; writing the charger's defaults there would race it.
+ */
+static bool smb_typec_port_managed(struct smb_chip *chip)
+{
+	struct device_node *np;
+	bool managed;
+
+	np = of_get_compatible_child(chip->dev->parent->of_node,
+				     "qcom,pmi8998-typec");
+	managed = np && of_device_is_available(np);
+	of_node_put(np);
+
+	return managed;
+}
+
 static int smb_init_hw(struct smb_chip *chip)
 {
+	bool typec_managed = smb_typec_port_managed(chip);
 	int rc, i;
 
 	for (i = 0; i < ARRAY_SIZE(smb_init_seq); i++) {
+		if (typec_managed &&
+		    smb_init_seq[i].addr == TYPE_C_INTRPT_ENB_SOFTWARE_CTRL)
+			continue;
+
 		dev_dbg(chip->dev, "%d: Writing 0x%02x to 0x%02x\n", i,
 			smb_init_seq[i].val, smb_init_seq[i].addr);
 		rc = regmap_update_bits(chip->regmap,
