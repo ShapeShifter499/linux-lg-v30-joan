@@ -168,6 +168,17 @@ config INPUT_CS40L50_VIBRA
 	  To compile this driver as a module, choose M here: the
 	  module will be called cs40l50-vibra.
 
+config INPUT_DW7800_HAPTICS
+	tristate "Dongwoon DW7800 haptics support"
+	depends on I2C
+	select INPUT_FF_MEMLESS
+	help
+	  Say Y to enable support for the Dongwoon DW7800 haptic driver,
+	  the vibration motor driver of the LG V30.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called dw7800-haptics.
+
 config INPUT_E3X0_BUTTON
 	tristate "NI Ettus Research USRP E3xx Button support."
 	default n

@@ -1011,6 +1011,12 @@
 
 		#sound-dai-cells = <0>;
 	};
+
+	/* Vibration motor driver, as in LG's joan device tree */
+	haptics@59 {
+		compatible = "dongwoon,dw7800";
+		reg = <0x59>;
+	};
 };
 
 /*

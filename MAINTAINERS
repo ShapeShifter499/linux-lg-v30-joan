@@ -7792,6 +7792,13 @@ L:	linux-doc@vger.kernel.org
 S:	Maintained
 F:	Documentation/translations/ja_JP
 
+DONGWOON DW7800 HAPTICS DRIVER
+M:	Lance <Gero3977@gmail.com>
+L:	linux-input@vger.kernel.org
+S:	Maintained
+F:	Documentation/devicetree/bindings/input/dongwoon,dw7800.yaml
+F:	drivers/input/misc/dw7800-haptics.c
+
 DONGWOON DW9714 LENS VOICE COIL DRIVER
 M:	Sakari Ailus <sakari.ailus@linux.intel.com>
 L:	linux-media@vger.kernel.org
