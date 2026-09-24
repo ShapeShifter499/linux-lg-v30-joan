@@ -2576,6 +2576,26 @@
 				phy-names = "usb2-phy", "usb3-phy";
 				snps,has-lpm-erratum;
 				snps,hird-threshold = /bits/ 8 <0x10>;
+
+				ports {
+					#address-cells = <1>;
+					#size-cells = <0>;
+
+					port@0 {
+						reg = <0>;
+
+						usb3_dwc3_hs: endpoint {
+						};
+					};
+
+					port@1 {
+						reg = <1>;
+
+						usb3_dwc3_ss: endpoint {
+							remote-endpoint = <&usb3phy_usb_ss_in>;
+						};
+					};
+				};
 			};
 		};
 
@@ -2603,6 +2623,26 @@
 			qcom,tcsr-reg = <&tcsr_regs_2 0xb244>;
 
 			status = "disabled";
+
+			ports {
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				port@0 {
+					reg = <0>;
+
+					usb3phy_out: endpoint {
+					};
+				};
+
+				port@1 {
+					reg = <1>;
+
+					usb3phy_usb_ss_in: endpoint {
+						remote-endpoint = <&usb3_dwc3_ss>;
+					};
+				};
+			};
 		};
 
 		qusb2phy: phy@c012000 {

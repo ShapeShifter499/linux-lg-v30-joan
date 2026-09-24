@@ -681,12 +681,10 @@
 	dr_mode = "otg";
 	usb-role-switch;
 	role-switch-default-mode = "peripheral";
+};
 
-	port {
-		usb3_dwc3_hs: endpoint {
-			remote-endpoint = <&pmi8998_hs_in>;
-		};
-	};
+&usb3_dwc3_hs {
+	remote-endpoint = <&pmi8998_hs_in>;
 };
 
 &wifi {
