@@ -486,6 +486,13 @@ static void dpu_encoder_phys_cmd_enable(struct dpu_encoder_phys *phys_enc)
 
 	dpu_encoder_phys_cmd_enable_helper(phys_enc);
 	phys_enc->enable_state = DPU_ENC_ENABLED;
+
+	/*
+	 * Mark that the next kickoff is the first after this enable
+	 * transition (including every blank -> unblank wake) so it waits
+	 * for one TE edge before sending the first frame.
+	 */
+	cmd_enc->first_kickoff_after_enable = true;
 }
 
 static void _dpu_encoder_phys_cmd_connect_te(
@@ -607,6 +614,40 @@ static void dpu_encoder_phys_cmd_prepare_for_kickoff(
 	}
 
 	dpu_encoder_phys_cmd_enable_te(phys_enc);
+
+	/*
+	 * First kickoff after an enable/wake transition: wait for one TE
+	 * (read-pointer) edge before sending the first frame. On blank ->
+	 * unblank the panel's scan-out and TE re-establish while the first
+	 * command-mode frame is being prepared; if it is kicked before the
+	 * first TE edge, the panel receives it mid-scan and shows transient
+	 * garbage (owner-visible "rainbow" on the LG V30 sw43402 wake
+	 * transition) until the next frame lands cleanly.
+	 *
+	 * The TE IRQ is only live on the master encoder, and only when the
+	 * vblank/read-pointer callback is registered (vblank_refcount > 0);
+	 * guard on both. The wait is bounded and fail-open: if no TE edge
+	 * arrives (e.g. the panel is idle), log once and proceed rather than
+	 * wedging the wake path.
+	 */
+	if (cmd_enc->first_kickoff_after_enable) {
+		cmd_enc->first_kickoff_after_enable = false;
+
+		if (dpu_encoder_phys_cmd_is_master(phys_enc) &&
+		    phys_enc->vblank_refcount > 0 &&
+		    phys_enc->irq[INTR_IDX_RDPTR]) {
+			atomic_set(&cmd_enc->pending_vblank_cnt, 1);
+			ret = wait_event_timeout(cmd_enc->pending_vblank_wq,
+					!atomic_read(&cmd_enc->pending_vblank_cnt),
+					KICKOFF_TIMEOUT_JIFFIES);
+			if (!ret)
+				DPU_ERROR_CMDENC(cmd_enc,
+					"first kickoff TE wait timed out, proceeding\n");
+			else
+				DPU_DEBUG_CMDENC(cmd_enc,
+					"first kickoff gated on TE edge\n");
+		}
+	}
 
 	DPU_DEBUG_CMDENC(cmd_enc, "pp:%d pending_cnt %d\n",
 			phys_enc->hw_pp->idx - PINGPONG_0,
