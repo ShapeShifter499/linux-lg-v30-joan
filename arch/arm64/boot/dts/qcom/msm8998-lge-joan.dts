@@ -256,6 +256,18 @@
 			};
 		};
 	};
+
+	/*
+	 * Laser autofocus (LG's "proxy", VL53L0), on the same bus as the main
+	 * camera.  LDAF_EN (GPIO 25) drives its XSHUT.  LG lists no supply
+	 * for it; it is taken to share the main camera module's analog rail.
+	 */
+	proximity@29 {
+		compatible = "st,vl53l0x";
+		reg = <0x29>;
+		reset-gpios = <&tlmm 25 GPIO_ACTIVE_LOW>;
+		vdd-supply = <&cam0_avdd_2p8>;
+	};
 };
 
 &pm8005_regulators {
@@ -681,6 +693,22 @@
 	 */
 	gpio-reserved-ranges = <0 2>, <49 4>, <81 4>;
 
+	nfc_default: nfc-default-state {
+		en-pins {
+			pins = "gpio12", "gpio129";
+			function = "gpio";
+			drive-strength = <2>;
+			bias-disable;
+		};
+
+		irq-pins {
+			pins = "gpio116";
+			function = "gpio";
+			drive-strength = <2>;
+			bias-pull-down;
+		};
+	};
+
 	cam0_mclk_default: cam0-mclk-default-state {
 		pins = "gpio13";
 		function = "cam_mclk";
@@ -992,6 +1020,23 @@
  * is no speaker protection: keep the gain conservative until the vendor
  * firmware container is loaded.
  */
+/* NFC: NXP PN547 on LG's i2c_6 (BLSP1 QUP6) */
+&blsp1_i2c6 {
+	status = "okay";
+
+	nfc@28 {
+		compatible = "nxp,pn547", "nxp,nxp-nci-i2c";
+		reg = <0x28>;
+
+		interrupts-extended = <&tlmm 116 IRQ_TYPE_EDGE_RISING>;
+		enable-gpios = <&tlmm 12 GPIO_ACTIVE_HIGH>;
+		firmware-gpios = <&tlmm 129 GPIO_ACTIVE_HIGH>;
+
+		pinctrl-0 = <&nfc_default>;
+		pinctrl-names = "default";
+	};
+};
+
 &blsp2_i2c1 {
 	status = "okay";
 
