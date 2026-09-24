@@ -123,6 +123,7 @@ config SND_SOC_ALL_CODECS
 	imply SND_SOC_ES8328_I2C
 	imply SND_SOC_ES8375
 	imply SND_SOC_ES8389
+	imply SND_SOC_ES9218P
 	imply SND_SOC_ES9356
 	imply SND_SOC_ES7134
 	imply SND_SOC_ES7241
@@ -1308,7 +1309,7 @@ config SND_SOC_ES8389
 	depends on I2C
 
 config SND_SOC_ES9218P
-	tristate "Everest Semi ES9218P headphone DAC"
+	tristate "ESS Technology ES9218P headphone DAC"
 	depends on I2C
 	select REGMAP_I2C
 	help
