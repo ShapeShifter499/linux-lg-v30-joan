@@ -35,7 +35,6 @@
 #include <linux/of.h>
 #include <linux/of_address.h>
 #include <linux/platform_device.h>
-#include <linux/regulator/consumer.h>
 #include <linux/slab.h>
 #include <linux/delay.h>
 
@@ -91,7 +90,6 @@ struct clk_osm {
 	struct osm_entry osm_table[OSM_TABLE_SIZE];
 	int num_entries;
 	int cluster_num;
-	struct regulator *vdd_reg;
 	struct clk *aux_clk;
 };
 
@@ -214,33 +212,20 @@ static int osm_setup_hw_table(struct clk_osm *c)
 	return 0;
 }
 
-static int osm_resolve_open_loop_voltages(struct clk_osm *c)
+/*
+ * The downstream driver asks the RPM regulator for each corner's open-loop
+ * voltage.  That value only seeds the OSM's closed-loop DCVS; the hardware
+ * manages the rail itself once the table is programmed, so a fixed mid-range
+ * value is used for every corner.
+ */
+#define OSM_OPEN_LOOP_MV	800
+
+static void osm_resolve_open_loop_voltages(struct clk_osm *c)
 {
 	int i;
-	u32 vc, mv;
 
-	/*
-	 * The downstream driver asks the RPM regulator for the corner
-	 * voltage. In mainline we use the regulator's nominal voltage
-	 * per corner index (corner 0 = 1). If the regulator API does
-	 * not provide corner support, fall back to the table's own
-	 * implied value (the OSM hardware manages voltage autonomously
-	 * once the LUT is programmed; open_loop_volt is only used by
-	 * the DCVS loop, so a safe mid-range value is acceptable for
-	 * bring-up).
-	 */
-	for (i = 0; i < c->num_entries; i++) {
-		vc = c->osm_table[i].virtual_corner + 1;
-		mv = 0;
-		if (c->vdd_reg && regulator_is_supported_voltage(c->vdd_reg, 0, 2000000)) {
-			/* nominal voltage for this corner via set_voltage round */
-			regulator_set_voltage(c->vdd_reg, 0, 2000000);
-			regulator_get_voltage(c->vdd_reg);
-			mv = regulator_get_voltage(c->vdd_reg) / 1000;
-		}
-		c->osm_table[i].open_loop_volt = mv ? mv : 800;
-	}
-	return 0;
+	for (i = 0; i < c->num_entries; i++)
+		c->osm_table[i].open_loop_volt = OSM_OPEN_LOOP_MV;
 }
 
 static int osm_parse_table(struct platform_device *pdev, struct clk_osm *c,
@@ -361,13 +346,6 @@ static int osm_probe(struct platform_device *pdev)
 		dev_err(dev, "failed to enable aux_clk: %d\n", rc);
 		return rc;
 	}
-
-	pwrcl->vdd_reg = devm_regulator_get_optional(dev, "vdd-pwrcl");
-	if (IS_ERR(pwrcl->vdd_reg))
-		pwrcl->vdd_reg = NULL;
-	perfcl->vdd_reg = devm_regulator_get_optional(dev, "vdd-perfcl");
-	if (IS_ERR(perfcl->vdd_reg))
-		perfcl->vdd_reg = NULL;
 
 	/* speedbin select (v0 tables only for bring-up) */
 	if (of_property_read_u32(of, "qcom,speedbin", &speedbin))
