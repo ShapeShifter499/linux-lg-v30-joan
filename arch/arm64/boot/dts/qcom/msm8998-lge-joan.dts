@@ -12,6 +12,7 @@
 #include <dt-bindings/sound/qcom,q6asm.h>
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/input/input.h>
+#include <dt-bindings/leds/common.h>
 #include <dt-bindings/pinctrl/qcom,pmic-gpio.h>
 #include <dt-bindings/usb/pd.h>
 #include "msm8998.dtsi"
@@ -135,6 +136,33 @@
 		};
 	};
 
+	/*
+	 * Main camera rails: external LDOs switched by PM8998 GPIOs, LG's
+	 * CAM0_AVDD (GPIO 8) and CAM0_VDIG (GPIO 20).  The voltages are the
+	 * sensor's nominal ones; nothing sets them.
+	 */
+	cam0_avdd_2p8: cam0-avdd-regulator {
+		compatible = "regulator-fixed";
+		regulator-name = "cam0_avdd_2p8";
+		regulator-min-microvolt = <2800000>;
+		regulator-max-microvolt = <2800000>;
+		gpio = <&pm8998_gpios 8 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		pinctrl-0 = <&cam0_avdd_en>;
+		pinctrl-names = "default";
+	};
+
+	cam0_dvdd_1p05: cam0-dvdd-regulator {
+		compatible = "regulator-fixed";
+		regulator-name = "cam0_dvdd_1p05";
+		regulator-min-microvolt = <1050000>;
+		regulator-max-microvolt = <1050000>;
+		gpio = <&pm8998_gpios 20 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		pinctrl-0 = <&cam0_dvdd_en>;
+		pinctrl-names = "default";
+	};
+
 	vph_pwr: vph-pwr-regulator {
 		compatible = "regulator-fixed";
 		regulator-name = "vph_pwr";
@@ -182,10 +210,52 @@
 	vdda-supply = <&vreg_l2a_1p2>;
 
 	status = "okay";
+
+	ports {
+		port@0 {
+			reg = <0>;
+
+			csiphy0_ep: endpoint {
+				data-lanes = <0 1 2 3>;
+				remote-endpoint = <&imx351_ep>;
+			};
+		};
+	};
 };
 
 &cci {
 	status = "okay";
+};
+
+&cci_i2c0 {
+	/* Main camera: LG's camera@0, CSIPHY0, mounted at 90 degrees */
+	camera@10 {
+		compatible = "sony,imx351";
+		reg = <0x10>;
+
+		clocks = <&mmcc CAMSS_MCLK0_CLK>;
+		assigned-clocks = <&mmcc CAMSS_MCLK0_CLK>;
+		assigned-clock-rates = <24000000>;
+
+		reset-gpios = <&tlmm 30 GPIO_ACTIVE_LOW>;
+		pinctrl-0 = <&cam0_mclk_default>;
+		pinctrl-names = "default";
+
+		avdd-supply = <&cam0_avdd_2p8>;
+		dvdd-supply = <&cam0_dvdd_1p05>;
+		dovdd-supply = <&vreg_lvs1a_1p8>;
+
+		orientation = <1>;
+		rotation = <90>;
+
+		port {
+			imx351_ep: endpoint {
+				data-lanes = <1 2 3 4>;
+				link-frequencies = /bits/ 64 <660000000 330000000>;
+				remote-endpoint = <&csiphy0_ep>;
+			};
+		};
+	};
 };
 
 &pm8005_regulators {
@@ -204,6 +274,18 @@
 };
 
 &pm8998_gpios {
+	cam0_avdd_en: cam0-avdd-en-state {
+		pins = "gpio8";
+		function = "normal";
+		output-low;
+	};
+
+	cam0_dvdd_en: cam0-dvdd-en-state {
+		pins = "gpio20";
+		function = "normal";
+		output-low;
+	};
+
 	vol_up_default: vol-up-state {
 		pins = "gpio6";
 		function = "normal";
@@ -294,6 +376,23 @@
 				};
 			};
 		};
+	};
+};
+
+/*
+ * Rear flash: LG drives both flash channels together into the one LED,
+ * 800 mA each for at most 500 ms.
+ */
+&pmi8998_flash {
+	status = "okay";
+
+	led-0 {
+		function = LED_FUNCTION_FLASH;
+		color = <LED_COLOR_ID_WHITE>;
+		led-sources = <1>, <2>;
+		led-max-microamp = <200000>;
+		flash-max-microamp = <1600000>;
+		flash-max-timeout-us = <500000>;
 	};
 };
 
@@ -581,6 +680,13 @@
 	 * reserved while SCL/SDA are available.
 	 */
 	gpio-reserved-ranges = <0 2>, <49 4>, <81 4>;
+
+	cam0_mclk_default: cam0-mclk-default-state {
+		pins = "gpio13";
+		function = "cam_mclk";
+		drive-strength = <2>;
+		bias-disable;
+	};
 
 	/*
 	 * Tertiary MI2S carries I2S playback to the TFA9872 speaker amplifier
