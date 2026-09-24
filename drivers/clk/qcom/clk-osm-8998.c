@@ -426,7 +426,7 @@ static int osm_probe(struct platform_device *pdev)
 }
 
 static const struct of_device_id osm_match_table[] = {
-	{ .compatible = "qcom,cpu-clock-osm-msm8998" },
+	{ .compatible = "qcom,msm8998-osm" },
 	{}
 };
 MODULE_DEVICE_TABLE(of, osm_match_table);

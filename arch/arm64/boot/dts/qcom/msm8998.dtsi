@@ -3816,7 +3816,7 @@
 		};
 
 		clock_cpu: clock-controller@179c0000 {
-			compatible = "qcom,cpu-clock-osm-msm8998";
+			compatible = "qcom,msm8998-osm";
 			reg = <0x179c0000 0x4000>,
 			      <0x17916000 0x1000>,
 			      <0x17816000 0x1000>;
