@@ -125,7 +125,16 @@
 		label = "Volume up";
 
 		pinctrl-names = "default";
-		pinctrl-0 = <&vol_up_default>;
+		pinctrl-0 = <&vol_up_default &hall_sensor_default>;
+
+		event-hall-sensor {
+			label = "Hall Effect Sensor";
+			gpios = <&tlmm 126 GPIO_ACTIVE_LOW>;
+			linux,input-type = <EV_SW>;
+			linux,code = <SW_LID>;
+			linux,can-disable;
+			wakeup-source;
+		};
 
 		button-vol-up {
 			label = "Volume up";
@@ -680,19 +689,32 @@
 
 &tlmm {
 	/*
-	 * <0 4> came in as msm8998 boilerplate -- every mainline board carries it,
-	 * inherited from the MTP reference -- and it covers the whole BLSP1 QUP1
-	 * pin block (gpio0-3, SPI1/UART1/I2C1 muxed). joan actually uses QUP1 as
-	 * I2C for the ES9218P headphone DAC, and downstream drives gpio2/gpio3 with
-	 * function = "blsp_i2c1" under the same TZ firmware we boot, so AP access is
-	 * permitted. Reserving them made pinctrl reject the controller outright:
-	 *   msm8998-pinctrl: error -EINVAL: pin-2 (c175000.i2c)
-	 *   i2c_qup c175000.i2c: error -EINVAL: Error applying setting
-	 * and i2c-1 never appeared. Narrow to <0 2> so the unused SPI pins stay
-	 * reserved while SCL/SDA are available.
-	 */
-	gpio-reserved-ranges = <0 2>, <49 4>, <81 4>;
-
+		 * <0 4> came in as msm8998 boilerplate -- every mainline board carries it,
+		 * inherited from the MTP reference -- and it covers the whole BLSP1 QUP1
+		 * pin block (gpio0-3, SPI1/UART1/I2C1 muxed). joan actually uses QUP1 as
+		 * I2C for the ES9218P headphone DAC, and downstream drives gpio2/gpio3 with
+		 * function = "blsp_i2c1" under the same TZ firmware we boot, so AP access is
+		 * permitted. Reserving them made pinctrl reject the controller outright:
+		 *   msm8998-pinctrl: error -EINVAL: pin-2 (c175000.i2c)
+		 *   i2c_qup c175000.i2c: error -EINVAL: Error applying setting
+		 * and i2c-1 never appeared. Narrow to <0 2> so the unused SPI pins stay
+		 * reserved while SCL/SDA are available.
+		 */
+		gpio-reserved-ranges = <0 2>, <49 4>, <81 4>;
+	
+	capsensor_default: capsensor-default-state {
+		pins = "gpio62";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-pull-up;
+	};
+	hall_sensor_default: hall-sensor-default-state {
+		pins = "gpio126";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-pull-up;
+	};
+	
 	nfc_default: nfc-default-state {
 		en-pins {
 			pins = "gpio12", "gpio129";
@@ -1050,6 +1072,52 @@
 		compatible = "nxp,tfa9872";
 		reg = <0x34>;
 		#sound-dai-cells = <0>;
+	};
+
+	proximity@28 {
+		compatible = "semtech,sx9324";
+		reg = <0x28>;
+
+		interrupt-parent = <&tlmm>;
+		interrupts = <62 IRQ_TYPE_LEVEL_LOW>;
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&capsensor_default>;
+
+		#io-channel-cells = <1>;
+
+		semtech,ph0-pin = <1 0 0>;
+		semtech,ph1-pin = <0 0 1>;
+		semtech,ph2-pin = <0 1 0>;
+		semtech,ph3-pin = <0 0 0>;
+
+		semtech,ph01-resolution = <128>;
+		semtech,ph23-resolution = <128>;
+		semtech,ph01-proxraw-strength = <1>;
+		semtech,ph23-proxraw-strength = <1>;
+		semtech,avg-pos-strength = <256>;
+
+		semtech,int-comp-resistor = "lowest";
+		semtech,input-precharge-resistor-ohms = <4000>;
+		semtech,input-analog-gain = <1>;
+		semtech,cs-idle-sleep = "hi-z";
+		semtech,startup-sensor = <1>;
+	};
+
+	charger@6b {
+		compatible = "ti,bq25898s";
+		reg = <0x6b>;
+
+		interrupt-parent = <&tlmm>;
+		interrupts = <119 IRQ_TYPE_EDGE_FALLING>;
+
+		ti,battery-regulation-voltage = <4200000>;
+		ti,charge-current = <2250000>;
+		ti,termination-current = <512000>;
+		ti,precharge-current = <128000>;
+		ti,minimum-sys-voltage = <3600000>;
+		ti,boost-voltage = <5000000>;
+		ti,boost-max-current = <1000000>;
 	};
 };
 
