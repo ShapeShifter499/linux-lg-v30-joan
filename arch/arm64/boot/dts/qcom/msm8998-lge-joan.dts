@@ -172,6 +172,22 @@
 	};
 };
 
+/*
+ * Camera.  The CSI receivers and the ISP only for now: the sensors (IMX351
+ * and S5K3M3 at the back, HI553 at the front) have no mainline drivers yet,
+ * so their nodes, rails and MCLK pins come with those drivers.  The CSI
+ * rail is LG's mipi-csi-vdd, L2 at 1.2 V.
+ */
+&camss {
+	vdda-supply = <&vreg_l2a_1p2>;
+
+	status = "okay";
+};
+
+&cci {
+	status = "okay";
+};
+
 &pm8005_regulators {
 	/* VDD_GFX supply; managed by the OPP framework + msm_gpu (vdd) */
 	pm8005_s1: s1 {
