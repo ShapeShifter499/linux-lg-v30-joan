@@ -3649,10 +3649,7 @@
 		 * compatibles resolve to the same ngd_v1_5_offset_info in
 		 * qcom-ngd-ctrl.c, so the version string is cosmetic to the
 		 * driver; v2.1.0 is chosen to match the address-identical
-		 * sdm845 block.
-		 *
-		 * NOT yet probed on device -- address/IRQ identity is strong
-		 * evidence of the same IP, not proof. Verify before relying on it.
+		 * sdm845 block, and the LG V30 runs its WCD9340 over it.
 		 */
 		slimbam: dma-controller@17184000 {
 			compatible = "qcom,bam-v1.7.4", "qcom,bam-v1.7.0";

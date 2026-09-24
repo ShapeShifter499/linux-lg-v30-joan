@@ -29,7 +29,9 @@
 	 * LG aboot matches the appended DTB against the unit's hardware
 	 * revision. Downstream ships one DTB per rev (rev_a .. rev_1_3);
 	 * list every US998 (joan_nao_us) board id so a single DTB matches
-	 * any revision. Trim to the real rev once read from the device.
+	 * any revision. The stock DTBs for all ten revisions differ only in
+	 * battery, charging, USB-C SBU select and the Quad DAC LDO, none of
+	 * which this tree depends on.
 	 */
 	qcom,board-id = <0x308 0>, <0x608 0>, <0x708 0>,
 			<0x808 0>, <0x908 0>, <0xa08 0>,
@@ -503,14 +505,6 @@
 	gpio-reserved-ranges = <0 2>, <49 4>, <81 4>;
 
 	/*
-	 * Quaternary MI2S carries I2S playback to the ES9218P headphone DAC.
-	 * Downstream's dai-link is LPASS_BE_QUAT_MI2S_RX / msm-dai-q6-mi2s.3 ->
-	 * es9218-codec.1-0048 (msm8998.c, under CONFIG_SND_USE_QUAT_MI2S, which
-	 * every joan defconfig sets).  Pins from msm8998-pinctrl.dtsi:
-	 * gpio58 SCK, gpio59 WS, gpio61 SD1.  dai_mi2s3 sets rx-lines = 2, i.e.
-	 * SD1 out, so only the clock pair and SD1 are described here.
-	 */
-	/*
 	 * Tertiary MI2S carries I2S playback to the TFA9872 speaker amplifier
 	 * (downstream: LPASS_BE_TERT_MI2S_RX / msm-dai-q6-mi2s.2 ->
 	 * tfa98xx.7-0034).  gpio75 SCK, gpio76 WS, gpio78 SD1; dai_mi2s2 sets
@@ -523,6 +517,14 @@
 		bias-disable;
 	};
 
+	/*
+	 * Quaternary MI2S carries I2S playback to the ES9218P headphone DAC.
+	 * Downstream's dai-link is LPASS_BE_QUAT_MI2S_RX / msm-dai-q6-mi2s.3 ->
+	 * es9218-codec.1-0048 (msm8998.c, under CONFIG_SND_USE_QUAT_MI2S, which
+	 * every joan defconfig sets).  Pins from msm8998-pinctrl.dtsi:
+	 * gpio58 SCK, gpio59 WS, gpio61 SD1.  dai_mi2s3 sets rx-lines = 2, i.e.
+	 * SD1 out, so only the clock pair and SD1 are described here.
+	 */
 	quat_mi2s_default: quat-mi2s-default-state {
 		pins = "gpio58", "gpio59", "gpio61";
 		function = "qua_mi2s";
@@ -543,7 +545,6 @@
 		bias-pull-down;
 		drive-strength = <2>;
 	};
-
 
 	/*
 	 * The SoC-level sdc2_cd state uses the MTP's GPIO 95; joan routes
@@ -856,19 +857,6 @@
 &adreno_gpu {
 	status = "okay";
 
-	/*
-	 * msm8998.dtsi points power-domains at the RPM VDDMX voltage domain,
-	 * which drives opp-level but does NOT switch the GPU on. The binding
-	 * allows a single power-domain, and every other Adreno 5xx in tree
-	 * (e.g. msm8996: power-domains = <&mmcc GPU_GX_GDSC>) attaches the GX
-	 * GDSC instead. With the RPM domain in that slot the GPUCC gpu_gx /
-	 * gpu_cx GDSCs have no consumer, never power up, and the clocks that
-	 * depend on them never produce a rate -- so the first register write
-	 * lands on an unpowered, unclocked block and hangs the AHB bus.
-	 * gpu_gx is a child of gpu_cx, so enabling GX brings CX up with it.
-	 */
-	power-domains = <&gpucc GPU_GX_GDSC>;
-
 	vdd-supply = <&pm8005_s1>;
 
 	zap-shader {
@@ -893,7 +881,7 @@
  * the rail BEFORE raising the core clock; the resume fast_rate jump is
  * therefore exactly the stock turbo corner (710 MHz @ 936 mV), which
  * the device runs routinely. opp-level is intentionally omitted: the
- * GPU's power domain is the GPU_GX GDSC (see above), which has no
+ * GPU's power domain is the GPU_GX GDSC (msm8998.dtsi), which has no
  * performance states.
  */
 &gpu_opp_table {
@@ -904,43 +892,6 @@
 	/delete-node/ opp-414000000;
 	/delete-node/ opp-342000000;
 	/delete-node/ opp-257000000;
-
-	/*
-	 * EXPERIMENTAL overclock OPP (local-only, never upstream):
-	 * 750 MHz is a Qualcomm-shipped GPU rate for this SoC family
-	 * (downstream clock-gpu-8998.c carries a 180-750 MHz table for
-	 * higher-binned parts; the V30 bin ships the 710 MHz table).
-	 * Voltage: the first device test used 965 mV, which the OPP core
-	 * REJECTED ("OPP not supported by regulators") because the
-	 * pm8005_s1 rail (SPMI ftsmps426) steps in 4 mV — 965000 is
-	 * off-grid. 964000 is on-grid (964/4=241) and matches the linear
-	 * extrapolation of the measured curve (936 mV @ 710 MHz,
-	 * ~0.7 mV/MHz -> ~964 mV @ 750 MHz), under the 1.1 V rail max.
-	 * This OPP becomes fast_rate, so every GPU resume runs the 750
-	 * corner. If the PLL cannot lock at the higher VCO, GPU probe
-	 * fails or renders hang - RAM-only and fully reversible (revert
-	 * this commit).
-	 */
-
-	/*
-	 * EXPERIMENTAL sweep OPPs above the device-proven 750 MHz corner
-	 * (G5-OC2 PASS). Frequencies beyond 750 are NOT Qualcomm-validated
-	 * for this SoC family — this is true overclocking past the
-	 * shipped envelope, tested empirically. Voltages are on-grid
-	 * (4 mV step) extrapolations of the measured curve (~0.7 mV/MHz
-	 * above 964 mV @ 750 MHz): 800 -> 1000 mV, 850 -> 1036 mV,
-	 * 900 -> 1072 mV (rail max 1100 mV).
-	 *
-	 * CAUTION: the highest OPP becomes fast_rate, so every GPU
-	 * resume runs the TOP corner. 900 MHz was device-tested
-	 * (G6-OC-RX) and REJECTED: the PLL cannot lock at the ~5.4 GHz
-	 * VCO during probe ("gpupll0 failed to enable!" twice in
-	 * clk-alpha-pll wait_for_pll), which wedges the GPU/DRM device
-	 * for the whole session. Since msm always runs fast_rate on
-	 * resume, 900 is unusable as a corner and is dropped; 850 MHz
-	 * is now the top corner and the empirical ceiling question.
-	 */
-
 
 	opp-710000097 {
 		opp-hz = /bits/ 64 <710000097>;
@@ -1039,12 +990,7 @@
 	 * ipa, wlan_msa, gpu_mem and the reserved@ plug nodes -- is therefore
 	 * untouched and keeps working.
 	 *
-	 * UNTESTED ON DEVICE. An earlier attempt at this layout booted to no
-	 * USB, but that image also enabled the USB3 PHY in DT while
-	 * CONFIG_PHY_QCOM_QMP_USB was =m, so dwc3 deferred forever on a PHY
-	 * that cannot load on a RAM boot. There is no evidence the layout
-	 * itself is at fault. Test it with PHY_QCOM_QMP_USB=y, and change one
-	 * thing at a time.
+	 * The ADSP boots from this layout and carries audio and voice.
 	 */
 	reg = <0x0 0x92b00000 0x0 0x1e00000>;
 };
@@ -1069,9 +1015,8 @@
 };
 
 /*
- * SLIMbus. The NGD is managed by the ADSP, so this can only work once
- * remoteproc adsp is running (device-verified 2026-08-16). Enabling it here
- * to see whether the NGD probes; the WCD934x codec node is a separate step.
+ * SLIMbus to the WCD9340. The NGD is managed by the ADSP, so the bus comes up
+ * only once remoteproc adsp is running.
  */
 &slimbam {
 	status = "okay";
@@ -1091,8 +1036,6 @@
 	 *   mclk       LN_BB from the PMIC (clock_audio_lnbb / wcd_clk); on
 	 *              msm8998 that is rpmcc RPM_SMD_LN_BB_CLK1, which is in the
 	 *              msm8998 rpm clk table and already used elsewhere here.
-	 *
-	 * NOT probed yet. Requires the ADSP running (it manages the NGD).
 	 */
 	slim@1 {
 		reg = <1>;
@@ -1277,9 +1220,10 @@
 };
 
 /*
- * Minimal sound card for first light. Playback and capture over SLIMBUS_0 to
- * the WCD9340, plus one MultiMedia frontend each way -- enough to create an
- * ALSA card and prove the q6 <-> codec path, not a full topology.
+ * Sound card. Two MultiMedia frontends feed four backends: SLIMBUS_0 to and
+ * from the WCD9340 (earpiece, analog headphone path and the analog mics),
+ * tertiary MI2S to the TFA9872 loudspeaker amplifier and quaternary MI2S to
+ * the ES9218P headphone DAC.
  *
  * compatible is "qcom,sdm845-sndcard" deliberately. sound/soc/qcom/sdm845.c
  * implements exactly this topology (q6 frontends + wcd934x over SLIMbus) and
@@ -1287,8 +1231,6 @@
  * why db845c and yoga-c630 reuse it too. joan has the same codec and the same
  * DAI shape. If msm8998 later needs behaviour sdm845.c does not provide, this
  * is the thing to revisit.
- *
- * NOT YET PROBED.
  */
 / {
 	sound {
@@ -1433,6 +1375,14 @@
 };
 
 &q6afedai {
+	dai@2 {
+		reg = <SLIMBUS_0_RX>;
+	};
+
+	dai@3 {
+		reg = <SLIMBUS_0_TX>;
+	};
+
 	dai@20 {
 		reg = <TERTIARY_MI2S_RX>;
 		qcom,sd-lines = <1>;
@@ -1441,13 +1391,5 @@
 	dai@22 {
 		reg = <QUATERNARY_MI2S_RX>;
 		qcom,sd-lines = <1>;
-	};
-
-	dai@16 {
-		reg = <SLIMBUS_0_RX>;
-	};
-
-	dai@17 {
-		reg = <SLIMBUS_0_TX>;
 	};
 };
