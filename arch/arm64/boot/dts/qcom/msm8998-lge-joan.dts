@@ -269,6 +269,14 @@
 					remote-endpoint = <&usb3_dwc3_hs>;
 				};
 			};
+
+			port@1 {
+				reg = <1>;
+
+				pmi8998_ss_in: endpoint {
+					remote-endpoint = <&usb3phy_out>;
+				};
+			};
 		};
 	};
 };
@@ -662,22 +670,19 @@
 
 &usb3 {
 	status = "okay";
-
-	/* Run USB 2 only -- see the note on usb3_dwc3 below. */
-	qcom,select-utmi-as-pipe-clk;
 };
 
 &usb3_dwc3 {
 	/*
-	 * USB 2 for now; SuperSpeed is left to a separate change.
-	 *
 	 * The data role comes from the PMI8998 Type-C port.  Whenever no role
 	 * is set -- nothing attached, or the port driver not loaded -- dwc3
 	 * stays a gadget, so the RAM-boot USB console does not depend on it.
+	 *
+	 * SuperSpeed does make USB depend on the QMP PHY driver, though:
+	 * dwc3 waits for its usb3-phy, so that driver (phy-qcom-qmp-usbc,
+	 * built by CONFIG_PHY_QCOM_QMP_COMBO) has to be built in, or be in
+	 * the initramfs, for USB to come up in a RAM boot.
 	 */
-	phys = <&qusb2phy>;
-	phy-names = "usb2-phy";
-	maximum-speed = "high-speed";
 	dr_mode = "otg";
 	usb-role-switch;
 	role-switch-default-mode = "peripheral";
@@ -685,6 +690,19 @@
 
 &usb3_dwc3_hs {
 	remote-endpoint = <&pmi8998_hs_in>;
+};
+
+&usb3phy {
+	vdda-phy-supply = <&vreg_l1a_0p875>;
+	vdda-pll-supply = <&vreg_l2a_1p2>;
+
+	orientation-switch;
+
+	status = "okay";
+};
+
+&usb3phy_out {
+	remote-endpoint = <&pmi8998_ss_in>;
 };
 
 &wifi {
