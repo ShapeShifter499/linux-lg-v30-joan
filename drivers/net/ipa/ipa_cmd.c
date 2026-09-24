@@ -69,6 +69,12 @@ struct ipa_cmd_hw_hdr_init_local {
 #define HDR_INIT_LOCAL_FLAGS_TABLE_SIZE_FMASK		GENMASK(11, 0)
 #define HDR_INIT_LOCAL_FLAGS_HDR_ADDR_FMASK		GENMASK(27, 12)
 
+/* IPA_CMD_HDR_INIT_SYSTEM */
+
+struct ipa_cmd_hw_hdr_init_system {
+	__le64 hdr_table_addr;
+};
+
 /* IPA_CMD_REGISTER_WRITE */
 
 /* For IPA v4.0+, the pipeline clear options are encoded in the opcode */
@@ -138,6 +144,7 @@ struct ipa_cmd_ip_packet_tag_status {
 union ipa_cmd_payload {
 	struct ipa_cmd_hw_ip_fltrt_init table_init;
 	struct ipa_cmd_hw_hdr_init_local hdr_init_local;
+	struct ipa_cmd_hw_hdr_init_system hdr_init_system;
 	struct ipa_cmd_register_write register_write;
 	struct ipa_cmd_ip_packet_init ip_packet_init;
 	struct ipa_cmd_hw_dma_mem_mem dma_shared_mem;
@@ -422,6 +429,23 @@ void ipa_cmd_hdr_init_local_add(struct gsi_trans *trans, u32 offset, u16 size,
 	flags = u32_encode_bits(size, HDR_INIT_LOCAL_FLAGS_TABLE_SIZE_FMASK);
 	flags |= u32_encode_bits(offset, HDR_INIT_LOCAL_FLAGS_HDR_ADDR_FMASK);
 	payload->flags = cpu_to_le32(flags);
+
+	gsi_trans_cmd_add(trans, payload, sizeof(*payload), payload_addr,
+			  opcode);
+}
+
+void ipa_cmd_hdr_init_system_add(struct gsi_trans *trans, dma_addr_t addr)
+{
+	struct ipa *ipa = container_of(trans->gsi, struct ipa, gsi);
+	enum ipa_cmd_opcode opcode = IPA_CMD_HDR_INIT_SYSTEM;
+	struct ipa_cmd_hw_hdr_init_system *payload;
+	union ipa_cmd_payload *cmd_payload;
+	dma_addr_t payload_addr;
+
+	cmd_payload = ipa_cmd_payload_alloc(ipa, &payload_addr);
+	payload = &cmd_payload->hdr_init_system;
+
+	payload->hdr_table_addr = cpu_to_le64(addr);
 
 	gsi_trans_cmd_add(trans, payload, sizeof(*payload), payload_addr,
 			  opcode);

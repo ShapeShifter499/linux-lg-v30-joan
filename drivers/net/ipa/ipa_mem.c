@@ -88,7 +88,7 @@ int ipa_mem_setup(struct ipa *ipa)
 	/* Get a transaction to define the header memory region and to zero
 	 * the processing context and modem memory regions.
 	 */
-	trans = ipa_cmd_trans_alloc(ipa, 4);
+	trans = ipa_cmd_trans_alloc(ipa, 5);
 	if (!trans) {
 		dev_err(ipa->dev, "no transaction for memory setup\n");
 		return -EBUSY;
@@ -106,6 +106,17 @@ int ipa_mem_setup(struct ipa *ipa)
 		size += mem->size;
 
 	ipa_cmd_hdr_init_local_add(trans, offset, size, addr);
+
+	/* The default route set by ipa_endpoint_default_route_set() names the
+	 * header table in system memory, as the downstream driver does, but
+	 * unlike that driver we never locate one, so the IPA takes headers
+	 * from wherever its base register points.  On IPA v3.1 (msm8998)
+	 * that is IOVA 0, and the uplink path reads it as soon as it carries
+	 * traffic.  Give the IPA a table to read: the zeroed DMA buffer, an
+	 * empty table as far as the hardware is concerned.
+	 */
+	if (ipa->version == IPA_VERSION_3_1)
+		ipa_cmd_hdr_init_system_add(trans, addr);
 
 	ipa_mem_zero_region_add(trans, IPA_MEM_MODEM_PROC_CTX);
 	ipa_mem_zero_region_add(trans, IPA_MEM_AP_PROC_CTX);
@@ -445,9 +456,12 @@ int ipa_mem_zero_modem(struct ipa *ipa)
  * stops data flowing without any fault -- so this is a real structure whose
  * owner has not been identified yet.
  *
- * Until it is, back the bottom of the IOVA space with zeroed memory.  This is
- * a workaround, not a fix.  It is on by default only where the fault has been
- * seen; "ipa.lowmem=0" or "ipa.lowmem=1" overrides that.
+ * The likely owner is the system header table, whose base ipa_mem_setup()
+ * now programs with IPA_CMD_HDR_INIT_SYSTEM.  Until that is confirmed on
+ * hardware -- cellular data working with "ipa.lowmem=0" and no fault at
+ * IOVA 0x38 -- keep backing the bottom of the IOVA space with zeroed memory
+ * as well.  This is on by default only where the fault has been seen;
+ * "ipa.lowmem=0" or "ipa.lowmem=1" overrides that.
  */
 static int ipa_lowmem = -1;
 module_param_named(lowmem, ipa_lowmem, int, 0444);
