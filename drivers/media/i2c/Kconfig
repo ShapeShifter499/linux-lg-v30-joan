@@ -257,6 +257,16 @@ config VIDEO_IMX335
 	  To compile this driver as a module, choose M here: the
 	  module will be called imx335.
 
+config VIDEO_IMX351
+	tristate "Sony IMX351 sensor support"
+	select V4L2_CCI_I2C
+	help
+	  This is a Video4Linux2 sensor driver for the Sony
+	  IMX351 camera, the main camera of the LG V30.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called imx351.
+
 config VIDEO_IMX355
 	tristate "Sony IMX355 sensor support"
 	help
