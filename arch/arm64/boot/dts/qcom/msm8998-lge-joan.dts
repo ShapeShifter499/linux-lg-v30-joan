@@ -125,16 +125,7 @@
 		label = "Volume up";
 
 		pinctrl-names = "default";
-		pinctrl-0 = <&vol_up_default &hall_sensor_default>;
-
-		event-hall-sensor {
-			label = "Hall Effect Sensor";
-			gpios = <&tlmm 126 GPIO_ACTIVE_LOW>;
-			linux,input-type = <EV_SW>;
-			linux,code = <SW_LID>;
-			linux,can-disable;
-			wakeup-source;
-		};
+		pinctrl-0 = <&vol_up_default>;
 
 		button-vol-up {
 			label = "Volume up";
@@ -689,32 +680,26 @@
 
 &tlmm {
 	/*
-		 * <0 4> came in as msm8998 boilerplate -- every mainline board carries it,
-		 * inherited from the MTP reference -- and it covers the whole BLSP1 QUP1
-		 * pin block (gpio0-3, SPI1/UART1/I2C1 muxed). joan actually uses QUP1 as
-		 * I2C for the ES9218P headphone DAC, and downstream drives gpio2/gpio3 with
-		 * function = "blsp_i2c1" under the same TZ firmware we boot, so AP access is
-		 * permitted. Reserving them made pinctrl reject the controller outright:
-		 *   msm8998-pinctrl: error -EINVAL: pin-2 (c175000.i2c)
-		 *   i2c_qup c175000.i2c: error -EINVAL: Error applying setting
-		 * and i2c-1 never appeared. Narrow to <0 2> so the unused SPI pins stay
-		 * reserved while SCL/SDA are available.
-		 */
-		gpio-reserved-ranges = <0 2>, <49 4>, <81 4>;
-	
+	 * <0 4> came in as msm8998 boilerplate -- every mainline board carries it,
+	 * inherited from the MTP reference -- and it covers the whole BLSP1 QUP1
+	 * pin block (gpio0-3, SPI1/UART1/I2C1 muxed). joan actually uses QUP1 as
+	 * I2C for the ES9218P headphone DAC, and downstream drives gpio2/gpio3 with
+	 * function = "blsp_i2c1" under the same TZ firmware we boot, so AP access is
+	 * permitted. Reserving them made pinctrl reject the controller outright:
+	 *   msm8998-pinctrl: error -EINVAL: pin-2 (c175000.i2c)
+	 *   i2c_qup c175000.i2c: error -EINVAL: Error applying setting
+	 * and i2c-1 never appeared. Narrow to <0 2> so the unused SPI pins stay
+	 * reserved while SCL/SDA are available.
+	 */
+	gpio-reserved-ranges = <0 2>, <49 4>, <81 4>;
+
 	capsensor_default: capsensor-default-state {
 		pins = "gpio62";
 		function = "gpio";
 		drive-strength = <2>;
 		bias-pull-up;
 	};
-	hall_sensor_default: hall-sensor-default-state {
-		pins = "gpio126";
-		function = "gpio";
-		drive-strength = <2>;
-		bias-pull-up;
-	};
-	
+
 	nfc_default: nfc-default-state {
 		en-pins {
 			pins = "gpio12", "gpio129";
@@ -1068,14 +1053,13 @@
 &blsp2_i2c1 {
 	status = "okay";
 
-	speaker_amp: audio-codec@34 {
-		compatible = "nxp,tfa9872";
-		reg = <0x34>;
-		#sound-dai-cells = <0>;
-	};
-
+	/*
+	 * SAR sensor. The SX9320 has the SX9324's register map; the properties
+	 * below reproduce the corresponding registers of LG's reg-init for it
+	 * (msm8998-joan-sensor.dtsi).
+	 */
 	proximity@28 {
-		compatible = "semtech,sx9324";
+		compatible = "semtech,sx9320", "semtech,sx9324";
 		reg = <0x28>;
 
 		interrupt-parent = <&tlmm>;
@@ -1104,8 +1088,24 @@
 		semtech,startup-sensor = <1>;
 	};
 
+	speaker_amp: audio-codec@34 {
+		compatible = "nxp,tfa9872";
+		reg = <0x34>;
+		#sound-dai-cells = <0>;
+	};
+
+	/*
+	 * Parallel charger. LG drives it as a slave to the PMI8998 charger: its
+	 * driver disables charging at probe and enables it only when the main
+	 * charger hands over part of the current. bq25890_charger instead turns
+	 * charging on by itself at probe, outside the PMI8998's battery
+	 * temperature and current control, so keep it off until something
+	 * coordinates the two. Voltage and currents are LG's; LG leaves the
+	 * precharge, SYS_MIN and boost settings at their defaults, and the
+	 * values here only satisfy the binding.
+	 */
 	charger@6b {
-		compatible = "ti,bq25898s";
+		compatible = "ti,bq25898s", "ti,bq25890";
 		reg = <0x6b>;
 
 		interrupt-parent = <&tlmm>;
@@ -1118,6 +1118,8 @@
 		ti,minimum-sys-voltage = <3600000>;
 		ti,boost-voltage = <5000000>;
 		ti,boost-max-current = <1000000>;
+
+		status = "disabled";
 	};
 };
 
