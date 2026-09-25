@@ -24,28 +24,28 @@
 #define BQ25890_IRQ_PIN			"bq25890_irq"
 
 #define BQ25890_ID			3
-#define BQ25898S_ID			1
 #define BQ25895_ID			7
 #define BQ25896_ID			0
+#define BQ25898S_ID			1
 
 #define PUMP_EXPRESS_START_DELAY	(5 * HZ)
 #define PUMP_EXPRESS_MAX_TRIES		6
 #define PUMP_EXPRESS_VBUS_MARGIN_uV	1000000
 
 enum bq25890_chip_version {
-	BQ25898S,
 	BQ25890,
 	BQ25892,
 	BQ25895,
 	BQ25896,
+	BQ25898S,
 };
 
 static const char *const bq25890_chip_name[] = {
-	"BQ25898S",
 	"BQ25890",
 	"BQ25892",
 	"BQ25895",
 	"BQ25896",
+	"BQ25898S",
 };
 
 enum bq25890_fields {
@@ -1625,20 +1625,20 @@ static const struct dev_pm_ops bq25890_pm = {
 
 static const struct i2c_device_id bq25890_i2c_ids[] = {
 	{ .name = "bq25890" },
-	{ .name = "bq25898s" },
 	{ .name = "bq25892" },
 	{ .name = "bq25895" },
 	{ .name = "bq25896" },
+	{ .name = "bq25898s" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, bq25890_i2c_ids);
 
 static const struct of_device_id bq25890_of_match[] __maybe_unused = {
 	{ .compatible = "ti,bq25890", },
-	{ .compatible = "ti,bq25898s", },
 	{ .compatible = "ti,bq25892", },
 	{ .compatible = "ti,bq25895", },
 	{ .compatible = "ti,bq25896", },
+	{ .compatible = "ti,bq25898s", },
 	{ },
 };
 MODULE_DEVICE_TABLE(of, bq25890_of_match);
