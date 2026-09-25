@@ -117,6 +117,11 @@ static const struct msm_dp_desc msm_dp_desc_sdm845[] = {
 	{}
 };
 
+static const struct msm_dp_desc msm_dp_desc_msm8998[] = {
+	{ .io_start = 0x0c990000, .id = MSM_DP_CONTROLLER_0 },
+	{}
+};
+
 static const struct msm_dp_desc msm_dp_desc_sc7180[] = {
 	{ .io_start = 0x0ae90000, .id = MSM_DP_CONTROLLER_0, .wide_bus_supported = true },
 	{}
@@ -170,6 +175,7 @@ static const struct of_device_id msm_dp_dt_match[] = {
 	{ .compatible = "qcom,sc8180x-edp", .data = &msm_dp_desc_sc8180x },
 	{ .compatible = "qcom,sc8280xp-dp", .data = &msm_dp_desc_sc8280xp },
 	{ .compatible = "qcom,sc8280xp-edp", .data = &msm_dp_desc_sc8280xp },
+	{ .compatible = "qcom,msm8998-dp", .data = &msm_dp_desc_msm8998 },
 	{ .compatible = "qcom,sdm845-dp", .data = &msm_dp_desc_sdm845 },
 	{ .compatible = "qcom,sm8350-dp", .data = &msm_dp_desc_sc7180 },
 	{ .compatible = "qcom,sm8650-dp", .data = &msm_dp_desc_sm8650 },

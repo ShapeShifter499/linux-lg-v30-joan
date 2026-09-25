@@ -78,6 +78,7 @@ struct msm_dp_link {
 	struct msm_dp_link_info link_params;
 
 	u32 lane_map[DP_MAX_NUM_DP_LANES];
+	bool lanes_reversed;
 	u32 max_dp_lanes;
 	u32 max_dp_link_rate;
 };
@@ -116,6 +117,7 @@ u32 msm_dp_link_get_test_bits_depth(struct msm_dp_link *msm_dp_link, u32 bpp);
 int msm_dp_link_process_request(struct msm_dp_link *msm_dp_link);
 int msm_dp_link_get_colorimetry_config(struct msm_dp_link *msm_dp_link);
 int msm_dp_link_adjust_levels(struct msm_dp_link *msm_dp_link, u8 *link_status);
+void msm_dp_link_apply_orientation(struct msm_dp_link *msm_dp_link, bool reversed);
 bool msm_dp_link_send_test_response(struct msm_dp_link *msm_dp_link);
 int msm_dp_link_psm_config(struct msm_dp_link *msm_dp_link,
 		struct msm_dp_link_info *link_info, bool enable);

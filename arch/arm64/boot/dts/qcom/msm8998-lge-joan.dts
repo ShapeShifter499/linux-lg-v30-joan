@@ -15,6 +15,7 @@
 #include <dt-bindings/leds/common.h>
 #include <dt-bindings/pinctrl/qcom,pmic-gpio.h>
 #include <dt-bindings/usb/pd.h>
+#include <dt-bindings/phy/phy-qcom-qmp.h>
 #include "msm8998.dtsi"
 #include "pm8005.dtsi"
 #include "pm8998.dtsi"
@@ -368,6 +369,18 @@
 				       PDO_FIXED_DATA_SWAP)>;
 		op-sink-microwatt = <15000000>;
 
+		/*
+		 * DFP_D, receptacle, pins C/D/E. Pin C is the DP-only
+		 * assignment this PHY can actually switch to. D would
+		 * need USB3 and DP together, which the block cannot do.
+		 */
+		altmodes {
+			displayport {
+				svid = <0xff01>;
+				vdo = <0x1c46>;
+			};
+		};
+
 		ports {
 			#address-cells = <1>;
 			#size-cells = <0>;
@@ -693,6 +706,26 @@
 	 */
 	gpio-reserved-ranges = <0 2>, <49 4>, <81 4>;
 
+	/*
+	 * Moisture-detect SBU switch. Both must stay low for normal SBU
+	 * routing. The AUX orientation switch is a different part and is
+	 * not hogged here: its enable pin is held high by LG, which the
+	 * generic gpio-sbu-mux would drive low.
+	 */
+	sbu-md-sel-hog {
+		gpio-hog;
+		gpios = <11 GPIO_ACTIVE_HIGH>;
+		output-low;
+		line-name = "sbu-md-sel";
+	};
+
+	sbu-md-oe-hog {
+		gpio-hog;
+		gpios = <16 GPIO_ACTIVE_HIGH>;
+		output-low;
+		line-name = "sbu-md-oe";
+	};
+
 	capsensor_default: capsensor-default-state {
 		pins = "gpio62";
 		function = "gpio";
@@ -839,7 +872,12 @@
 	 * dwc3 waits for its usb3-phy, so that driver (phy-qcom-qmp-usbc,
 	 * built by CONFIG_PHY_QCOM_QMP_COMBO) has to be built in, or be in
 	 * the initramfs, for USB to come up in a RAM boot.
+	 *
+	 * The cell selects the USB3 half. A missing cell would also do that,
+	 * but the raised #phy-cells makes dtc warn and is the change that
+	 * previously broke USB on boards that were not updated.
 	 */
+	phys = <&qusb2phy>, <&usb3phy QMP_USB43DP_USB3_PHY>;
 	dr_mode = "otg";
 	usb-role-switch;
 	role-switch-default-mode = "peripheral";
@@ -850,9 +888,26 @@
 };
 
 &usb3phy {
+	compatible = "qcom,msm8998-qmp-usb3-dp-phy";
+	reg = <0x0c010000 0x2000>;
+	#clock-cells = <1>;
+	#phy-cells = <1>;
+
+	resets = <&gcc GCC_USB3_PHY_BCR>,
+		 <&gcc GCC_USB3PHY_PHY_BCR>,
+		 <&gcc GCC_USB3_DP_PHY_BCR>;
+	reset-names = "phy", "phy_phy", "dp_phy";
+
+	/*
+	 * 0xb244 is the VLS clamp. 0xb248 selects the PHY mode and must
+	 * change while the resets above are asserted.
+	 */
+	qcom,tcsr-reg = <&tcsr_regs_2 0xb244 0xb248>;
+
 	vdda-phy-supply = <&vreg_l1a_0p875>;
 	vdda-pll-supply = <&vreg_l2a_1p2>;
 
+	mode-switch;
 	orientation-switch;
 
 	status = "okay";
@@ -860,6 +915,46 @@
 
 &usb3phy_out {
 	remote-endpoint = <&pmi8998_ss_in>;
+};
+
+&mmcc {
+	clocks = <&rpmcc RPM_SMD_XO_CLK_SRC>,
+		 <&gcc GCC_MMSS_GPLL0_CLK>,
+		 <&mdss_dsi0_phy DSI_PIXEL_PLL_CLK>,
+		 <&mdss_dsi0_phy DSI_BYTE_PLL_CLK>,
+		 <&mdss_dsi1_phy DSI_PIXEL_PLL_CLK>,
+		 <&mdss_dsi1_phy DSI_BYTE_PLL_CLK>,
+		 <&mdss_hdmi_phy>,
+		 <&usb3phy QMP_USB43DP_DP_LINK_CLK>,
+		 <&usb3phy QMP_USB43DP_DP_VCO_DIV_CLK>,
+		 <&gcc GCC_MMSS_GPLL0_DIV_CLK>;
+};
+
+&mdss_dp {
+	status = "okay";
+	phys = <&usb3phy QMP_USB43DP_DP_PHY>;
+	phy-names = "dp";
+
+	ports {
+		port@1 {
+			mdss_dp_out: endpoint {
+				data-lanes = <2 3 1 0>;
+				remote-endpoint = <&usb3phy_dp_in>;
+			};
+		};
+	};
+};
+
+&usb3phy {
+	ports {
+		port@2 {
+			reg = <2>;
+
+			usb3phy_dp_in: endpoint {
+				remote-endpoint = <&mdss_dp_out>;
+			};
+		};
+	};
 };
 
 &wifi {

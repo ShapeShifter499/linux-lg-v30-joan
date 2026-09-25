@@ -93,6 +93,15 @@ struct phy_configure_opts_dp {
 	 *
 	 */
 	u8 set_voltages : 1;
+
+	/**
+	 * @lanes_reversed:
+	 *
+	 * The Type-C plug is flipped, so the logical lane map must be
+	 * mirrored. Set by the PHY during configure. Consumers that do
+	 * not understand it leave it clear.
+	 */
+	u8 lanes_reversed : 1;
 };
 
 #endif /* __PHY_DP_H_ */
