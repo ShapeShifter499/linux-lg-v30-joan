@@ -18,7 +18,6 @@ properties:
   compatible:
     oneOf:
       - enum:
-      - qcom,msm8998-dp
           - qcom,glymur-dp
           - qcom,sa8775p-dp
           - qcom,sc7180-dp
@@ -35,27 +34,23 @@ properties:
 
       - items:
           - enum:
-      - qcom,msm8998-dp
               - qcom,qcs8300-dp
           - const: qcom,sa8775p-dp
 
       - items:
           - enum:
-      - qcom,msm8998-dp
               - qcom,sm6350-dp
           - const: qcom,sc7180-dp
 
       # deprecated entry for compatibility with old DT
       - items:
           - enum:
-      - qcom,msm8998-dp
               - qcom,sm6350-dp
           - const: qcom,sm8350-dp
         deprecated: true
 
       - items:
           - enum:
-      - qcom,msm8998-dp
               - qcom,sar2130p-dp
               - qcom,sm7150-dp
               - qcom,sm8150-dp
@@ -66,14 +61,12 @@ properties:
 
       - items:
           - enum:
-      - qcom,msm8998-dp
               - qcom,sm6150-dp
           - const: qcom,sm8150-dp
           - const: qcom,sm8350-dp
 
       - items:
           - enum:
-      - qcom,msm8998-dp
               - qcom,eliza-dp
               - qcom,sm8750-dp
           - const: qcom,sm8650-dp
@@ -203,7 +196,6 @@ allOf:
         compatible:
           contains:
             enum:
-      - qcom,msm8998-dp
               - qcom,sc7280-edp
               - qcom,sc8180x-edp
               - qcom,sc8280xp-edp
@@ -216,7 +208,6 @@ allOf:
           compatible:
             contains:
               enum:
-      - qcom,msm8998-dp
                 - qcom,glymur-dp
                 - qcom,sa8775p-dp
                 - qcom,x1e80100-dp
@@ -239,7 +230,6 @@ allOf:
         compatible:
           contains:
             enum:
-      - qcom,msm8998-dp
               # these platforms support SST only
               - qcom,sc7180-dp
               - qcom,sc7280-dp
@@ -263,7 +253,6 @@ allOf:
         compatible:
           contains:
             enum:
-      - qcom,msm8998-dp
               # these platforms support 2 streams MST on some interfaces,
               # others are SST only
               - qcom,sc8280xp-dp
@@ -286,7 +275,6 @@ allOf:
           contains:
             # 2 streams MST
             enum:
-      - qcom,msm8998-dp
               - qcom,sc8180x-dp
               - qcom,sdm845-dp
               - qcom,sm8350-dp
@@ -307,7 +295,6 @@ allOf:
         compatible:
           contains:
             enum:
-      - qcom,msm8998-dp
               - qcom,sm8650-dp
     then:
       properties:
@@ -326,7 +313,6 @@ allOf:
         compatible:
           contains:
             enum:
-      - qcom,msm8998-dp
               # these platforms support 4 stream MST on first DP,
               # 2 streams MST on the second one.
               - qcom,sa8775p-dp
@@ -347,7 +333,6 @@ allOf:
         compatible:
           contains:
             enum:
-      - qcom,msm8998-dp
               # these platforms support 2 streams MST on some interfaces,
               # others are SST only, but all controllers have 4 ports
               - qcom,glymur-dp

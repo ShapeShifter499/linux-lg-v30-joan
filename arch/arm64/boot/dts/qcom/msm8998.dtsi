@@ -12,7 +12,6 @@
 #include <dt-bindings/interconnect/qcom,msm8998.h>
 #include <dt-bindings/power/qcom-rpmpd.h>
 #include <dt-bindings/gpio/gpio.h>
-#include <dt-bindings/phy/phy-qcom-qmp.h>
 
 / {
 	interrupt-parent = <&intc>;
@@ -2615,8 +2614,8 @@
 		};
 
 		usb3phy: phy@c010000 {
-			compatible = "qcom,msm8998-qmp-usb3-dp-phy";
-			reg = <0x0c010000 0x2000>;
+			compatible = "qcom,msm8998-qmp-usb3-phy";
+			reg = <0x0c010000 0x1000>;
 
 			clocks = <&gcc GCC_USB3_PHY_AUX_CLK>,
 				 <&gcc GCC_USB3_CLKREF_CLK>,
@@ -2627,13 +2626,13 @@
 				      "cfg_ahb",
 				      "pipe";
 			clock-output-names = "usb3_phy_pipe_clk_src";
-			#clock-cells = <1>;
-			#phy-cells = <1>;
+			#clock-cells = <0>;
+			#phy-cells = <0>;
 
-			resets = <&gcc GCC_USB3PHY_PHY_BCR>,
-				 <&gcc GCC_USB3_DP_PHY_BCR>;
-			reset-names = "phy_phy",
-				      "dp_phy";
+			resets = <&gcc GCC_USB3_PHY_BCR>,
+				 <&gcc GCC_USB3PHY_PHY_BCR>;
+			reset-names = "phy",
+				      "phy_phy";
 
 			qcom,tcsr-reg = <&tcsr_regs_2 0xb244>;
 
@@ -2645,26 +2644,19 @@
 
 				port@0 {
 					reg = <0>;
+
 					usb3phy_out: endpoint {
-						
 					};
 				};
 
 				port@1 {
 					reg = <1>;
+
 					usb3phy_usb_ss_in: endpoint {
 						remote-endpoint = <&usb3_dwc3_ss>;
 					};
 				};
-
-				port@2 {
-					reg = <2>;
-					usb3phy_dp_in: endpoint {
-						remote-endpoint = <&mdss_dp_out>;
-					};
-				};
 			};
-
 		};
 
 		qusb2phy: phy@c012000 {
@@ -3249,9 +3241,10 @@
 				 <&mdss_dsi1_phy DSI_PIXEL_PLL_CLK>,
 				 <&mdss_dsi1_phy DSI_BYTE_PLL_CLK>,
 				 <&mdss_hdmi_phy>,
-				 <&usb3phy QMP_USB43DP_DP_LINK_CLK>,
-				 <&usb3phy QMP_USB43DP_DP_VCO_DIV_CLK>,
-				 <&gcc GCC_MMSS_GPLL0_DIV_CLK>;};
+				 <0>,
+				 <0>,
+				 <&gcc GCC_MMSS_GPLL0_DIV_CLK>;
+		};
 
 		mdss: display-subsystem@c900000 {
 			compatible = "qcom,msm8998-mdss";
@@ -3363,14 +3356,6 @@
 
 						dpu_intf3_out: endpoint {
 							remote-endpoint = <&hdmi_in>;
-						};
-					};
-
-					port@3 {
-						reg = <3>;
-
-						dpu_intf0_out: endpoint {
-							remote-endpoint = <&mdss_dp_in>;
 						};
 					};
 				};
@@ -3617,50 +3602,6 @@
 					      "xo";
 
 				status = "disabled";
-			};
-
-			mdss_dp: displayport-controller@c990000 {
-				compatible = "qcom,msm8998-dp";
-				reg = <0x0c990000 0x200>,
-				      <0x0c990200 0x200>,
-				      <0x0c990400 0xc00>,
-				      <0x0c991000 0x400>;
-				interrupt-parent = <&mdss>;
-				interrupts = <12>;
-				clocks = <&mmcc MDSS_HDMI_DP_AHB_CLK>,
-					 <&mmcc MDSS_DP_AUX_CLK>,
-					 <&mmcc MDSS_DP_LINK_CLK>,
-					 <&mmcc MDSS_DP_LINK_INTF_CLK>,
-					 <&mmcc MDSS_DP_PIXEL_CLK>;
-				clock-names = "core_iface", "core_aux",
-					      "ctrl_link", "ctrl_link_iface",
-					      "stream_pixel";
-				assigned-clocks = <&mmcc DP_LINK_CLK_SRC>,
-						  <&mmcc DP_PIXEL_CLK_SRC>;
-				assigned-clock-parents = <&usb3phy QMP_USB43DP_DP_LINK_CLK>,
-							 <&usb3phy QMP_USB43DP_DP_VCO_DIV_CLK>;
-				phys = <&usb3phy QMP_USB43DP_DP_PHY>;
-				phy-names = "dp";
-				power-domains = <&mmcc MDSS_GDSC>;
-				#sound-dai-cells = <0>;
-				status = "disabled";
-
-				ports {
-					#address-cells = <1>;
-					#size-cells = <0>;
-					port@0 {
-						reg = <0>;
-						mdss_dp_in: endpoint {
-							remote-endpoint = <&dpu_intf0_out>;
-						};
-					};
-					port@1 {
-						reg = <1>;
-						mdss_dp_out: endpoint {
-							remote-endpoint = <&usb3phy_dp_in>;
-						};
-					};
-				};
 			};
 		};
 

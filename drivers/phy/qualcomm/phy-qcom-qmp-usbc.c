@@ -586,47 +586,6 @@ static const struct qmp_phy_cfg msm8998_usb3phy_cfg = {
 	.num_vregs              = ARRAY_SIZE(qmp_phy_msm8998_vreg_l),
 	.regs                   = qmp_v3_usb3phy_regs_layout,
 };
-static void qcs615_qmp_dp_aux_init(struct qmp_usbc *qmp);
-static void qcs615_qmp_configure_dp_tx(struct qmp_usbc *qmp);
-static int qcs615_qmp_configure_dp_phy(struct qmp_usbc *qmp);
-
-static const struct qmp_phy_cfg msm8998_usb3dp_phy_cfg = {
-	.offsets		= &qmp_usbc_usb3dp_offsets_qcs615,
-
-	.serdes_tbl             = msm8998_usb3_serdes_tbl,
-	.serdes_tbl_num         = ARRAY_SIZE(msm8998_usb3_serdes_tbl),
-	.tx_tbl                 = msm8998_usb3_tx_tbl,
-	.tx_tbl_num             = ARRAY_SIZE(msm8998_usb3_tx_tbl),
-	.rx_tbl                 = msm8998_usb3_rx_tbl,
-	.rx_tbl_num             = ARRAY_SIZE(msm8998_usb3_rx_tbl),
-	.pcs_tbl                = msm8998_usb3_pcs_tbl,
-	.pcs_tbl_num            = ARRAY_SIZE(msm8998_usb3_pcs_tbl),
-	.reset_list		= usb3dpphy_reset_l,
-	.num_resets		= ARRAY_SIZE(usb3dpphy_reset_l),
-	.vreg_list              = qmp_phy_msm8998_vreg_l,
-	.num_vregs              = ARRAY_SIZE(qmp_phy_msm8998_vreg_l),
-	.regs                   = qmp_v3_usb3phy_regs_layout,
-
-	.dp_serdes_tbl		= qcs615_dp_serdes_tbl,
-	.dp_serdes_tbl_num	= ARRAY_SIZE(qcs615_dp_serdes_tbl),
-	.dp_tx_tbl		= qcs615_dp_tx_tbl,
-	.dp_tx_tbl_num		= ARRAY_SIZE(qcs615_dp_tx_tbl),
-
-	.serdes_tbl_rbr		= qcs615_dp_serdes_tbl_rbr,
-	.serdes_tbl_rbr_num	= ARRAY_SIZE(qcs615_dp_serdes_tbl_rbr),
-	.serdes_tbl_hbr		= qcs615_dp_serdes_tbl_hbr,
-	.serdes_tbl_hbr_num	= ARRAY_SIZE(qcs615_dp_serdes_tbl_hbr),
-	.serdes_tbl_hbr2	= qcs615_dp_serdes_tbl_hbr2,
-	.serdes_tbl_hbr2_num	= ARRAY_SIZE(qcs615_dp_serdes_tbl_hbr2),
-
-	.swing_tbl		= &qcs615_dp_voltage_swing_hbr2_rbr,
-	.pre_emphasis_tbl	= &qcs615_dp_pre_emphasis_hbr2_rbr,
-
-	.dp_aux_init		= qcs615_qmp_dp_aux_init,
-	.configure_dp_tx	= qcs615_qmp_configure_dp_tx,
-	.configure_dp_phy	= qcs615_qmp_configure_dp_phy,
-};
-
 
 static const struct qmp_phy_cfg qcm2290_usb3phy_cfg = {
 	.offsets		= &qmp_usbc_offsets_v3_qcm2290,
@@ -2045,10 +2004,7 @@ err_node_put:
 }
 
 static const struct of_device_id qmp_usbc_of_match_table[] = {
-		{
-		.compatible = "qcom,msm8998-qmp-usb3-dp-phy",
-		.data = &msm8998_usb3dp_phy_cfg,
-	}, {
+	{
 		.compatible = "qcom,msm8998-qmp-usb3-phy",
 		.data = &msm8998_usb3phy_cfg,
 	}, {

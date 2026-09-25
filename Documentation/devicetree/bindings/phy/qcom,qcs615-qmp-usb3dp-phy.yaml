@@ -17,8 +17,7 @@ description:
 properties:
   compatible:
     enum:
-      - qcom,msm8998-qmp-usb3-dp-phy
-          - qcom,qcs615-qmp-usb3-dp-phy
+      - qcom,qcs615-qmp-usb3-dp-phy
 
   reg:
     maxItems: 1

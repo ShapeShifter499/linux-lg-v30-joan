@@ -120,21 +120,6 @@
 		};
 	};
 
-	
-	sbu_mux: sbu-mux {
-		compatible = "gpio-sbu-mux";
-		enable-gpios = <&tlmm 100 GPIO_ACTIVE_LOW>;
-		select-gpios = <&tlmm 80 GPIO_ACTIVE_HIGH>;
-		mode-switch;
-		orientation-switch;
-
-		port {
-			sbu_mux_in: endpoint {
-				remote-endpoint = <&pmi8998_sbu_out>;
-			};
-		};
-	};
-
 	gpio-keys {
 		compatible = "gpio-keys";
 		label = "Volume up";
@@ -408,20 +393,12 @@
 				reg = <1>;
 
 				pmi8998_ss_in: endpoint {
-					remote-endpoint = <&usb3phy_usb_ss_in>;
+					remote-endpoint = <&usb3phy_out>;
 				};
-			};
-
-			port@2 {
-				reg = <2>;
-
-				pmi8998_sbu_out: endpoint {
-					remote-endpoint = <&sbu_mux_in>;
-				};
-			};
 			};
 		};
 	};
+};
 
 /*
  * Rear flash: LG drives both flash channels together into the one LED,
@@ -1729,12 +1706,4 @@
 		reg = <QUATERNARY_MI2S_RX>;
 		qcom,sd-lines = <1>;
 	};
-};
-
-&mdss_dp {
-	status = "okay";
-};
-
-&usb3phy_out {
-	remote-endpoint = <&pmi8998_ss_in>;
 };
