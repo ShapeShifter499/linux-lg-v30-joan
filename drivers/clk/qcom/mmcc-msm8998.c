@@ -698,43 +698,30 @@ static struct clk_rcg2 dp_crypto_clk_src = {
 	},
 };
 
-static const struct freq_tbl ftbl_dp_link_clk_src[] = {
-	F(162000, P_DPLINK, 2, 0, 0),
-	F(270000, P_DPLINK, 2, 0, 0),
-	F(540000, P_DPLINK, 2, 0, 0),
-	{ }
-};
-
 static struct clk_rcg2 dp_link_clk_src = {
 	.cmd_rcgr = 0x2200,
 	.hid_width = 5,
 	.parent_map = mmss_xo_dp_map,
-	.freq_tbl = ftbl_dp_link_clk_src,
 	.clkr.hw.init = &(struct clk_init_data){
 		.name = "dp_link_clk_src",
 		.parent_data = mmss_xo_dp,
 		.num_parents = ARRAY_SIZE(mmss_xo_dp),
-		.ops = &clk_rcg2_ops,
+		.flags = CLK_SET_RATE_PARENT,
+		.ops = &clk_byte2_ops,
 	},
-};
-
-static const struct freq_tbl ftbl_dp_pixel_clk_src[] = {
-	F(154000000, P_DPVCO, 1, 0, 0),
-	F(337500000, P_DPVCO, 2, 0, 0),
-	F(675000000, P_DPVCO, 2, 0, 0),
-	{ }
 };
 
 static struct clk_rcg2 dp_pixel_clk_src = {
 	.cmd_rcgr = 0x2240,
+	.mnd_width = 16,
 	.hid_width = 5,
 	.parent_map = mmss_xo_dp_map,
-	.freq_tbl = ftbl_dp_pixel_clk_src,
 	.clkr.hw.init = &(struct clk_init_data){
 		.name = "dp_pixel_clk_src",
 		.parent_data = mmss_xo_dp,
 		.num_parents = ARRAY_SIZE(mmss_xo_dp),
-		.ops = &clk_rcg2_ops,
+		.flags = CLK_SET_RATE_PARENT,
+		.ops = &clk_dp_ops,
 	},
 };
 
