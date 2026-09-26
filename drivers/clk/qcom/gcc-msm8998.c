@@ -2856,6 +2856,11 @@ static struct clk_branch gcc_pcie_clkref_clk = {
 
 static struct clk_branch gcc_rx1_usb2_clkref_clk = {
 	.halt_reg = 0x88014,
+	/*
+	 * The reference stays on after our enable bit is cleared while the
+	 * boot-time USB session still uses it, so only check halt on enable.
+	 */
+	.halt_check = BRANCH_HALT_VOTED,
 	.clkr = {
 		.enable_reg = 0x88014,
 		.enable_mask = BIT(0),
