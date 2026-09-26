@@ -462,6 +462,17 @@
 	vdd-gfx-supply = <&pm8005_s1>;
 };
 
+/* LG's msm-4.4 kernel (CONFIG_LGE_PM) has LMh throttle at 85 C, not 95 C */
+&lmh_cluster0 {
+	qcom,lmh-temp-low-millicelsius = <84500>;
+	qcom,lmh-temp-high-millicelsius = <85000>;
+};
+
+&lmh_cluster1 {
+	qcom,lmh-temp-low-millicelsius = <84500>;
+	qcom,lmh-temp-high-millicelsius = <85000>;
+};
+
 &qusb2phy {
 	status = "okay";
 

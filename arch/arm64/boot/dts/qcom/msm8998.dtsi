@@ -4789,12 +4789,85 @@
 			};
 		};
 
+		/*
+		 * L2 SAWs. CPRh sets the APC rail voltages through their AVS/PMIC
+		 * interface (downstream: qcom,cpr-saw-use-unit-mV), so the OSM can
+		 * only change performance state once these are configured.
+		 */
+		saw_gold_l2: power-manager@17812000 {
+			compatible = "qcom,msm8998-gold-saw2-v4.1-l2", "qcom,saw2";
+			reg = <0x17812000 0x1000>;
+		};
+
 		apcs_glb: mailbox@17911000 {
 			compatible = "qcom,msm8998-apcs-hmss-global",
 				     "qcom,msm8994-apcs-kpss-global";
 			reg = <0x17911000 0x1000>;
 
 			#mbox-cells = <1>;
+		};
+
+		saw_silver_l2: power-manager@17912000 {
+			compatible = "qcom,msm8998-silver-saw2-v4.1-l2", "qcom,saw2";
+			reg = <0x17912000 0x1000>;
+		};
+
+		timer@17920000 {
+			#address-cells = <1>;
+			#size-cells = <1>;
+			ranges;
+			compatible = "arm,armv7-timer-mem";
+			reg = <0x17920000 0x1000>;
+
+			frame@17921000 {
+				frame-number = <0>;
+				interrupts = <GIC_SPI 8 IRQ_TYPE_LEVEL_HIGH>,
+					     <GIC_SPI 7 IRQ_TYPE_LEVEL_HIGH>;
+				reg = <0x17921000 0x1000>,
+				      <0x17922000 0x1000>;
+			};
+
+			frame@17923000 {
+				frame-number = <1>;
+				interrupts = <GIC_SPI 9 IRQ_TYPE_LEVEL_HIGH>;
+				reg = <0x17923000 0x1000>;
+				status = "disabled";
+			};
+
+			frame@17924000 {
+				frame-number = <2>;
+				interrupts = <GIC_SPI 10 IRQ_TYPE_LEVEL_HIGH>;
+				reg = <0x17924000 0x1000>;
+				status = "disabled";
+			};
+
+			frame@17925000 {
+				frame-number = <3>;
+				interrupts = <GIC_SPI 11 IRQ_TYPE_LEVEL_HIGH>;
+				reg = <0x17925000 0x1000>;
+				status = "disabled";
+			};
+
+			frame@17926000 {
+				frame-number = <4>;
+				interrupts = <GIC_SPI 12 IRQ_TYPE_LEVEL_HIGH>;
+				reg = <0x17926000 0x1000>;
+				status = "disabled";
+			};
+
+			frame@17927000 {
+				frame-number = <5>;
+				interrupts = <GIC_SPI 13 IRQ_TYPE_LEVEL_HIGH>;
+				reg = <0x17927000 0x1000>;
+				status = "disabled";
+			};
+
+			frame@17928000 {
+				frame-number = <6>;
+				interrupts = <GIC_SPI 14 IRQ_TYPE_LEVEL_HIGH>;
+				reg = <0x17928000 0x1000>;
+				status = "disabled";
+			};
 		};
 
 		cpufreq_hw: cpufreq@179c0000 {
@@ -4901,63 +4974,28 @@
 					   "cpr1_ring_osc4";
 		};
 
+		lmh_cluster1: lmh@179cc800 {
+			compatible = "qcom,msm8998-lmh";
+			reg = <0x179cc800 0x400>;
+			interrupts = <GIC_SPI 38 IRQ_TYPE_LEVEL_HIGH>;
+			cpus = <&cpu4>;
+			qcom,lmh-temp-arm-millicelsius = <65000>;
+			qcom,lmh-temp-low-millicelsius = <94500>;
+			qcom,lmh-temp-high-millicelsius = <95000>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+		};
 
-		timer@17920000 {
-			#address-cells = <1>;
-			#size-cells = <1>;
-			ranges;
-			compatible = "arm,armv7-timer-mem";
-			reg = <0x17920000 0x1000>;
-
-			frame@17921000 {
-				frame-number = <0>;
-				interrupts = <GIC_SPI 8 IRQ_TYPE_LEVEL_HIGH>,
-					     <GIC_SPI 7 IRQ_TYPE_LEVEL_HIGH>;
-				reg = <0x17921000 0x1000>,
-				      <0x17922000 0x1000>;
-			};
-
-			frame@17923000 {
-				frame-number = <1>;
-				interrupts = <GIC_SPI 9 IRQ_TYPE_LEVEL_HIGH>;
-				reg = <0x17923000 0x1000>;
-				status = "disabled";
-			};
-
-			frame@17924000 {
-				frame-number = <2>;
-				interrupts = <GIC_SPI 10 IRQ_TYPE_LEVEL_HIGH>;
-				reg = <0x17924000 0x1000>;
-				status = "disabled";
-			};
-
-			frame@17925000 {
-				frame-number = <3>;
-				interrupts = <GIC_SPI 11 IRQ_TYPE_LEVEL_HIGH>;
-				reg = <0x17925000 0x1000>;
-				status = "disabled";
-			};
-
-			frame@17926000 {
-				frame-number = <4>;
-				interrupts = <GIC_SPI 12 IRQ_TYPE_LEVEL_HIGH>;
-				reg = <0x17926000 0x1000>;
-				status = "disabled";
-			};
-
-			frame@17927000 {
-				frame-number = <5>;
-				interrupts = <GIC_SPI 13 IRQ_TYPE_LEVEL_HIGH>;
-				reg = <0x17927000 0x1000>;
-				status = "disabled";
-			};
-
-			frame@17928000 {
-				frame-number = <6>;
-				interrupts = <GIC_SPI 14 IRQ_TYPE_LEVEL_HIGH>;
-				reg = <0x17928000 0x1000>;
-				status = "disabled";
-			};
+		lmh_cluster0: lmh@179ce800 {
+			compatible = "qcom,msm8998-lmh";
+			reg = <0x179ce800 0x400>;
+			interrupts = <GIC_SPI 37 IRQ_TYPE_LEVEL_HIGH>;
+			cpus = <&cpu0>;
+			qcom,lmh-temp-arm-millicelsius = <65000>;
+			qcom,lmh-temp-low-millicelsius = <94500>;
+			qcom,lmh-temp-high-millicelsius = <95000>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
 		};
 
 		intc: interrupt-controller@17a00000 {
