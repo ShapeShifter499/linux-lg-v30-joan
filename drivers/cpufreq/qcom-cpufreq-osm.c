@@ -475,6 +475,13 @@ static int qcom_cpufreq_gen_params(struct device *cpu_dev,
 		return -ENODATA;
 	}
 
+	/* Now that genpd has linked the OPP table, let CPRh fill it in */
+	ret = cpr3_cprh_setup_corners(pd_list->pd_devs[0]);
+	if (ret) {
+		dev_err(&pdev->dev, "CPRh corner setup failed: %d\n", ret);
+		return ret;
+	}
+
 	/* Get the count of available OPPs coming from the power domain */
 	gpd_opp_cnt = dev_pm_opp_get_opp_count(cpu_dev);
 	if (gpd_opp_cnt < 2) {

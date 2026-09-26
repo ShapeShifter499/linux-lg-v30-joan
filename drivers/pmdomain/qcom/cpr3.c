@@ -272,6 +272,7 @@ struct cpr_thread {
 	struct cpr_ext_data	ext_data;
 	struct generic_pm_domain pd;
 	struct device		*attached_cpu_dev;
+	bool			cprh_setup_pending;
 	struct work_struct	restart_work;
 	bool			restarting;
 
@@ -2173,7 +2174,6 @@ static int cpr_pd_attach_dev(struct generic_pm_domain *domain,
 	struct cpr_thread *thread = container_of(domain, struct cpr_thread, pd);
 	struct cpr_drv *drv = thread->drv;
 	const struct acc_desc *acc_desc = drv->acc_desc;
-	bool cprh_opp_remove_table = false;
 	int ret = 0;
 
 	guard(mutex)(&drv->lock);
@@ -2248,31 +2248,20 @@ static int cpr_pd_attach_dev(struct generic_pm_domain *domain,
 		return -ENOMEM;
 
 	/*
-	 * If we are on CPR-Hardened we have to make sure that the attached
-	 * device has a OPP table installed, as we're going to modify it here
-	 * with our calculations based on qfprom values.
+	 * On CPR-Hardened the corners are computed into the attached CPU's
+	 * OPP table. genpd links the CPU OPP table to this domain only after
+	 * this callback returns, and that link must be made on an empty
+	 * table, so leave the table alone here. The cpufreq driver calls
+	 * cpr3_cprh_setup_corners() once the attach is complete.
 	 */
 	if (drv->desc->cpr_type == CTRL_TYPE_CPRH) {
-		ret = dev_pm_opp_of_add_table(dev);
-		if (ret && ret != -EEXIST) {
-			dev_err(drv->dev, "Cannot add table: %d\n", ret);
-			return ret;
-		}
-		cprh_opp_remove_table = true;
+		thread->cprh_setup_pending = true;
+		return 0;
 	}
 
 	ret = cpr3_corner_init(thread);
-	if (ret) {
-		/*
-		 * If we are on CPRh and we reached an error condition, we installed
-		 * the OPP table but we haven't done any setup on it, nor we ever will.
-		 * In order to leave a clean state, remove the table.
-		 */
-		if (cprh_opp_remove_table)
-			dev_pm_opp_of_remove_table(thread->attached_cpu_dev);
-
+	if (ret)
 		return dev_err_probe(dev, ret, "Couldn't initialize corners\n");
-	}
 
 	if (drv->desc->cpr_type != CTRL_TYPE_CPRH) {
 		ret = cpr3_find_initial_corner(thread);
@@ -2293,6 +2282,54 @@ static int cpr_pd_attach_dev(struct generic_pm_domain *domain,
 
 	return ret;
 }
+
+/**
+ * cpr3_cprh_setup_corners() - Finish the CPRh attach of a CPU cluster
+ * @dev: the device that was attached to the CPRh power domain
+ *
+ * Populate the attached CPU OPP table and compute the corner voltages into
+ * it. This has to run after genpd has linked the OPP table to the power
+ * domain, which is why it is not part of the attach callback.
+ *
+ * Return: zero on success (or if there was nothing to do), negative errno.
+ */
+int cpr3_cprh_setup_corners(struct device *dev)
+{
+	struct cpr_ext_data *ext = dev_get_drvdata(dev);
+	struct cpr_thread *thread;
+	struct cpr_drv *drv;
+	int ret;
+
+	if (!ext)
+		return -ENODATA;
+
+	thread = container_of(ext, struct cpr_thread, ext_data);
+	drv = thread->drv;
+
+	guard(mutex)(&drv->lock);
+
+	if (!thread->cprh_setup_pending)
+		return 0;
+
+	ret = dev_pm_opp_of_add_table(thread->attached_cpu_dev);
+	if (ret && ret != -EEXIST) {
+		dev_err(drv->dev, "Cannot add table: %d\n", ret);
+		return ret;
+	}
+
+	ret = cpr3_corner_init(thread);
+	if (ret) {
+		dev_pm_opp_of_remove_table(thread->attached_cpu_dev);
+		return dev_err_probe(drv->dev, ret, "Couldn't initialize corners\n");
+	}
+
+	thread->cprh_setup_pending = false;
+	dev_info(drv->dev, "thread %d initialized with %u OPPs\n",
+		 thread->id, thread->num_corners);
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(cpr3_cprh_setup_corners);
 
 static int cpr3_debug_info_show(struct seq_file *s, void *unused)
 {

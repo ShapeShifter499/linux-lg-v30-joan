@@ -14,4 +14,15 @@ struct cpr_ext_data {
 	int apm_threshold_uV;
 };
 
+struct device;
+
+#if IS_ENABLED(CONFIG_QCOM_CPR3)
+int cpr3_cprh_setup_corners(struct device *dev);
+#else
+static inline int cpr3_cprh_setup_corners(struct device *dev)
+{
+	return -ENODEV;
+}
+#endif
+
 #endif /* __CPR_H__ */
