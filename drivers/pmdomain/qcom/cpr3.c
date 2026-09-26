@@ -1754,6 +1754,12 @@ static const int msm8998_silver_scaling_factor[][CPR3_RO_COUNT] = {
 	}
 };
 
+/*
+ * The volt_{o,c}loop_adjust values are the MSM8998 v2 fuse adjustments from
+ * msm-4.4 (msm8998-v2.dtsi), which are the same for every speed bin and CPR
+ * revision. Retail parts are v2.1; the older v1 values left their NOM and
+ * TURBO_L1 corners 20-70 mV below the vendor voltages.
+ */
 static const struct cpr_thread_desc msm8998_thread_gold = {
 	.controller_id = 1,
 	.hw_tid = 0,
@@ -1801,8 +1807,8 @@ static const struct cpr_thread_desc msm8998_thread_gold = {
 			.max_uV = 952000,
 			.min_uV = 632000,
 			.range_uV = 32000,
-			.volt_cloop_adjust = 12000,
-			.volt_oloop_adjust = 12000,
+			.volt_cloop_adjust = 32000,
+			.volt_oloop_adjust = 32000,
 			.max_volt_scale = 620,
 			.max_quot_scale = 750,
 			.quot_offset = 0,
@@ -1816,8 +1822,8 @@ static const struct cpr_thread_desc msm8998_thread_gold = {
 			.max_uV = 1136000,
 			.min_uV = 772000,
 			.range_uV = 40000,
-			.volt_cloop_adjust = 50000,
-			.volt_oloop_adjust = 52000,
+			.volt_cloop_adjust = 120000,
+			.volt_oloop_adjust = 122000,
 			.max_volt_scale = 580,
 			.max_quot_scale = 1040,
 			.quot_offset = 0,
@@ -1876,8 +1882,8 @@ static const struct cpr_thread_desc msm8998_thread_silver = {
 			.max_uV = 952000,
 			.min_uV = 664000,
 			.range_uV = 32000,
-			.volt_cloop_adjust = 12000,
-			.volt_oloop_adjust = 12000,
+			.volt_cloop_adjust = 32000,
+			.volt_oloop_adjust = 32000,
 			.max_volt_scale = 280,
 			.max_quot_scale = 650,
 			.quot_offset = 0,
@@ -1892,8 +1898,8 @@ static const struct cpr_thread_desc msm8998_thread_silver = {
 			.max_uV = 1056000,
 			.min_uV = 772000,
 			.range_uV = 40000,
-			.volt_cloop_adjust = 30000,
-			.volt_oloop_adjust = 30000,
+			.volt_cloop_adjust = 80000,
+			.volt_oloop_adjust = 80000,
 			.max_volt_scale = 430,
 			.max_quot_scale = 800,
 			.quot_offset = 0,
