@@ -1599,6 +1599,27 @@
 				bits = <5 3>;
 			};
 
+			/* GFX (MMSS) CPR fuses; row N of the fuse map is at N * 8 */
+			gpu_cpr_rev: gpu-cpr-rev@13e {
+				reg = <0x13e 0x1>;	/* row 39 bits 48:50 */
+				bits = <0 3>;
+			};
+
+			gpu_cpr_limit: gpu-cpr-limit@14d {
+				reg = <0x14d 0x1>;	/* row 41 bits 46:47 */
+				bits = <6 2>;
+			};
+
+			gpu_cpr_init: gpu-cpr-init@20b {
+				reg = <0x20b 0x3>;	/* row 65 bits 24:43 */
+				bits = <0 20>;
+			};
+
+			gpu_cpr_force: gpu-cpr-force@325 {
+				reg = <0x325 0x1>;	/* row 100 bit 45 */
+				bits = <5 1>;
+			};
+
 			cpr_fuse_revision: cpr-fusing-rev@13e {
 				reg = <0x13e 0x1>;
 				bits = <3 3>;
