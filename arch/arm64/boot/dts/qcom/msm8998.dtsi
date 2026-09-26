@@ -1267,6 +1267,10 @@
 
 			resets = <&gcc GCC_UFS_BCR>;
 			reset-names = "rst";
+
+			interconnects = <&a1noc MAS_UFS &bimc SLV_EBI>,
+					<&gnoc MAS_APSS_PROC &cnoc SLV_UFS_CFG>;
+			interconnect-names = "ufs-ddr", "cpu-ufs";
 		};
 
 		ufsphy: phy@1da7000 {
