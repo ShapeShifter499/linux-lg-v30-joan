@@ -1477,6 +1477,11 @@ static int qmp_usbc_dp_disable(struct phy *phy)
 	return 0;
 }
 
+/*
+ * msm-dp does not check phy_init(), so it can reach these ops after
+ * qmp_usbc_check_phy_status() refused DP because USB3 owns the PHY.
+ * Touching the DP registers then would reprogram the SerDes under USB.
+ */
 static int qmp_usbc_dp_configure(struct phy *phy, union phy_configure_opts *opts)
 {
 	const struct phy_configure_opts_dp *dp_opts = &opts->dp;
@@ -1484,6 +1489,11 @@ static int qmp_usbc_dp_configure(struct phy *phy, union phy_configure_opts *opts
 	const struct qmp_phy_cfg *cfg = qmp->cfg;
 
 	mutex_lock(&qmp->phy_mutex);
+
+	if (!qmp->dp_init_count) {
+		mutex_unlock(&qmp->phy_mutex);
+		return -EBUSY;
+	}
 
 	memcpy(&qmp->dp_opts, dp_opts, sizeof(*dp_opts));
 	opts->dp.lanes_reversed = qmp->orientation == TYPEC_ORIENTATION_REVERSE;
@@ -1504,6 +1514,11 @@ static int qmp_usbc_dp_calibrate(struct phy *phy)
 	int ret = 0;
 
 	mutex_lock(&qmp->phy_mutex);
+
+	if (!qmp->dp_init_count) {
+		mutex_unlock(&qmp->phy_mutex);
+		return -EBUSY;
+	}
 
 	if (cfg->calibrate_dp_phy) {
 		ret = cfg->calibrate_dp_phy(qmp);
@@ -1566,6 +1581,11 @@ static int qmp_usbc_dp_power_on(struct phy *phy)
 
 	mutex_lock(&qmp->phy_mutex);
 
+	if (!qmp->dp_init_count) {
+		mutex_unlock(&qmp->phy_mutex);
+		return -EBUSY;
+	}
+
 	qmp_usbc_dp_serdes_init(qmp);
 
 	qmp_configure_lane(qmp->dev, tx, cfg->dp_tx_tbl, cfg->dp_tx_tbl_num, 1);
@@ -1587,6 +1607,11 @@ static int qmp_usbc_dp_power_off(struct phy *phy)
 	struct qmp_usbc *qmp = phy_get_drvdata(phy);
 
 	mutex_lock(&qmp->phy_mutex);
+
+	if (!qmp->dp_init_count) {
+		mutex_unlock(&qmp->phy_mutex);
+		return -EBUSY;
+	}
 
 	/* Assert DP PHY power down */
 	writel(DP_PHY_PD_CTL_PSR_PWRDN, qmp->dp_dp_phy + QSERDES_DP_PHY_PD_CTL);
