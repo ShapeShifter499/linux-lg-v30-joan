@@ -20,6 +20,7 @@
 #include <linux/irq.h>
 #include <linux/interrupt.h>
 #include <linux/module.h>
+#include <linux/pm_runtime.h>
 #include <linux/unaligned.h>
 
 #include <linux/iio/iio.h>
@@ -50,6 +51,8 @@
 #define VL53L0X_MODEL_ID_VAL				0xEE
 #define VL53L0X_CONTINUOUS_MODE				0x02
 #define VL53L0X_SINGLE_MODE				0x01
+
+#define VL53L0X_AUTOSUSPEND_DELAY_MS			1000
 
 struct vl53l0x_data {
 	struct i2c_client *client;
@@ -114,6 +117,20 @@ static irqreturn_t vl53l0x_threaded_irq(int irq, void *priv)
 	return IRQ_HANDLED;
 }
 
+/* GPIO1 signals new samples; this is lost whenever the chip is powered off */
+static int vl53l0x_enable_irq_output(struct vl53l0x_data *data)
+{
+	int ret;
+
+	ret = i2c_smbus_write_byte_data(data->client,
+			VL_REG_SYSTEM_INTERRUPT_CONFIG_GPIO,
+			VL_REG_SYSTEM_INTERRUPT_GPIO_NEW_SAMPLE_READY);
+	if (ret < 0)
+		dev_err(&data->client->dev, "failed to configure IRQ: %d\n", ret);
+
+	return ret;
+}
+
 static int vl53l0x_configure_irq(struct i2c_client *client,
 				 struct iio_dev *indio_dev)
 {
@@ -132,13 +149,7 @@ static int vl53l0x_configure_irq(struct i2c_client *client,
 		return ret;
 	}
 
-	ret = i2c_smbus_write_byte_data(data->client,
-			VL_REG_SYSTEM_INTERRUPT_CONFIG_GPIO,
-			VL_REG_SYSTEM_INTERRUPT_GPIO_NEW_SAMPLE_READY);
-	if (ret < 0)
-		dev_err(&client->dev, "failed to configure IRQ: %d\n", ret);
-
-	return ret;
+	return vl53l0x_enable_irq_output(data);
 }
 
 static int vl53l0x_read_proximity(struct vl53l0x_data *data,
@@ -221,7 +232,12 @@ static int vl53l0x_read_raw(struct iio_dev *indio_dev,
 
 	switch (mask) {
 	case IIO_CHAN_INFO_RAW:
+		ret = pm_runtime_resume_and_get(&data->client->dev);
+		if (ret)
+			return ret;
+
 		ret = vl53l0x_read_proximity(data, chan, val);
+		pm_runtime_put_autosuspend(&data->client->dev);
 		if (ret < 0)
 			return ret;
 
@@ -248,13 +264,20 @@ static const struct iio_info vl53l0x_info = {
 	.validate_trigger = vl53l0x_validate_trigger,
 };
 
-static void vl53l0x_power_off(void *_data)
+static void vl53l0x_power_off(struct vl53l0x_data *data)
 {
-	struct vl53l0x_data *data = _data;
-
 	gpiod_set_value_cansleep(data->reset_gpio, 1);
 
 	regulator_disable(data->vdd_supply);
+}
+
+static void vl53l0x_disable(void *_data)
+{
+	struct vl53l0x_data *data = _data;
+
+	/* runtime suspend may have powered it off already */
+	if (!pm_runtime_status_suspended(&data->client->dev))
+		vl53l0x_power_off(data);
 }
 
 static int vl53l0x_power_on(struct vl53l0x_data *data)
@@ -272,6 +295,13 @@ static int vl53l0x_power_on(struct vl53l0x_data *data)
 	return 0;
 }
 
+static int vl53l0x_buffer_preenable(struct iio_dev *indio_dev)
+{
+	struct vl53l0x_data *data = iio_priv(indio_dev);
+
+	return pm_runtime_resume_and_get(&data->client->dev);
+}
+
 static int vl53l0x_buffer_postenable(struct iio_dev *indio_dev)
 {
 	struct vl53l0x_data *data = iio_priv(indio_dev);
@@ -287,17 +317,21 @@ static int vl53l0x_buffer_postdisable(struct iio_dev *indio_dev)
 
 	ret = i2c_smbus_write_byte_data(data->client, VL_REG_SYSRANGE_START,
 						VL53L0X_SINGLE_MODE);
-	if (ret < 0)
-		return ret;
+	if (ret >= 0) {
+		/* Let the ongoing reading finish */
+		reinit_completion(&data->completion);
+		wait_for_completion_timeout(&data->completion, HZ / 10);
 
-	/* Let the ongoing reading finish */
-	reinit_completion(&data->completion);
-	wait_for_completion_timeout(&data->completion, HZ / 10);
+		ret = vl53l0x_clear_irq(data);
+	}
 
-	return vl53l0x_clear_irq(data);
+	pm_runtime_put_autosuspend(&data->client->dev);
+
+	return ret;
 }
 
 static const struct iio_buffer_setup_ops iio_triggered_buffer_setup_ops = {
+	.preenable = &vl53l0x_buffer_preenable,
 	.postenable = &vl53l0x_buffer_postenable,
 	.postdisable = &vl53l0x_buffer_postdisable,
 };
@@ -340,7 +374,14 @@ static int vl53l0x_probe(struct i2c_client *client)
 		return dev_err_probe(&client->dev, ret,
 				     "Failed to power on the chip\n");
 
-	ret = devm_add_action_or_reset(&client->dev, vl53l0x_power_off, data);
+	/* on until runtime PM, enabled below, lets it autosuspend */
+	ret = pm_runtime_set_active(&client->dev);
+	if (ret) {
+		vl53l0x_power_off(data);
+		return ret;
+	}
+
+	ret = devm_add_action_or_reset(&client->dev, vl53l0x_disable, data);
 	if (ret)
 		return ret;
 
@@ -390,8 +431,53 @@ static int vl53l0x_probe(struct i2c_client *client)
 			return ret;
 	}
 
+	/*
+	 * From here on the chip is powered only while it is read or its
+	 * buffer runs. Runtime PM is enabled after the IRQ is requested so
+	 * that on removal it is torn down, powering the chip off, before
+	 * the IRQ is freed.
+	 */
+	pm_runtime_set_autosuspend_delay(&client->dev,
+					 VL53L0X_AUTOSUSPEND_DELAY_MS);
+	pm_runtime_use_autosuspend(&client->dev);
+	ret = devm_pm_runtime_enable(&client->dev);
+	if (ret)
+		return ret;
+
 	return devm_iio_device_register(&client->dev, indio_dev);
 }
+
+static int vl53l0x_runtime_suspend(struct device *dev)
+{
+	struct vl53l0x_data *data = iio_priv(dev_get_drvdata(dev));
+
+	vl53l0x_power_off(data);
+
+	return 0;
+}
+
+static int vl53l0x_runtime_resume(struct device *dev)
+{
+	struct vl53l0x_data *data = iio_priv(dev_get_drvdata(dev));
+	int ret;
+
+	ret = vl53l0x_power_on(data);
+	if (ret)
+		return ret;
+
+	if (data->client->irq) {
+		ret = vl53l0x_enable_irq_output(data);
+		if (ret) {
+			vl53l0x_power_off(data);
+			return ret;
+		}
+	}
+
+	return 0;
+}
+
+static DEFINE_RUNTIME_DEV_PM_OPS(vl53l0x_pm_ops, vl53l0x_runtime_suspend,
+				 vl53l0x_runtime_resume, NULL);
 
 static const struct i2c_device_id vl53l0x_id[] = {
 	{ .name = "vl53l0x" },
@@ -409,6 +495,7 @@ static struct i2c_driver vl53l0x_driver = {
 	.driver = {
 		.name = "vl53l0x-i2c",
 		.of_match_table = st_vl53l0x_dt_match,
+		.pm = pm_ptr(&vl53l0x_pm_ops),
 	},
 	.probe = vl53l0x_probe,
 	.id_table = vl53l0x_id,
