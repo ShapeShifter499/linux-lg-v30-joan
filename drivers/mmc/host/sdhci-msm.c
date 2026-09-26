@@ -2533,6 +2533,16 @@ static const struct sdhci_msm_variant_info sdhci_msm_mci_var = {
 	.offset = &sdhci_msm_mci_offset,
 };
 
+/*
+ * MSM8998 loses the SDR DLL configuration when runtime PM gates the core
+ * clock, the same as SDM845, so the tuned phase has to be put back on resume.
+ */
+static const struct sdhci_msm_variant_info msm8998_sdhci_var = {
+	.restore_dll_config = true,
+	.var_ops = &mci_var_ops,
+	.offset = &sdhci_msm_mci_offset,
+};
+
 static const struct sdhci_msm_variant_info sdhci_msm_v5_var = {
 	.mci_removed = true,
 	.var_ops = &v5_var_ops,
@@ -2553,6 +2563,7 @@ static const struct of_device_id sdhci_msm_dt_match[] = {
 	 */
 	{.compatible = "qcom,sdhci-msm-v4", .data = &sdhci_msm_mci_var},
 	{.compatible = "qcom,sdhci-msm-v5", .data = &sdhci_msm_v5_var},
+	{.compatible = "qcom,msm8998-sdhci", .data = &msm8998_sdhci_var},
 	{.compatible = "qcom,sdm670-sdhci", .data = &sdm845_sdhci_var},
 	{.compatible = "qcom,sdm845-sdhci", .data = &sdm845_sdhci_var},
 	{.compatible = "qcom,sc7180-sdhci", .data = &sdm845_sdhci_var},
