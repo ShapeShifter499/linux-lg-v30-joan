@@ -1572,25 +1572,27 @@
 			};
 
 			/*
-			 * The WCD934x MFD instantiates a soundwire child
-			 * unconditionally; without this node it fails with
-			 * "wcd934x-soundwire: Failed to locate of_node [id: -2]".
-			 * Port layout is the codec's own and is identical to the
-			 * sdm845 shared dtsi -- it describes the WCD934x internal
-			 * link, not anything board-specific. joan drives its
-			 * loudspeaker via a TFA98xx on I2C rather than WSA parts on
-			 * this bus, so no slave devices are declared here.
+			 * The WCD934x SoundWire master only serves WSA881x
+			 * speaker amplifiers. joan has none: LG disables all
+			 * four wsa881x nodes and drives the loudspeaker with a
+			 * TFA9890 on I2C. The node must exist, because the
+			 * wcd934x MFD matches its soundwire cell by compatible
+			 * and warns "Failed to locate of_node" without one, but
+			 * mfd-core skips a disabled node without error, so the
+			 * controller never probes or clocks an empty bus.
+			 *
+			 * The port layout is the codec's own (same as
+			 * sdm845-wcd9340.dtsi). The regmap-irq table indexes
+			 * sources by WCD934X_IRQ_* (designated initializers),
+			 * so the domain has 21 slots and SoundWire is hwirq 20,
+			 * as on sdm845. hwirq 8 is WCD934X_IRQ_MBHC_SW_DET: it
+			 * collided with the MBHC jack-switch interrupt.
 			 */
 			swm: soundwire@c85 {
 				compatible = "qcom,soundwire-v1.3.0";
 				reg = <0xc85 0x40>;
-				/*
-				 * WCD934X_IRQ_SOUNDWIRE is entry 8 of the MFD's
-				 * regmap-irq table (the domain is 0-based).
-				 * 20 was downstream's 32-source numbering and
-				 * cannot map into the 9-slot mainline domain.
-				 */
-				interrupts-extended = <&wcd9340 8>;
+				interrupts-extended = <&wcd9340 20>;
+				status = "disabled";
 
 				qcom,dout-ports = <6>;
 				qcom,din-ports = <2>;
