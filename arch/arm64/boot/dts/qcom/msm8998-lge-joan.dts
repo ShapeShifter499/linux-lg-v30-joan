@@ -674,7 +674,18 @@
 			regulator-max-microvolt = <3008000>;
 		};
 
-		vreg_lvs1a_1p8: lvs1 { };
+		/*
+		 * cam_vio of the main camera module, and the rail CCI0 needs up
+		 * for anything on it to answer: with it off the VL53L0X times
+		 * out on the bus even with its own supply on and the pins
+		 * pulled up. LG gives the main camera's actuator and EEPROM on
+		 * CCI0 a cam_vio supply of their own; the VL53L0X has no
+		 * supply for it to take, so keep it on.
+		 */
+		vreg_lvs1a_1p8: lvs1 {
+			regulator-always-on;
+		};
+
 		vreg_lvs2a_1p8: lvs2 { };
 	};
 
