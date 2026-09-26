@@ -24,6 +24,7 @@
 #include <linux/usb/typec_dp.h>
 #include <linux/usb/typec_mux.h>
 #include <dt-bindings/phy/phy-qcom-qmp.h>
+#include <drm/bridge/aux-bridge.h>
 
 #include "phy-qcom-qmp-common.h"
 
@@ -2339,6 +2340,17 @@ static int qmp_usbc_probe(struct platform_device *pdev)
 	ret = qmp_usbc_typec_mux_register(qmp);
 	if (ret)
 		goto err_node_put;
+
+	/*
+	 * The DP controller's output port points at this PHY, so msm-dp
+	 * looks for its next bridge here. Without one it defers forever and
+	 * holds up the whole MDSS component aggregate, DSI panel included.
+	 */
+	if (qmp->dp_serdes) {
+		ret = drm_aux_bridge_register(dev);
+		if (ret)
+			goto err_node_put;
+	}
 
 	pm_runtime_set_active(dev);
 	ret = devm_pm_runtime_enable(dev);
