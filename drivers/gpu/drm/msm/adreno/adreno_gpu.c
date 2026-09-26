@@ -1146,6 +1146,9 @@ static int adreno_get_pwrlevels(struct device *dev,
 		return ret;
 	}
 
+	if (adreno_is_a540(adreno_gpu))
+		a540_gfx_apply_open_loop(dev);
+
 	/* Find the fastest defined rate */
 	opp = dev_pm_opp_find_freq_floor(dev, &freq);
 	if (IS_ERR(opp))
@@ -1231,7 +1234,14 @@ int adreno_gpu_init(struct drm_device *drm, struct platform_device *pdev,
 		 * This can only be done before devm_pm_opp_of_add_table(), or
 		 * dev_pm_opp_set_config() will WARN_ON()
 		 */
-		if (IS_ERR(devm_clk_get(dev, "core"))) {
+		ret = adreno_is_a540(adreno_gpu) ?
+			a540_gfx_set_opp_config(dev) : -ENOENT;
+		if (ret && ret != -ENOENT)
+			return dev_err_probe(dev, ret, "GFX MEM-ACC setup failed\n");
+
+		if (!ret) {
+			/* core clock registered with MEM-ACC sequencing */
+		} else if (IS_ERR(devm_clk_get(dev, "core"))) {
 			/*
 			 * If "core" is absent, go for the legacy clock name.
 			 * If we got this far in probing, it's a given one of
