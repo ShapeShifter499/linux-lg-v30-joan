@@ -14,10 +14,8 @@
 #include <linux/i2c.h>
 #include <linux/module.h>
 #include <linux/of.h>
+#include <linux/input/stmfts.h>
 #include <linux/regulator/consumer.h>
-
-/* joan: touch controller powered together with the display */
-void stmfts_set_power(struct i2c_client *client, bool on);
 
 #include <video/mipi_display.h>
 
