@@ -1276,7 +1276,7 @@ static int qcom_cpufreq_hw_osm_setup(struct device *cpu_dev,
 	val |= FIELD_PREP(HYSTERESIS_DN_MASK, HYSTERESIS_LLM_NS);
 	writel(val, drv_data->base + setup_regs->reg_llm_volt_vote_hyst);
 
-	/* Enable LLM frequency+voltage voting */
+	/* Honour the LMh frequency and voltage votes (LLM interface) */
 	writel(0, drv_data->base + setup_regs->reg_llm_intf_dcvs_dis);
 
 	/* Setup Boost FSM Timers */
@@ -1346,7 +1346,7 @@ static int qcom_osm_regs_show(struct seq_file *sf, void *unused)
 	struct qcom_cpufreq_data *data = policy->driver_data;
 	const struct qcom_cpufreq_soc_data *sd = data->soc_data;
 	void __iomem *b = data->base;
-	u32 c0, c1;
+	u32 c0, c1, v;
 	int i;
 
 	seq_printf(sf, "enable=%#x perf_state_desired=%u\n",
@@ -1355,6 +1355,14 @@ static int qcom_osm_regs_show(struct seq_file *sf, void *unused)
 		   readl(b + 0x0c), readl(b + 0x20), readl(b + 0x34),
 		   readl(b + 0x48), readl(b + 0x70));
 	seq_printf(sf, "cycle_ctrl=%#x\n", readl(b + sd->setup_regs.reg_cycle_counter));
+	v = readl(b + 0xb04);
+	seq_printf(sf, "lmh request (0xb04)=%#x: %u mV, %u MHz\n", v,
+		   (v >> 16) & 0x7ff, (v & 0x3ff) * 192 / 10);
+	v = readl(b + 0xb00);
+	seq_printf(sf, "current point (0xb00)=%#x: %u mV, %u MHz\n", v,
+		   v & 0xfff, ((v >> 16) & 0xff) * 192 / 10);
+	seq_printf(sf, "pstate: deviation=%#x corrected=%#x met=%#x wdog_pstate=%#x\n",
+		   readl(b + 0xf14), readl(b + 0xf20), readl(b + 0xf2c), readl(b + 0xc00));
 	c0 = readl(b + sd->setup_regs.reg_cycle_counter + 4);
 	usleep_range(10000, 10100);
 	c1 = readl(b + sd->setup_regs.reg_cycle_counter + 4);
