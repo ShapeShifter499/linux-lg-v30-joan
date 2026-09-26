@@ -477,6 +477,15 @@ source "drivers/thermal/spacemit/Kconfig"
 
 source "drivers/thermal/tegra/Kconfig"
 
+config WEIGHTED_ADC_THERMAL
+	tristate "Weighted-sum ADC thermal sensor"
+	depends on IIO
+	help
+	  A thermal sensor whose temperature is a weighted sum of IIO
+	  temperature channels plus an offset, as phones use to estimate
+	  skin temperature from board thermistors (e.g. the LG V30's
+	  "vts"). Weights and offset come from the device tree.
+
 config GENERIC_ADC_THERMAL
 	tristate "Generic ADC based thermal sensor"
 	depends on IIO
