@@ -866,9 +866,9 @@ static const struct freq_tbl ftbl_mclk_clk_src[] = {
 	F(16666667, P_GPLL0_DIV, 2, 1, 9),
 	F(19200000, P_XO, 1, 0, 0),
 	F(24000000, P_GPLL0_DIV, 1, 2, 25),
-	F(33333333, P_GPLL0_DIV, 1, 2, 9),
+	F(33333333, P_GPLL0_DIV, 1, 1, 9),
 	F(48000000, P_GPLL0, 1, 2, 25),
-	F(66666667, P_GPLL0, 1, 2, 9),
+	F(66666667, P_GPLL0, 1, 1, 9),
 	{ }
 };
 
