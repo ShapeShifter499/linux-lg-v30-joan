@@ -1278,6 +1278,18 @@
 
 	vdd-supply = <&pm8005_s1>;
 
+	/*
+	 * The GPU scales VDD_GFX itself, so it also does what the downstream
+	 * GFX CPR did for the rail (a540_gfx_rail.c): take each part's fused
+	 * open-loop voltages instead of the table below, and drive the GFX
+	 * MEM-ACC select (TCSR 0x1fcf004, bit 0).
+	 */
+	nvmem-cells = <&gpu_cpr_init>, <&gpu_cpr_rev>,
+		      <&gpu_cpr_limit>, <&gpu_cpr_force>;
+	nvmem-cell-names = "gfx_cpr_init", "gfx_cpr_rev",
+			   "gfx_cpr_limit", "gfx_cpr_force";
+	qcom,mem-acc = <&tcsr_regs_2 0xf004>;
+
 	zap-shader {
 		memory-region = <&gpu_mem>;
 		firmware-name = "qcom/a540_zap.mdt";
@@ -1293,15 +1305,19 @@
  * VDD_GFX (pm8005_s1) sat at the boot voltage (~752 mV) with no scaling
  * in place, and turbo on a low-SVS voltage is not survivable.
  *
- * The stock Android kernel was swept on this exact device (2026-08-04;
- * pm8005_s1 readback per kgsl pwrlevel) and the measured curve is used
- * here as opp-microvolt. adreno_get_pwrlevels() registers the vdd
- * supply with the OPP framework, so every dev_pm_opp_set_rate() scales
- * the rail BEFORE raising the core clock; the resume fast_rate jump is
- * therefore exactly the stock turbo corner (710 MHz @ 936 mV), which
- * the device runs routinely. opp-level is intentionally omitted: the
- * GPU's power domain is the GPU_GX GDSC (msm8998.dtsi), which has no
- * performance states.
+ * adreno_get_pwrlevels() registers the vdd supply with the OPP framework,
+ * so every dev_pm_opp_set_rate() scales the rail before raising the core
+ * clock. opp-level is intentionally omitted: the GPU's power domain is
+ * the GPU_GX GDSC (msm8998.dtsi), which has no performance states.
+ *
+ * The voltages below are only a fallback. At probe a540_gfx_rail.c
+ * replaces them with this part's fused open-loop voltages, the value the
+ * stock GFX CPR uses as each corner's ceiling. The fallback is the stock
+ * ceiling for fusing revision 1 and later (msm8998-v2.dtsi gfx_vreg),
+ * which is safe for any part. It is deliberately not the curve measured
+ * on the bench phone (2026-08-04, 628..936 mV): that was the stock CPR
+ * sitting on its floor (open-loop - 40/50 mV) on a fast part, and a part
+ * fused up to 150 mV higher would not survive it.
  */
 &gpu_opp_table {
 	/delete-node/ opp-710000097;
@@ -1314,43 +1330,43 @@
 
 	opp-710000097 {
 		opp-hz = /bits/ 64 <710000097>;
-		opp-microvolt = <936000>;
+		opp-microvolt = <1088000>;
 		opp-supported-hw = <0xff>;
 	};
 
 	opp-670000048 {
 		opp-hz = /bits/ 64 <670000048>;
-		opp-microvolt = <908000>;
+		opp-microvolt = <1024000>;
 		opp-supported-hw = <0xff>;
 	};
 
 	opp-596000097 {
 		opp-hz = /bits/ 64 <596000097>;
-		opp-microvolt = <856000>;
+		opp-microvolt = <968000>;
 		opp-supported-hw = <0xff>;
 	};
 
 	opp-515000097 {
 		opp-hz = /bits/ 64 <515000097>;
-		opp-microvolt = <792000>;
+		opp-microvolt = <916000>;
 		opp-supported-hw = <0xff>;
 	};
 
 	opp-414000000 {
 		opp-hz = /bits/ 64 <414000000>;
-		opp-microvolt = <704000>;
+		opp-microvolt = <832000>;
 		opp-supported-hw = <0xff>;
 	};
 
 	opp-342000000 {
 		opp-hz = /bits/ 64 <342000000>;
-		opp-microvolt = <644000>;
+		opp-microvolt = <772000>;
 		opp-supported-hw = <0xff>;
 	};
 
 	opp-257000000 {
 		opp-hz = /bits/ 64 <257000000>;
-		opp-microvolt = <628000>;
+		opp-microvolt = <724000>;
 		opp-supported-hw = <0xff>;
 	};
 };
