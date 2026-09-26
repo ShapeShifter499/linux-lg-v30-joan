@@ -17,6 +17,7 @@
 #include <linux/iopoll.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
+#include <linux/nvmem-consumer.h>
 #include <linux/of_address.h>
 #include <linux/of_platform.h>
 #include <linux/platform_device.h>
@@ -1512,6 +1513,30 @@ static int qcom_cpufreq_hw_driver_probe(struct platform_device *pdev)
 	soc_data = of_device_get_match_data(&pdev->dev);
 	if (!soc_data)
 		return -EINVAL;
+
+	/*
+	 * The CPU OPPs and CPRh levels in the MSM8998 DT are the perf-cluster
+	 * speed-bin 2/3 table (2361.6 MHz all-core). Bin 1 parts are only
+	 * qualified to 2208 MHz, and bin 0 uses a different upper table, so
+	 * do not take the clusters over on a part the table was not made for.
+	 */
+	if (of_device_is_compatible(pdev->dev.of_node, "qcom,cpufreq-hw-8998")) {
+		u32 bin;
+
+		ret = nvmem_cell_read_variable_le_u32(&pdev->dev, "speedbin", &bin);
+		if (ret)
+			return dev_err_probe(&pdev->dev, ret,
+					     "cannot read the CPU speed bin\n");
+
+		if (bin != 2 && bin != 3) {
+			dev_err(&pdev->dev,
+				"no OPP table for CPU speed bin %u, clusters stay at their boot clocks\n",
+				bin);
+			return -ENODEV;
+		}
+
+		dev_info(&pdev->dev, "CPU speed bin %u\n", bin);
+	}
 
 	if (!soc_data->uses_tz) {
 		/*
