@@ -94,7 +94,7 @@ int cpr_populate_fuse_common(struct device *dev,
 			     const struct cpr_fuse *cpr_fuse,
 			     struct fuse_corner *fuse_corner,
 			     int step_volt, int init_v_width,
-			     int init_v_step);
+			     int init_v_step, bool unclamped_fuse_uv);
 int cpr_find_initial_corner(struct device *dev, struct clk *cpu_clk,
 			    struct corner *corners, int num_corners);
 u32 cpr_get_fuse_corner(struct dev_pm_opp *opp, u32 tid);

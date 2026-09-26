@@ -255,6 +255,16 @@ struct cpr_desc {
 	const struct cpr_thread_desc **threads;
 	bool reduce_to_fuse_uV;
 	bool reduce_to_corner_uV;
+	/*
+	 * Keep the fuse corner open-loop voltage unclamped so that corner
+	 * interpolation uses the raw fused value and each corner is clamped
+	 * individually afterwards (msm-4.4 semantics).  Needed on MSM8998,
+	 * where the gold TURBO_L1 fused voltage (1076 + 122 = 1198 mV)
+	 * exceeds the 1136 mV rail maximum: clamping before interpolation
+	 * pulls the corners mapped to TURBO_L1 28-52 mV below the vendor
+	 * values.
+	 */
+	bool unclamped_fuse_uv;
 	bool hw_closed_loop_en;
 };
 
@@ -1080,7 +1090,8 @@ static int cpr_fuse_corner_init(struct cpr_thread *thread)
 		ret = cpr_populate_fuse_common(drv->dev, fdata, cpr_fuse,
 					       fuse, drv->vreg_step,
 					       desc->init_voltage_width,
-					       desc->init_voltage_step);
+					       desc->init_voltage_step,
+					       drv->desc->unclamped_fuse_uv);
 		if (ret)
 			return ret;
 
@@ -1107,8 +1118,14 @@ skip_pvs_restrict:
 			i, fuse->min_uV, fuse->uV, fuse->max_uV,
 			fuse->ring_osc_idx, fuse->quot);
 
-		/* Check if constraints are valid */
-		if (fuse->uV < fuse->min_uV || fuse->uV > fuse->max_uV) {
+		/*
+		 * Check if constraints are valid.  With unclamped fuse
+		 * voltages the open-loop value may legitimately sit above
+		 * the fuse corner maximum; the corners are clamped
+		 * individually after interpolation instead.
+		 */
+		if (fuse->uV < fuse->min_uV ||
+		    (!drv->desc->unclamped_fuse_uv && fuse->uV > fuse->max_uV)) {
 			dev_err(drv->dev, "fuse corner %d: Bad voltage range.\n", i);
 			return -EINVAL;
 		}
@@ -1935,6 +1952,7 @@ static const struct cpr_desc msm8998_cpr_desc = {
 	.vdd_settle_time_us = 34,
 	.corner_settle_time_us = 6,
 	.reduce_to_corner_uV = true,
+	.unclamped_fuse_uv = true,
 	.hw_closed_loop_en = true,
 	.threads = (const struct cpr_thread_desc *[]) {
 		&msm8998_thread_silver,

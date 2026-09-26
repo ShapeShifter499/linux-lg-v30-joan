@@ -755,7 +755,8 @@ static int cpr_fuse_corner_init(struct cpr_drv *drv)
 		ret = cpr_populate_fuse_common(drv->dev, fdata, fuses,
 					       fuse, step_volt,
 					       desc->cpr_fuses.init_voltage_width,
-					       desc->cpr_fuses.init_voltage_step);
+					       desc->cpr_fuses.init_voltage_step,
+					       false);
 		if (ret)
 			return ret;
 

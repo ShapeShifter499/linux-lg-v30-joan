@@ -123,7 +123,7 @@ int cpr_populate_fuse_common(struct device *dev,
 			     const struct cpr_fuse *cpr_fuse,
 			     struct fuse_corner *fuse_corner,
 			     int step_volt, int init_v_width,
-			     int init_v_step)
+			     int init_v_step, bool unclamped_fuse_uv)
 {
 	int uV, ret;
 
@@ -144,7 +144,10 @@ int cpr_populate_fuse_common(struct device *dev,
 
 	fuse_corner->min_uV = fdata->min_uV;
 	fuse_corner->max_uV = fdata->max_uV;
-	fuse_corner->uV = clamp(uV, fuse_corner->min_uV, fuse_corner->max_uV);
+	if (unclamped_fuse_uv)
+		fuse_corner->uV = uV;
+	else
+		fuse_corner->uV = clamp(uV, fuse_corner->min_uV, fuse_corner->max_uV);
 
 	/* Populate target quotient by scaling */
 	ret = nvmem_cell_read_variable_le_u32(dev, cpr_fuse->quotient, &fuse_corner->quot);
