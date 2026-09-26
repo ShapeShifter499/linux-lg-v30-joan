@@ -1436,6 +1436,16 @@
 	reg = <0x0 0x94900000 0x0 0x500000>;
 };
 
+/*
+ * Venus video codec. joan's image (firmware-lge-joan, from the NON-HLOS
+ * partition) is relocatable and its PT_LOAD span is 0x4ff020, which fits
+ * the 5 MB pil_video_mem above.
+ */
+&venus {
+	firmware-name = "qcom/msm8998/joan/venus.mdt";
+	status = "okay";
+};
+
 &mba_mem {
 	/* LG joan pil_mba_mem */
 	reg = <0x0 0x94e00000 0x0 0x200000>;
