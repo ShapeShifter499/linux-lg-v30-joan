@@ -11,6 +11,7 @@
 #include <dt-bindings/sound/qcom,q6afe.h>
 #include <dt-bindings/sound/qcom,q6asm.h>
 #include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/iio/qcom,spmi-vadc.h>
 #include <dt-bindings/input/input.h>
 #include <dt-bindings/leds/common.h>
 #include <dt-bindings/pinctrl/qcom,pmic-gpio.h>
@@ -1832,4 +1833,240 @@
 		reg = <QUATERNARY_MI2S_RX>;
 		qcom,sd-lines = <1>;
 	};
+};
+
+/*
+ * Thermal policy, following LG's stock thermal-engine-8998.conf (LG joan
+ * vendor blobs) and msm_thermal DT, as far as kernel thermal zones can.
+ *
+ * Skin: the stock policy throttles on "vts", LG's virtual skin sensor
+ * 0.37 * xo_therm + 0.48 * bd_therm_2 + 3.83 C (LG kernel lge,vts). The caps
+ * and clear points below are the stock SKIN-*-FLOOR and GPU_MONITOR entries.
+ * Cooling states index each policy's frequency table from the top: gold
+ * 2361.6 MHz is state 0, 1958.4 is 7, 1728 is 10, 1056 is 19, 729.6 is 23;
+ * silver 1555.2 is state 4; GPU 670 MHz is 1, 515 is 3, 414 is 4, 342 is 5.
+ * The stock SKIN-MID-FLOOR reads "skin_ap", which has no mainline
+ * counterpart, so it uses vts here.
+ */
+&pm8998_adc {
+	channel@4c {
+		reg = <ADC5_XO_THERM_100K_PU>;
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+		label = "xo_therm";
+	};
+
+	channel@4f {
+		reg = <ADC5_AMUX_THM3_100K_PU>;
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+		label = "pa_therm0";
+	};
+
+	channel@50 {
+		reg = <ADC5_AMUX_THM4_100K_PU>;
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+		label = "pa_therm1";
+	};
+
+	channel@51 {
+		reg = <ADC5_AMUX_THM5_100K_PU>;
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+		label = "bd_therm_2";
+	};
+};
+
+/ {
+	skin_vts: thermal-sensor-vts {
+		compatible = "weighted-adc-thermal";
+		io-channels = <&pm8998_adc ADC5_XO_THERM_100K_PU>,
+			      <&pm8998_adc ADC5_AMUX_THM5_100K_PU>;
+		weights-milli = <370 480>;
+		offset-millicelsius = <3830>;
+		#thermal-sensor-cells = <0>;
+	};
+
+	thermal-zones {
+		skin-thermal {
+			polling-delay-passive = <2000>;
+			polling-delay = <5000>;
+			thermal-sensors = <&skin_vts>;
+
+			trips {
+				skin_gold_1958: trip-point0 {
+					temperature = <37000>;
+					hysteresis = <500>;
+					type = "passive";
+				};
+
+				skin_gpu_670: trip-point1 {
+					temperature = <38000>;
+					hysteresis = <500>;
+					type = "passive";
+				};
+
+				skin_gold_1728: trip-point2 {
+					temperature = <38500>;
+					hysteresis = <500>;
+					type = "passive";
+				};
+
+				skin_gpu_515: trip-point3 {
+					temperature = <39000>;
+					hysteresis = <500>;
+					type = "passive";
+				};
+
+				skin_gold_1056: trip-point4 {
+					temperature = <41000>;
+					hysteresis = <1000>;
+					type = "passive";
+				};
+
+				skin_gpu_414: trip-point5 {
+					temperature = <41000>;
+					hysteresis = <1000>;
+					type = "passive";
+				};
+
+				skin_gpu_342: trip-point6 {
+					temperature = <42500>;
+					hysteresis = <1000>;
+					type = "passive";
+				};
+
+				skin_gold_729: trip-point7 {
+					temperature = <44000>;
+					hysteresis = <1000>;
+					type = "passive";
+				};
+
+				skin_silver_1555: trip-point8 {
+					temperature = <46000>;
+					hysteresis = <1500>;
+					type = "passive";
+				};
+			};
+
+			cooling-maps {
+				map0 {	/* gold 1958.4 MHz */
+					trip = <&skin_gold_1958>;
+					cooling-device = <&cpu4 7 7>,
+						 <&cpu5 7 7>,
+						 <&cpu6 7 7>,
+						 <&cpu7 7 7>;
+				};
+
+				map1 {	/* GPU 670 MHz */
+					trip = <&skin_gpu_670>;
+					cooling-device = <&adreno_gpu 1 1>;
+				};
+
+				map2 {	/* gold 1728 MHz */
+					trip = <&skin_gold_1728>;
+					cooling-device = <&cpu4 10 10>,
+						 <&cpu5 10 10>,
+						 <&cpu6 10 10>,
+						 <&cpu7 10 10>;
+				};
+
+				map3 {	/* GPU 515 MHz */
+					trip = <&skin_gpu_515>;
+					cooling-device = <&adreno_gpu 3 3>;
+				};
+
+				map4 {	/* gold 1056 MHz */
+					trip = <&skin_gold_1056>;
+					cooling-device = <&cpu4 19 19>,
+						 <&cpu5 19 19>,
+						 <&cpu6 19 19>,
+						 <&cpu7 19 19>;
+				};
+
+				map5 {	/* GPU 414 MHz */
+					trip = <&skin_gpu_414>;
+					cooling-device = <&adreno_gpu 4 4>;
+				};
+
+				map6 {	/* GPU 342 MHz */
+					trip = <&skin_gpu_342>;
+					cooling-device = <&adreno_gpu 5 5>;
+				};
+
+				map7 {	/* gold 729.6 MHz */
+					trip = <&skin_gold_729>;
+					cooling-device = <&cpu4 23 23>,
+						 <&cpu5 23 23>,
+						 <&cpu6 23 23>,
+						 <&cpu7 23 23>;
+				};
+
+				map8 {	/* silver 1555.2 MHz */
+					trip = <&skin_silver_1555>;
+					cooling-device = <&cpu0 4 4>,
+						 <&cpu1 4 4>,
+						 <&cpu2 4 4>,
+						 <&cpu3 4 4>;
+				};
+			};
+		};
+	};
+};
+
+/*
+ * Junction: the stock policy steps each CPU cluster down at 85 C and clears
+ * at 80 C, and the GPU at 85 C clearing at 65 C (SS-CPUS-CLUSTER*, SS-GPU-*).
+ * msm8998.dtsi's generic 75 C / 80 C trips throttle ~10 C earlier than stock.
+ * The 110 C critical trips stay.
+ */
+&cpu0_alert0 {
+	temperature = <85000>;
+	hysteresis = <5000>;
+};
+
+&cpu1_alert0 {
+	temperature = <85000>;
+	hysteresis = <5000>;
+};
+
+&cpu2_alert0 {
+	temperature = <85000>;
+	hysteresis = <5000>;
+};
+
+&cpu3_alert0 {
+	temperature = <85000>;
+	hysteresis = <5000>;
+};
+
+&cpu4_alert0 {
+	temperature = <85000>;
+	hysteresis = <5000>;
+};
+
+&cpu5_alert0 {
+	temperature = <85000>;
+	hysteresis = <5000>;
+};
+
+&cpu6_alert0 {
+	temperature = <85000>;
+	hysteresis = <5000>;
+};
+
+&cpu7_alert0 {
+	temperature = <85000>;
+	hysteresis = <5000>;
+};
+
+&gpu1_alert1 {
+	temperature = <85000>;
+	hysteresis = <20000>;
+};
+
+&gpu2_alert1 {
+	temperature = <85000>;
+	hysteresis = <20000>;
 };
