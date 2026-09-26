@@ -29,7 +29,6 @@
 #include <soc/qcom/cpr.h>
 
 #define LUT_MAX_ENTRIES			40U
-#define LUT_SRC_845			GENMASK(31, 30)
 #define LUT_SRC_8998			GENMASK(27, 26)
 #define LUT_PLL_DIV			GENMASK(25, 24)
 #define LUT_L_VAL			GENMASK(7, 0)
@@ -243,6 +242,7 @@ struct qcom_cpufreq_hw_params {
  * @clk_hw_div:            Divider for "alternate" OSM clock-source
  * @uses_tz:               OSM already set-up and protected by TrustZone
  * @setup_regs:            Register offsets for OSM setup
+ * @acd_data:              Adaptive clock distribution (ACD) settings
  */
 struct qcom_cpufreq_soc_data {
 	u32 reg_enable;
@@ -304,7 +304,7 @@ static int qcom_cpufreq_set_bw(struct cpufreq_policy *policy,
 
 /**
  * qcom_cpufreq_update_opp() - Update CPU OPP tables
- * @policy:   CPUFreq policy structure
+ * @cpu_dev:  CPU device whose OPP table is updated
  * @freq_khz: CPU Frequency for OPP entry in KHz
  * @volt:     CPU Voltage for OPP entry in microvolts
  *
@@ -1121,17 +1121,6 @@ static int qcom_get_related_cpus(int index, struct cpumask *m)
 	return count > 0 ? count : -EINVAL;
 }
 
-static const struct qcom_cpufreq_soc_data qcom_soc_data = {
-	.reg_enable = 0x0,
-	.reg_freq_lut = 0x110,
-	.reg_freq_lut_src_mask = LUT_SRC_845,
-	.reg_volt_lut = 0x114,
-	.reg_perf_state = 0x920,
-	.lut_row_size = 32,
-	.clk_hw_div = 2,
-	.uses_tz = true,
-};
-
 static const struct qcom_cpufreq_soc_data msm8998_soc_data = {
 	.reg_enable = 0x4,
 	.reg_index = 0x150,
@@ -1194,17 +1183,6 @@ static const struct qcom_cpufreq_soc_data msm8998_soc_data = {
 	},
 };
 
-static const struct qcom_cpufreq_soc_data epss_soc_data = {
-	.reg_enable = 0x0,
-	.reg_freq_lut = 0x100,
-	.reg_freq_lut_src_mask = LUT_SRC_845,
-	.reg_volt_lut = 0x200,
-	.reg_perf_state = 0x320,
-	.lut_row_size = 4,
-	.clk_hw_div = 2,
-	.uses_tz = true,
-};
-
 static const struct of_device_id qcom_cpufreq_hw_match[] = {
 	{ .compatible = "qcom,cpufreq-hw-8998", .data = &msm8998_soc_data },
 	{}
@@ -1216,6 +1194,7 @@ MODULE_DEVICE_TABLE(of, qcom_cpufreq_hw_match);
  * @cpu_dev:   CPU device
  * @policy:    CPUFreq policy structure
  * @cpu_count: Number of CPUs in the frequency domain
+ * @index:     Frequency domain (OSM instance) to program
  *
  * On some platforms, the Operating State Manager (OSM) is not getting
  * programmed by the bootloader, nor by TrustZone before booting the OS
