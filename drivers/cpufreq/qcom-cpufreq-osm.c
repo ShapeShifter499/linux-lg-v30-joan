@@ -11,6 +11,7 @@
 
 #include <linux/bitfield.h>
 #include <linux/cpufreq.h>
+#include <linux/debugfs.h>
 #include <linux/delay.h>
 #include <linux/init.h>
 #include <linux/interconnect.h>
@@ -1334,6 +1335,48 @@ static int qcom_cpufreq_hw_osm_setup(struct device *cpu_dev,
 	return 0;
 }
 
+
+/*
+ * Bring-up aid: dump the OSM frequency-domain registers of a policy and
+ * sample the cycle counter twice, 10 ms apart. Read-only.
+ */
+static int qcom_osm_regs_show(struct seq_file *sf, void *unused)
+{
+	struct cpufreq_policy *policy = sf->private;
+	struct qcom_cpufreq_data *data = policy->driver_data;
+	const struct qcom_cpufreq_soc_data *sd = data->soc_data;
+	void __iomem *b = data->base;
+	u32 c0, c1;
+	int i;
+
+	seq_printf(sf, "enable=%#x perf_state_desired=%u\n",
+		   readl(b + sd->reg_enable), readl(b + sd->reg_perf_state));
+	seq_printf(sf, "cc_zero=%#x spm_cc_dcvs_dis=%#x llm_intf_dcvs_dis=%#x seq1=%#x pdn_fsm=%#x\n",
+		   readl(b + 0x0c), readl(b + 0x20), readl(b + 0x34),
+		   readl(b + 0x48), readl(b + 0x70));
+	seq_printf(sf, "cycle_ctrl=%#x\n", readl(b + sd->setup_regs.reg_cycle_counter));
+	c0 = readl(b + sd->setup_regs.reg_cycle_counter + 4);
+	usleep_range(10000, 10100);
+	c1 = readl(b + sd->setup_regs.reg_cycle_counter + 4);
+	seq_printf(sf, "cycle_status %u -> %u (delta %u in ~10 ms)\n", c0, c1, c1 - c0);
+	for (i = 0; i < LUT_MAX_ENTRIES; i++) {
+		u32 off = i * sd->lut_row_size;
+		u32 f = readl(b + sd->reg_freq_lut + off);
+
+		if (!f)
+			break;
+		seq_printf(sf, "lut[%2d] idx=%#x freq=%#010x volt=%#010x ovr=%#010x spare=%#x\n",
+			   i, readl(b + sd->reg_index + off), f,
+			   readl(b + sd->reg_volt_lut + off),
+			   readl(b + sd->setup_regs.reg_override + off),
+			   readl(b + sd->setup_regs.reg_spare + off));
+	}
+	return 0;
+}
+DEFINE_SHOW_ATTRIBUTE(qcom_osm_regs);
+
+static struct dentry *qcom_osm_debugfs;
+
 static bool qcom_osm_has_boost_freq(struct cpufreq_policy *policy)
 {
 	struct cpufreq_frequency_table *pos;
@@ -1457,6 +1500,15 @@ static int qcom_cpufreq_hw_cpu_init(struct cpufreq_policy *policy)
 	if (qcom_osm_has_boost_freq(policy))
 		policy->boost_supported = true;
 
+	if (!qcom_osm_debugfs)
+		qcom_osm_debugfs = debugfs_create_dir("qcom-cpufreq-osm", NULL);
+	{
+		char name[16];
+
+		snprintf(name, sizeof(name), "policy%u", policy->cpu);
+		debugfs_create_file(name, 0400, qcom_osm_debugfs, policy, &qcom_osm_regs_fops);
+	}
+
 	return 0;
 error:
 	policy->driver_data = NULL;
@@ -1496,6 +1548,75 @@ static struct cpufreq_driver cpufreq_qcom_hw_driver = {
 	.fast_switch    = qcom_cpufreq_hw_fast_switch,
 	.name		= "qcom-cpufreq-osm",
 };
+
+
+/* APCS common block: the OSM's own clock is the LMH RCG in there */
+#define APCS_LMH_CMD_RCGR		0x12c
+#define APCS_LMH_CFG_RCGR		0x130
+#define RCG_CMD_UPDATE			BIT(0)
+#define RCG_CMD_ROOT_EN			BIT(1)
+#define RCG_CMD_ROOT_OFF		BIT(31)
+#define RCG_CFG_SRC_SEL			GENMASK(10, 8)
+#define RCG_CFG_SRC_DIV			GENMASK(4, 0)
+
+/**
+ * qcom_osm_enable_core_clock() - Run the OSM microcontroller clock at 200 MHz
+ * @pdev: the cpufreq platform device
+ *
+ * The OSM sequencer and its cycle counter run from an RCG in the APCS
+ * common block, which the msm-4.4 driver sets to 200 MHz (source 1,
+ * divider 1.5) before enabling the OSM. Without it the OSM accepts a LUT
+ * and a desired performance state but never executes a transition. Not
+ * every bootloader leaves it configured, so program it here when the DT
+ * provides the "apcs-common" region.
+ *
+ * Return: zero on success or if there is no such region, negative errno.
+ */
+static int qcom_osm_enable_core_clock(struct platform_device *pdev)
+{
+	struct resource *res;
+	void __iomem *base;
+	u32 cfg, cmd;
+	int ret;
+
+	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "apcs-common");
+	if (!res)
+		return 0;
+
+	base = devm_ioremap(&pdev->dev, res->start, resource_size(res));
+	if (!base)
+		return -ENOMEM;
+
+	cfg = readl(base + APCS_LMH_CFG_RCGR);
+	cfg &= ~(RCG_CFG_SRC_SEL | RCG_CFG_SRC_DIV);
+	cfg |= FIELD_PREP(RCG_CFG_SRC_SEL, 1);
+	cfg |= FIELD_PREP(RCG_CFG_SRC_DIV, 2);	/* 2 * 1.5 - 1 */
+	writel(cfg, base + APCS_LMH_CFG_RCGR);
+
+	cmd = readl(base + APCS_LMH_CMD_RCGR);
+	writel(cmd | RCG_CMD_UPDATE, base + APCS_LMH_CMD_RCGR);
+	ret = readl_poll_timeout(base + APCS_LMH_CMD_RCGR, cmd,
+				 !(cmd & RCG_CMD_UPDATE), 1, 500);
+	if (ret) {
+		dev_err(&pdev->dev, "OSM clock RCG update timed out\n");
+		return ret;
+	}
+
+	if (cmd & RCG_CMD_ROOT_OFF) {
+		writel(cmd | RCG_CMD_ROOT_EN, base + APCS_LMH_CMD_RCGR);
+		ret = readl_poll_timeout(base + APCS_LMH_CMD_RCGR, cmd,
+					 !(cmd & RCG_CMD_ROOT_OFF), 1, 500);
+		if (ret) {
+			dev_err(&pdev->dev, "OSM clock root did not turn on\n");
+			return ret;
+		}
+		dev_info(&pdev->dev, "OSM clock root was off, forced on\n");
+	}
+
+	dev_info(&pdev->dev, "OSM clock: cmd=%#x cfg=%#x\n",
+		 readl(base + APCS_LMH_CMD_RCGR), readl(base + APCS_LMH_CFG_RCGR));
+	return 0;
+}
 
 static int qcom_cpufreq_hw_driver_probe(struct platform_device *pdev)
 {
@@ -1575,7 +1696,11 @@ static int qcom_cpufreq_hw_driver_probe(struct platform_device *pdev)
 	xo_rate = clk_get_rate(clk);
 	clk_put(clk);
 
-	clk = clk_get(&pdev->dev, "alternate");
+	/*
+	 * LUT row 0 runs from this clock. On MSM8998 it is GCC's hmss_gpll0,
+	 * which must be 300 MHz and kept running before the OSM is enabled.
+	 */
+	clk = devm_clk_get_enabled(&pdev->dev, "alternate");
 	if (IS_ERR(clk))
 		return PTR_ERR(clk);
 
@@ -1584,7 +1709,10 @@ static int qcom_cpufreq_hw_driver_probe(struct platform_device *pdev)
 		clk_div++;
 
 	cpu_hw_rate = clk_get_rate(clk) / clk_div;
-	clk_put(clk);
+
+	ret = qcom_osm_enable_core_clock(pdev);
+	if (ret)
+		return ret;
 
 	cpufreq_qcom_hw_driver.driver_data = pdev;
 

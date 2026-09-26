@@ -4801,13 +4801,17 @@
 			compatible = "qcom,cpufreq-hw-8998";
 			reg = <0x179c0000 0x1000>, <0x179c1000 0x1000>,
 			      <0x179c2000 0x1000>, <0x179c3000 0x1000>,
-			      <0x17914800 0x800>, <0x17814800 0x800>;
+			      <0x17914800 0x800>, <0x17814800 0x800>,
+			      <0x179d1000 0x1000>;
 			reg-names = "osm-domain0", "freq-domain0",
 				    "osm-domain1", "freq-domain1",
-				    "osm-acd0", "osm-acd1";
+				    "osm-acd0", "osm-acd1", "apcs-common";
 
-			clocks = <&rpmcc RPM_SMD_XO_CLK_SRC>, <&gcc GPLL0>;
+			clocks = <&rpmcc RPM_SMD_XO_CLK_SRC>, <&gcc HMSS_GPLL0_CLK_SRC>;
 			clock-names = "xo", "alternate";
+			/* LUT row 0 runs from hmss_gpll0, which must be 300 MHz */
+			assigned-clocks = <&gcc HMSS_GPLL0_CLK_SRC>;
+			assigned-clock-rates = <300000000>;
 
 			/* The CPU OPPs below are the speed-bin 2/3 table */
 			nvmem-cells = <&cpr_efuse_speedbin>;
