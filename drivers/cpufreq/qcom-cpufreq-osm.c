@@ -1483,12 +1483,6 @@ static void qcom_cpufreq_hw_cpu_exit(struct cpufreq_policy *policy)
 	release_mem_region(res->start, resource_size(res));
 }
 
-static struct freq_attr *qcom_cpufreq_hw_attr[] = {
-	&cpufreq_freq_attr_scaling_available_freqs,
-	&cpufreq_freq_attr_scaling_boost_freqs,
-	NULL
-};
-
 static struct cpufreq_driver cpufreq_qcom_hw_driver = {
 	.flags		= CPUFREQ_NEED_INITIAL_FREQ_CHECK |
 			  CPUFREQ_HAVE_GOVERNOR_PER_POLICY |
@@ -1501,7 +1495,6 @@ static struct cpufreq_driver cpufreq_qcom_hw_driver = {
 	.set_boost	= cpufreq_boost_set_sw,
 	.fast_switch    = qcom_cpufreq_hw_fast_switch,
 	.name		= "qcom-cpufreq-osm",
-	.attr		= qcom_cpufreq_hw_attr,
 };
 
 static int qcom_cpufreq_hw_driver_probe(struct platform_device *pdev)
