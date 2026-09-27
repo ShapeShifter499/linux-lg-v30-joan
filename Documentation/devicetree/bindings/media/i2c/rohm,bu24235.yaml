@@ -1,0 +1,54 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/media/i2c/rohm,bu24235.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: ROHM BU24235 AF/OIS lens controller
+
+maintainers:
+  - Lance <Gero3977@gmail.com>
+
+description: >-
+  The BU24235 is a closed-loop AF/OIS lens controller with RAM firmware
+  download, used in the LG Innotek rear camera module of the LG V30
+  (joan).  It sits on the camera module's CCI I2C bus next to the IMX351
+  sensor and the module EEPROM, and shares the module's supplies with
+  them; it has no regulator properties of its own and answers on the bus
+  only while the sensor is powered.  The module is dual-sourced: the
+  EEPROM map version at 0x0be2 tells the BU24235 and the Renesas
+  controller variant apart, and this driver declines the bus when the
+  Renesas one is fitted.
+
+  The firmware files are LG's per-revision controller programs, selected
+  by the EEPROM calibration version at 0x0ac2.
+
+allOf:
+  - $ref: /schemas/media/video-interface-devices.yaml#
+
+properties:
+  compatible:
+    const: rohm,bu24235
+
+  reg:
+    maxItems: 1
+
+required:
+  - compatible
+  - reg
+
+additionalProperties: false
+
+examples:
+  - |
+    i2c {
+        #address-cells = <1>;
+        #size-cells = <0>;
+
+        lens@3e {
+            compatible = "rohm,bu24235";
+            reg = <0x3e>;
+        };
+    };
+
+...

@@ -257,6 +257,16 @@
 		orientation = <1>;
 		rotation = <270>;
 
+		/*
+		 * The module is dual-sourced: the ROHM BU24235 or a Renesas
+		 * controller sits at 0x3e/0x24, chosen per unit by the module
+		 * EEPROM.  bu24235.c reads the EEPROM map version and declines
+		 * the bus on Renesas units.  Both actuators take their power
+		 * from the module, so chip access waits for the first focus
+		 * request while the sensor streams.
+		 */
+		lens-focus = <&bu24235>;
+
 		port {
 			imx351_ep: endpoint {
 				data-lanes = <1 2 3 4>;
@@ -276,6 +286,16 @@
 		reg = <0x29>;
 		reset-gpios = <&tlmm 25 GPIO_ACTIVE_LOW>;
 		vdd-supply = <&cam0_avdd_2p8>;
+	};
+
+	/*
+	 * ROHM BU24235 AF/OIS controller of the rear camera module (the
+	 * Renesas variant of the module uses 0x24 and has no driver yet).
+	 * No supplies: powered by the sensor's power-up.
+	 */
+	bu24235: lens@3e {
+		compatible = "rohm,bu24235";
+		reg = <0x3e>;
 	};
 };
 
