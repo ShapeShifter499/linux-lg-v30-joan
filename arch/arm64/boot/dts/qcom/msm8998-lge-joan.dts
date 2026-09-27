@@ -199,6 +199,9 @@
 		 * userspace can supply one (MGMT_OP_SET_PUBLIC_ADDRESS).
 		 */
 		local-bd-address = [ 00 00 00 00 00 00 ];
+
+		/* LG's FM radio app runs on this receiver */
+		qcom,fm-receiver;
 	};
 };
 
