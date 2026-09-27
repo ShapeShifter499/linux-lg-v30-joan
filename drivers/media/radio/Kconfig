@@ -29,6 +29,18 @@ config RADIO_MAXIRADIO
 	  To compile this driver as a module, choose M here: the
 	  module will be called radio-maxiradio.
 
+config RADIO_QCA_FM
+	tristate "Qualcomm WCN399x FM receiver"
+	depends on BT_HCIUART && BT_HCIUART_QCA
+	help
+	  Say Y here for the FM receiver of Qualcomm WCN3990-family
+	  Bluetooth/FM controllers, as found in phones such as the LG V30.
+	  The receiver is controlled over the Bluetooth UART, so Bluetooth
+	  has to be powered on while the radio is in use.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called radio-qca-fm.
+
 config RADIO_SAA7706H
 	tristate "SAA7706H Car Radio DSP"
 	depends on I2C
