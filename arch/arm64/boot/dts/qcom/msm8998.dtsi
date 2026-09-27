@@ -4538,14 +4538,14 @@
 
 			assigned-clocks = <&mmcc CAMSS_CCI_CLK>;
 			assigned-clock-rates = <37500000>;
-			clocks = <&mmcc CAMSS_TOP_AHB_CLK>,
+			clocks = <&mmcc CAMSS_AHB_CLK>,
+				 <&mmcc CAMSS_TOP_AHB_CLK>,
 				 <&mmcc CAMSS_CCI_AHB_CLK>,
-				 <&mmcc CAMSS_CCI_CLK>,
-				 <&mmcc CAMSS_AHB_CLK>;
-			clock-names = "camss_top_ahb",
+				 <&mmcc CAMSS_CCI_CLK>;
+			clock-names = "camss_ahb",
+				      "camss_top_ahb",
 				      "cci_ahb",
-				      "cci",
-				      "camss_ahb";
+				      "cci";
 
 			pinctrl-0 = <&cci0_default &cci1_default>;
 			pinctrl-names = "default";
