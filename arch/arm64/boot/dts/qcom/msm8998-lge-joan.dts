@@ -231,7 +231,10 @@
 };
 
 &cci_i2c0 {
-	/* Main camera: LG's camera@0, CSIPHY0, mounted at 90 degrees */
+	/*
+	 * Main camera: LG's camera@0 on CSIPHY0. LG gives qcom,mount-angle =
+	 * <90>, which Android counts clockwise; rotation counts the other way.
+	 */
 	camera@10 {
 		compatible = "sony,imx351";
 		reg = <0x10>;
@@ -249,7 +252,7 @@
 		dovdd-supply = <&vreg_lvs1a_1p8>;
 
 		orientation = <1>;
-		rotation = <90>;
+		rotation = <270>;
 
 		port {
 			imx351_ep: endpoint {
