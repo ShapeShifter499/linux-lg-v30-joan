@@ -299,6 +299,26 @@
 	};
 };
 
+/*
+ * Dual rear flash (one LED per side of the lens housing), PMI8998
+ * channels 1+2 driven together.  Downstream allows 1.5 A per channel
+ * (1 A default, 1280 ms); the limits here are the conservative ones the
+ * upstream LG sdm845 port validated, to be raised after bench
+ * measurement of the joan housing's thermal path.
+ */
+&pmi8998_flash {
+	status = "okay";
+
+	led-0 {
+		function = LED_FUNCTION_FLASH;
+		color = <LED_COLOR_ID_WHITE>;
+		led-sources = <1>, <2>;
+		led-max-microamp = <100000>;
+		flash-max-microamp = <500000>;
+		flash-max-timeout-us = <500000>;
+	};
+};
+
 &pm8005_regulators {
 	/* VDD_GFX supply; managed by the OPP framework + msm_gpu (vdd) */
 	pm8005_s1: s1 {
