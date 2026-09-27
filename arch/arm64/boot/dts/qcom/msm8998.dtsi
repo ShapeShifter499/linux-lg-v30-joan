@@ -3290,6 +3290,10 @@
 
 			resets = <&gcc GCC_USB_30_BCR>;
 
+			interconnects = <&a1noc MAS_USB3 &bimc SLV_EBI>,
+					<&gnoc MAS_APSS_PROC &cnoc SLV_USB3_0>;
+			interconnect-names = "usb-ddr", "apps-usb";
+
 			usb3_dwc3: usb@a800000 {
 				compatible = "snps,dwc3";
 				reg = <0x0a800000 0xcd00>;
