@@ -5863,6 +5863,26 @@ static const struct camss_resources sdm660_resources = {
 	.vfe_num = ARRAY_SIZE(vfe_res_660),
 };
 
+/*
+ * Downstream votes the camera register path (msm-cam qcom,bus-votes) and
+ * VFE -> DDR (msm_camera_vfe) whenever the camera runs. The values are
+ * those upstream uses for the other VFE 4.8 part (icc_res_8x53); the VFE
+ * path covers the IMX351's largest raw stream, 4656x3496 RAW10 at 30 fps,
+ * about 610 MB/s.
+ */
+static const struct resources_icc icc_res_8998[] = {
+	{
+		.name = "ahb",
+		.icc_bw_tbl.avg = 38400,
+		.icc_bw_tbl.peak = 76800,
+	},
+	{
+		.name = "vfe-mem",
+		.icc_bw_tbl.avg = 939524,
+		.icc_bw_tbl.peak = 1342177,
+	},
+};
+
 static const struct camss_resources msm8998_resources = {
 	.version = CAMSS_8998,
 	.csiphy_res = csiphy_res_8998,
@@ -5872,6 +5892,8 @@ static const struct camss_resources msm8998_resources = {
 	.csiphy_num = ARRAY_SIZE(csiphy_res_8998),
 	.csid_num = ARRAY_SIZE(csid_res_8998),
 	.vfe_num = ARRAY_SIZE(vfe_res_8998),
+	.icc_res = icc_res_8998,
+	.icc_path_num = ARRAY_SIZE(icc_res_8998),
 };
 
 static const struct camss_resources sdm670_resources = {

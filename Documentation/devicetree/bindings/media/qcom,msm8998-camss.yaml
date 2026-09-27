@@ -83,6 +83,14 @@ properties:
       - const: vfe0
       - const: vfe1
 
+  interconnects:
+    maxItems: 2
+
+  interconnect-names:
+    items:
+      - const: ahb
+      - const: vfe-mem
+
   iommus:
     maxItems: 4
 
@@ -213,6 +221,7 @@ examples:
   - |
     #include <dt-bindings/interrupt-controller/arm-gic.h>
     #include <dt-bindings/clock/qcom,mmcc-msm8998.h>
+    #include <dt-bindings/interconnect/qcom,msm8998.h>
 
     camss: camss@ca00020 {
       compatible = "qcom,msm8998-camss";
@@ -326,6 +335,11 @@ examples:
         "ispif",
         "vfe0",
         "vfe1";
+
+      interconnects = <&gnoc MAS_APSS_PROC &cnoc SLV_CNOC_MNOC_MMSS_CFG>,
+        <&mnoc MAS_VFE &bimc SLV_EBI>;
+      interconnect-names = "ahb",
+        "vfe-mem";
 
       iommus = <&mmss_smmu 0xc00>,
         <&mmss_smmu 0xc01>,
