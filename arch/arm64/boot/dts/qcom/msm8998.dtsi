@@ -4508,6 +4508,10 @@
 				      "vfe1_stream",
 				      "vfe_ahb",
 				      "vfe_axi";
+			interconnects = <&gnoc MAS_APSS_PROC &cnoc SLV_CNOC_MNOC_MMSS_CFG>,
+					<&mnoc MAS_VFE &bimc SLV_EBI>;
+			interconnect-names = "ahb",
+					     "vfe-mem";
 			iommus = <&mmss_smmu 0xc00>,
 				 <&mmss_smmu 0xc01>,
 				 <&mmss_smmu 0xc02>,
