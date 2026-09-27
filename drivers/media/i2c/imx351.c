@@ -872,7 +872,7 @@ static int imx351_disable_streams(struct v4l2_subdev *sd,
 	__v4l2_ctrl_grab(imx351->hflip, false);
 	__v4l2_ctrl_grab(imx351->vflip, false);
 
-	pm_runtime_put_autosuspend(imx351->dev);
+	pm_runtime_put(imx351->dev);
 
 	return ret;
 }
@@ -1182,9 +1182,13 @@ static int imx351_probe(struct i2c_client *client)
 		goto err_entity;
 
 	pm_runtime_set_active(dev);
+	/*
+	 * No autosuspend: the sensor powers down as soon as its stream stops.
+	 * Kept powered for a second after a stream, it and the CCI suspend
+	 * together while the next stream is being set up, and on the LG V30
+	 * that overlap hangs the SoC.
+	 */
 	pm_runtime_enable(dev);
-	pm_runtime_set_autosuspend_delay(dev, 1000);
-	pm_runtime_use_autosuspend(dev);
 
 	ret = v4l2_async_register_subdev_sensor(&imx351->sd);
 	if (ret)
