@@ -450,6 +450,11 @@ static int es9218p_amp_power_up(struct es9218p_priv *es9218p)
 	if (!es9218p->internal_ldo)
 		r46 |= ES9218P_SEL1V;
 
+	/* Claim the jack: HiFi pins first (MODE2 low, then RESET_N high). */
+	gpiod_set_value_cansleep(es9218p->hph_sw_gpio, 0);
+	gpiod_set_value_cansleep(es9218p->reset_gpio, 0);
+	usleep_range(1000, 2000);
+
 	/* Minimum state-machine delay; HPAHiQ toggled as ESS specifies. */
 	ret = regmap_write(rm, ES9218P_HPA_CTRL,
 			   ES9218P_HPAHIQ | ES9218P_STATE3_CTRL_SEL);
@@ -529,6 +534,15 @@ static int es9218p_amp_power_down(struct es9218p_priv *es9218p)
 	regmap_write(rm, ES9218P_ANALOG_OVERRIDE, 0);
 	regmap_write(rm, ES9218P_CP_OVERRIDE, 0);
 	regmap_write(rm, ES9218P_AMP_CONFIG, 0);
+
+	/*
+	 * Hand the jack back to the WCD934x: idle is Low Power Bypass, as in
+	 * LG's es9218p_sabre_hifione2lpb() (AMP_CONFIG = 0 above, then the
+	 * joan 100 ms settle before RESETb drops).
+	 */
+	gpiod_set_value_cansleep(es9218p->hph_sw_gpio, 1);
+	msleep(100);
+	gpiod_set_value_cansleep(es9218p->reset_gpio, 1);
 
 	return 0;
 }
@@ -618,8 +632,9 @@ static int es9218p_i2c_probe(struct i2c_client *i2c)
 				     "failed to get reset GPIO\n");
 
 	/*
-	 * Headphone path switch: routes the jack between the WCD9340's own
-	 * output and this DAC. Left asserted while the DAC is powered.
+	 * Headphone path switch (the chip's GPIO2/amp-mode pin): HIGH hands the
+	 * jack back to the WCD934x (Low Power Bypass), LOW lets this DAC drive
+	 * it.  Managed by the mode transitions below.
 	 */
 	es9218p->hph_sw_gpio = devm_gpiod_get_optional(dev, "hph-sw",
 						       GPIOD_OUT_LOW);
@@ -654,6 +669,19 @@ static int es9218p_i2c_probe(struct i2c_client *i2c)
 				     ARRAY_SIZE(es9218p_init_seq));
 	if (ret)
 		return dev_err_probe(dev, ret, "failed to apply init sequence\n");
+
+	/*
+	 * Idle in Low Power Bypass like downstream: LG's probe leaves the part
+	 * with "ResetB Low and GPIO2(switch) High" (es9218p.c,
+	 * es9218p_standby2lpb()), which connects the jack through to the
+	 * WCD934x so its MBHC headset detection can see insertions and
+	 * removals.  The DAC claims the jack again in es9218p_amp_power_up()
+	 * when a stream opens.
+	 */
+	regmap_write(es9218p->regmap, ES9218P_AMP_CONFIG, 0);
+	gpiod_set_value_cansleep(es9218p->hph_sw_gpio, 1);
+	msleep(100);
+	gpiod_set_value_cansleep(es9218p->reset_gpio, 1);
 
 	return devm_snd_soc_register_component(dev, &es9218p_component_driver,
 					       &es9218p_dai, 1);
