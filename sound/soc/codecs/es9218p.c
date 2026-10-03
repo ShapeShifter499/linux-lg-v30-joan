@@ -639,7 +639,7 @@ static int es9218p_i2c_probe(struct i2c_client *i2c)
 {
 	struct device *dev = &i2c->dev;
 	struct es9218p_priv *es9218p;
-	unsigned int chipid;
+	unsigned int chipid, val;
 	int ret;
 
 	es9218p = devm_kzalloc(dev, sizeof(*es9218p), GFP_KERNEL);
@@ -707,6 +707,18 @@ static int es9218p_i2c_probe(struct i2c_client *i2c)
 	 * removals.  The DAC claims the jack again in es9218p_amp_power_up()
 	 * when a stream opens.
 	 */
+	/*
+	 * The mute switch lives in register 0x07, which has no entry in
+	 * es9218p_reg_defaults and is not in the init sequence.  Read it once
+	 * while the part still answers so the cache holds a value: in
+	 * cache-only mode an uncached register cannot be read back, and every
+	 * read-modify-write of the switch would fail with -EBUSY.
+	 */
+	ret = regmap_read(es9218p->regmap, ES9218P_FILTER_BAND_SYSTEM_MUTE,
+			  &val);
+	if (ret)
+		return dev_err_probe(dev, ret, "failed to read system mute\n");
+
 	regmap_write(es9218p->regmap, ES9218P_AMP_CONFIG, 0);
 	gpiod_set_value_cansleep(es9218p->hph_sw_gpio, 1);
 	msleep(100);
