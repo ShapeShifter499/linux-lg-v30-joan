@@ -301,13 +301,18 @@
 
 /*
  * Video codec (Venus): hardware H.264/HEVC decode for the browser and
- * video players.  The firmware is packaged on the device at
- * qcom/msm8998/joan/venus.mbn (downstream joan firmware split); memory
+ * video players.  The firmware is packaged on the device as
+ * qcom/msm8998/joan/venus.mdt + .b00-.b04 (firmware-lge-joan); memory
  * comes from venus_mem reserved in msm8998.dtsi.
+ *
+ * Kept disabled: a full venus_core probe wedges the SoC into a watchdog
+ * reset on joan (lg-v30-port docs/evidence/2026-09-26-venus, and again
+ * on the r38 bench boot 2026-10-03).  A probe stopped before firmware
+ * boot (stop_at=5) survives; the failing stage is still being bisected.
  */
 &venus {
-	status = "okay";
 	firmware-name = "qcom/msm8998/joan/venus.mdt";
+	status = "disabled";
 };
 
 &pm8005_regulators {
