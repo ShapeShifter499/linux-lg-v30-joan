@@ -60,7 +60,9 @@
 #define CHARGING_ENABLE_CMD_BIT				BIT(0)
 
 #define CHGR_CFG2				0x51
-#define CHGR_FCC_CFG				0x40
+#define CHGR_FCC_CFG				0x61
+#define CHGR_FCC_STEP_UA			25000
+#define CHGR_FCC_MAX_UA				4500000
 #define CHG_EN_SRC_BIT					BIT(7)
 #define CHG_EN_POLARITY_BIT				BIT(6)
 #define PRETOFAST_TRANSITION_CFG_BIT			BIT(5)
@@ -1042,10 +1044,9 @@ static int smb_probe(struct platform_device *pdev)
 	rc = device_property_read_u32(chip->dev, "qcom,fcc-max-ua",
 				      &chip->fcc_max_ua);
 	if (!rc && chip->fcc_max_ua) {
-		u16 fcc_ma = chip->fcc_max_ua / 1000;
-
-		rc = regmap_bulk_write(chip->regmap, chip->base + CHGR_FCC_CFG,
-				       &fcc_ma, sizeof(fcc_ma));
+		chip->fcc_max_ua = min(chip->fcc_max_ua, CHGR_FCC_MAX_UA);
+		rc = regmap_write(chip->regmap, chip->base + CHGR_FCC_CFG,
+				  chip->fcc_max_ua / CHGR_FCC_STEP_UA);
 		if (rc < 0)
 			return dev_err_probe(chip->dev, rc,
 					     "Couldn't set fast charge current\n");
