@@ -1831,21 +1831,11 @@
 			};
 		};
 
-		fm-capture-dai-link {
-			link-name = "FM Capture";
-
-			cpu {
-				sound-dai = <&q6afedai SLIMBUS_8_TX>;
-			};
-
-			platform {
-				sound-dai = <&q6routing>;
-			};
-
-			codec {
-				sound-dai = <&wcn3990_btfm 0>;
-			};
-		};
+		/*
+		 * The SLIMBUS_8_TX "FM Capture" backend comes back together with
+		 * the WCN3990 slim2 wiring below; without the codec dai it would
+		 * defer the whole sound card forever.
+		 */
 	};
 };
 
@@ -1865,38 +1855,32 @@
 };
 
 /*
- * WCN3990 (Bluetooth/FM).  Downstream declares it under the second NGD
- * engine (slim@17240000, cell-index 3) with the FM/BT slave on
- * elemental address [00 01 20 02 17 02] -- manufacturer 0x217, product
- * 0x220 -- which is the mainline form "slim217,220", and the interface
- * device on [00 00 20 02 17 02] (device index 0).  The chip is powered
- * by the Bluetooth stack, not by a DT regulator, like downstream.
+ * WCN3990 (Bluetooth/FM): the second NGD engine stays OFF for now.
+ *
+ * Downstream declares the FM/BT slave under the second engine
+ * (slim@17240000, cell-index 3) on elemental address [00 01 20 02 17 02]
+ * -- manufacturer 0x217, product 0x220 -- which is the mainline form
+ * "slim217,220", and the interface device on [00 00 20 02 17 02]
+ * (device index 0).  The chip is powered by the Bluetooth stack, not by
+ * a DT regulator, like downstream.
+ *
+ * Enabling slim2/slimbam2 hard-hung the phone ~10 s into boot (r34):
+ * the first read of the engine register block stalls the bus even though
+ * the ADSP ACKed the SLIMBUS QMI select-instance(1) and power-on
+ * requests the driver completes before its first MMIO (bisect branch
+ * joan/ngd-bisect-oldbase: reverting only the register-base change
+ * restores boot).  Nothing in the mainline flow proves the engine is
+ * clocked before that read, so slim2 and slimbam2 keep the
+ * msm8998.dtsi status = "disabled" until an engine bring-up sequence
+ * is found.  Bench candidates to sequence the engine: the per-engine
+ * PDR client name downstream registers ("appsngd%d", slim-msm.c
+ * ngd_dom_init) instead of the shared audio-PD lookup, its power-request
+ * retries (ngd_slim_power_up), or a delayed enable once the audio PD
+ * has quiesced.  Re-enabling means: status "okay" for slim2 and
+ * slimbam2, the slim@3 bus with the two slim217,220 devices as before,
+ * and the SLIMBUS_8_TX "FM Capture" dai-link restored in the sound
+ * node.
  */
-&slimbam2 {
-	status = "okay";
-};
-
-&slim2 {
-	status = "okay";
-
-	slim@3 {
-		reg = <3>;
-		#address-cells = <2>;
-		#size-cells = <0>;
-
-		wcn3990_ifd: ifd@0,0 {
-			compatible = "slim217,220";
-			reg = <0 0>;
-		};
-
-		wcn3990_btfm: codec@1,0 {
-			compatible = "slim217,220";
-			reg = <1 0>;
-			slim-ifc-dev = <&wcn3990_ifd>;
-			#sound-dai-cells = <1>;
-		};
-	};
-};
 
 /* Match the downstream WCD934x CDC SLIMbus slave configuration. */
 &q6afe {
