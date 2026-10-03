@@ -373,7 +373,7 @@
  */
 &venus {
 	firmware-name = "qcom/msm8998/joan/venus.mdt";
-	status = "disabled";
+	status = "okay";
 };
 
 &pm8005_regulators {
