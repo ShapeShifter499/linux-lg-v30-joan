@@ -428,6 +428,7 @@ static int bu24235_probe(struct i2c_client *client)
 		return -ENOMEM;
 
 	v4l2_i2c_subdev_init(&bu24235->sd, client, &bu24235_subdev_ops);
+	bu24235->sd.flags |= V4L2_SUBDEV_FL_HAS_DEVNODE;
 	bu24235->client = client;
 	mutex_init(&bu24235->mutex);
 
@@ -441,12 +442,20 @@ static int bu24235_probe(struct i2c_client *client)
 		goto err_handler;
 	}
 
-	ret = v4l2_async_register_subdev(&bu24235->sd);
+	ret = media_entity_pads_init(&bu24235->sd.entity, 0, NULL);
 	if (ret)
 		goto err_handler;
 
+	bu24235->sd.entity.function = MEDIA_ENT_F_LENS;
+
+	ret = v4l2_async_register_subdev(&bu24235->sd);
+	if (ret)
+		goto err_entity;
+
 	return 0;
 
+err_entity:
+	media_entity_cleanup(&bu24235->sd.entity);
 err_handler:
 	v4l2_ctrl_handler_free(&bu24235->ctrls);
 	return ret;
@@ -457,6 +466,7 @@ static void bu24235_remove(struct i2c_client *client)
 	struct v4l2_subdev *sd = i2c_get_clientdata(client);
 
 	v4l2_async_unregister_subdev(sd);
+	media_entity_cleanup(&sd->entity);
 	v4l2_ctrl_handler_free(sd->ctrl_handler);
 }
 
