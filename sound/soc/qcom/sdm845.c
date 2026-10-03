@@ -35,6 +35,7 @@ struct sdm845_snd_data {
 	struct snd_soc_jack jack;
 	bool jack_setup;
 	bool slim_port_setup;
+	bool wcn_port_setup;
 	bool stream_prepared[AFE_PORT_MAX];
 	struct snd_soc_card *card;
 	uint32_t pri_mi2s_clk_count;
@@ -210,6 +211,9 @@ static int sdm845_snd_hw_params(struct snd_pcm_substream *substream,
 	case SLIMBUS_0_RX...SLIMBUS_6_TX:
 		ret = sdm845_slim_snd_hw_params(substream, params);
 		break;
+	case SLIMBUS_7_RX...SLIMBUS_8_TX:
+		ret = sdm845_slim_snd_hw_params(substream, params);
+		break;
 	case QUATERNARY_MI2S_RX:
 	case TERTIARY_MI2S_RX:
 	case SECONDARY_MI2S_RX:
@@ -318,6 +322,34 @@ static int sdm845_dai_init(struct snd_soc_pcm_runtime *rtd)
 		pdata->slim_port_setup = true;
 
 		break;
+	case SLIMBUS_7_RX...SLIMBUS_8_TX:
+	{
+		/*
+		 * WCN399x BT/FM slave channel allocation, from the
+		 * downstream msm8998 machine driver (msm_wcn_init):
+		 * the ADSP serves the FM TX group on channels 159/160
+		 * and SCO audio on 161 (TX) and 157/158 (RX).
+		 */
+		unsigned int wcn_rx_ch[2] = {157, 158};
+		unsigned int wcn_tx_ch[3] = {159, 160, 161};
+
+		if (pdata->wcn_port_setup || !link->no_pcm)
+			return 0;
+
+		for_each_rtd_codec_dais(rtd, i, codec_dai) {
+			rval = snd_soc_dai_set_channel_map(codec_dai,
+							  ARRAY_SIZE(wcn_tx_ch),
+							  wcn_tx_ch,
+							  ARRAY_SIZE(wcn_rx_ch),
+							  wcn_rx_ch);
+			if (rval != 0 && rval != -ENOTSUPP)
+				return rval;
+		}
+
+		pdata->wcn_port_setup = true;
+
+		break;
+	}
 	default:
 		break;
 	}
