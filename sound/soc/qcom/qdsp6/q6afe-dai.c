@@ -528,9 +528,17 @@ static int q6slim_set_channel_map(struct snd_soc_dai *dai,
 {
 	struct q6afe_dai_data *dai_data = dev_get_drvdata(dai->dev);
 	struct q6afe_port_config *pcfg = &dai_data->port_config[dai->id];
+	bool is_tx = dai->id & 0x1;
 	int i;
 
-	if (dai->id & 0x1) {
+	/*
+	 * The token parity encodes RX-even/TX-odd for the existing ports,
+	 * but SLIMBUS_8_TX (the WCN399x BT/FM capture port) breaks it.
+	 */
+	if (dai->id == SLIMBUS_8_TX)
+		is_tx = true;
+
+	if (is_tx) {
 		/* TX */
 		if (!tx_slot) {
 			pr_err("%s: tx slot not found\n", __func__);

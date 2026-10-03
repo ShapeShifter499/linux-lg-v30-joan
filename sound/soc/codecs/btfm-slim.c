@@ -345,6 +345,12 @@ static int btfm_slim_dai_prepare(struct snd_pcm_substream *substream,
 		return -EINVAL;
 	}
 
+	/* one shared stream state: a second open would leak the first */
+	if (btfm->sruntime) {
+		dev_err(dai->dev, "%s: stream already active\n", dai->name);
+		return -EBUSY;
+	}
+
 	cfg.rate = btfm->rate;
 	cfg.bps = 16;
 	cfg.ch_count = btfm->ch_count;
@@ -371,8 +377,10 @@ static int btfm_slim_dai_prepare(struct snd_pcm_substream *substream,
 	}
 
 	ret = slim_stream_prepare(btfm->sruntime, &cfg);
-	if (ret)
+	if (ret) {
+		slim_stream_unprepare(btfm->sruntime);
 		goto err_free_stream;
+	}
 
 	ret = slim_stream_enable(btfm->sruntime);
 	if (ret)
@@ -553,6 +561,11 @@ static const struct snd_soc_component_driver btfm_slim_comp = {
 	.name = "btfm-slim",
 };
 
+static void btfm_slim_sidev_put(void *data)
+{
+	put_device(data);
+}
+
 static int btfm_slim_probe(struct slim_device *sdev)
 {
 	struct device_node *ifc_np;
@@ -575,6 +588,11 @@ static int btfm_slim_probe(struct slim_device *sdev)
 		dev_err(&sdev->dev, "interface device not found\n");
 		return -EINVAL;
 	}
+
+	ret = devm_add_action_or_reset(&sdev->dev, btfm_slim_sidev_put,
+				       &btfm->sidev->dev);
+	if (ret)
+		return ret;
 
 	btfm->sdev = sdev;
 	mutex_init(&btfm->io_lock);

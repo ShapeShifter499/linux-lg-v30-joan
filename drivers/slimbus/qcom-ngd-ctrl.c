@@ -1589,8 +1589,17 @@ static int of_qcom_slim_ngd_register(struct device *parent,
 			kfree(ngd);
 			return ret;
 		}
-		ngd->base = ctrl->base + ngd->id * data->offset +
-					(ngd->id - 1) * data->size;
+		/*
+		 * The per-instance register block sits at an odd/even split
+		 * inside the region: odd instances at +offset, even ones at
+		 * +2 * offset (downstream slim-msm-ngd.c NGD_BASE_V2).  The
+		 * previous id * offset + (id - 1) * size expression only
+		 * ever produced the right address for instance 1 and sent
+		 * instance 3 (msm8998 second engine) to a register block
+		 * that does not exist.
+		 */
+		ngd->base = ctrl->base + ((ngd->id % 2) ? data->offset :
+							2 * data->offset);
 
 		return 0;
 	}
