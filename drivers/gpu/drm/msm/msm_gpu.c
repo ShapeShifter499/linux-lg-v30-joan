@@ -790,12 +790,41 @@ void msm_gpu_submit(struct msm_gpu *gpu, struct msm_gem_submit *submit)
 {
 	struct msm_ringbuffer *ring = submit->ring;
 	unsigned long flags;
+	int ret;
 
 	WARN_ON(!mutex_is_locked(&gpu->lock));
 
-	pm_runtime_get_sync(&gpu->pdev->dev);
+	ret = pm_runtime_resume_and_get(&gpu->pdev->dev);
+	if (ret) {
+		/*
+		 * Nothing below this point may run if the GPU did not come
+		 * back.  The submit's very first hardware access is the
+		 * CP_RB_RPTR read that adreno_wait_ring() polls before the
+		 * first packet is written, and on a GPU whose head switches
+		 * are down that read is answered by the interconnect with an
+		 * external abort.  It arrives as an asynchronous SError, i.e.
+		 * a machine check the driver never gets to handle.
+		 */
+		dev_err_ratelimited(&gpu->pdev->dev,
+				    "failed to resume the GPU (%d), dropping submit\n",
+				    ret);
+		/*
+		 * A failed resume latches into dev->power.runtime_error and
+		 * every later get returns it without retrying, so one bad
+		 * wake would keep the GPU down for the rest of the boot.
+		 * Clear it and let the next frame try again.
+		 */
+		pm_runtime_set_suspended(&gpu->pdev->dev);
+		goto fail;
+	}
 
-	msm_gpu_hw_init(gpu);
+	ret = msm_gpu_hw_init(gpu);
+	if (ret) {
+		dev_err_ratelimited(&gpu->pdev->dev,
+				    "hw init failed (%d), dropping submit\n", ret);
+		pm_runtime_put(&gpu->pdev->dev);
+		goto fail;
+	}
 
 	submit->seqno = submit->hw_fence->seqno;
 
@@ -823,6 +852,15 @@ void msm_gpu_submit(struct msm_gpu *gpu, struct msm_gem_submit *submit)
 
 	pm_runtime_put(&gpu->pdev->dev);
 	hangcheck_timer_reset(gpu);
+	return;
+
+fail:
+	/*
+	 * The job never reached the ring, so nothing will ever retire it.
+	 * Signal it here or every waiter on this frame hangs forever.
+	 */
+	dma_fence_set_error(submit->hw_fence, ret);
+	dma_fence_signal(submit->hw_fence);
 }
 
 /*

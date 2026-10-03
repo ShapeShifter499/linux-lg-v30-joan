@@ -36,6 +36,12 @@ properties:
   vddxo-supply:
     description: VDD_XO supply regulator handle
 
+  qcom,fm-receiver:
+    type: boolean
+    description:
+      The board connects an antenna to the controller's FM receiver. The FM
+      receiver is controlled over the Bluetooth UART.
+
 required:
   - compatible
   - vddch0-supply
@@ -62,5 +68,6 @@ examples:
             vddch1-supply = <&vreg_l23a_3p3>;
             vddrf-supply = <&vreg_l17a_1p3>;
             vddxo-supply = <&vreg_l7a_1p8>;
+            qcom,fm-receiver;
         };
     };

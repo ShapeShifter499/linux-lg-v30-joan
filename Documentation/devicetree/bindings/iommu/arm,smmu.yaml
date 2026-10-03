@@ -135,6 +135,7 @@ properties:
         items:
           - enum:
               - qcom,msm8996-smmu-v2
+              - qcom,msm8998-smmu-v2
               - qcom,sc7180-smmu-v2
               - qcom,sdm630-smmu-v2
               - qcom,sdm670-smmu-v2
@@ -310,16 +311,21 @@ allOf:
                     the smmu ptw
         - properties:
             clock-names:
+              minItems: 3
               items:
                 - const: iface
                 - const: mem
                 - const: mem_iface
+                - const: mem_src
             clocks:
+              minItems: 3
               items:
                 - description: interface clock required to access smmu's registers
                     through the TCU's programming interface.
                 - description: bus clock required for memory access
                 - description: bus clock required for GPU memory access
+                - description: source of the GPU memory access bus clock, needed
+                    where the SMMU outlives the GPU's own vote for it
         - properties:
             clock-names:
               items:

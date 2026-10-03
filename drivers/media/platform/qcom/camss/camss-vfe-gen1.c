@@ -138,6 +138,7 @@ static void vfe_output_init_addrs(struct vfe_device *vfe,
 		else
 			pong_addr = ping_addr;
 
+		vfe->sizeimage = line->video_out.active_fmt.fmt.pix_mp.plane_fmt[i].sizeimage;
 		vfe->ops_gen1->wm_set_ping_addr(vfe, output->wm_idx[i], ping_addr);
 		vfe->ops_gen1->wm_set_pong_addr(vfe, output->wm_idx[i], pong_addr);
 		if (sync)
@@ -156,6 +157,21 @@ static void vfe_output_frame_drop(struct vfe_device *vfe,
 	output->drop_update_idx++;
 	output->drop_update_idx %= VFE_FRAME_DROP_UPDATES;
 	drop_period = VFE_FRAME_DROP_VAL + output->drop_update_idx;
+
+	/*
+	 * The framedrop pattern is a 32-bit rolling mask indexed by the frame
+	 * counter modulo (period + 1), not a ping/pong slot mask: the callers'
+	 * 1, 2 and 3 leave all but one or two frames of a 31-frame cycle
+	 * ungated. The RDI write master does not reset its fill pointer on SOF,
+	 * so every gated frame resumes writing mid-buffer, tearing the frame and
+	 * flipping the Bayer row phase. Downstream's NO_SKIP is all-ones over
+	 * the full period; measured on msm8998 as a steady 30 fps where
+	 * pattern 1 / period 1 gave exactly 15. Pattern 0 still stops writes.
+	 */
+	if (drop_pattern) {
+		drop_pattern = 0xffffffff;
+		drop_period = 31;
+	}
 
 	for (i = 0; i < output->wm_num; i++) {
 		vfe->ops_gen1->wm_set_framedrop_period(vfe, output->wm_idx[i], drop_period);

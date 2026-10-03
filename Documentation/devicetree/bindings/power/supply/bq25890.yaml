@@ -23,6 +23,7 @@ properties:
               - ti,bq25892
               - ti,bq25895
               - ti,bq25896
+              - ti,bq25898s
           - const: ti,bq25890
 
   reg:

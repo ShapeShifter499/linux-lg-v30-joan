@@ -1,0 +1,63 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/sound/qcom,wcn3990-btfm.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Qualcomm WCN399x Bluetooth/FM SLIMbus audio
+
+maintainers:
+  - Lance <Gero3977@gmail.com>
+
+description: |
+  The Qualcomm WCN399x Bluetooth combination chip exposes a SLIMbus
+  ported generic device (device index 1) holding the FM receiver and
+  SCO audio slave ports, plus its interface device (device index 0)
+  carrying the port configuration registers.  The FM receiver streams
+  digitised analogue baseband at 48 kHz over a two-channel group on the
+  second msm8998 SLIMbus engine, which the ADSP receives on its
+  SLIMBUS_8_TX AFE port.  Ported from the Qualcomm/LG downstream
+  btfm_slim drivers.
+
+properties:
+  compatible:
+    const: slim217,220
+
+  reg:
+    maxItems: 1
+
+  slim-ifc-dev:
+    description: Phandle to the interface device (device index 0)
+    $ref: /schemas/types.yaml#/definitions/phandle
+
+  "#sound-dai-cells":
+    const: 1
+
+required:
+  - compatible
+  - reg
+
+allOf:
+  - if:
+      required:
+        - slim-ifc-dev
+    then:
+      required:
+        - "#sound-dai-cells"
+
+additionalProperties: true
+
+examples:
+  - |
+    slim@3 {
+        reg = <3>;
+        #address-cells = <2>;
+        #size-cells = <0>;
+
+        codec@1,0 {
+            compatible = "slim217,220";
+            reg = <1 0>;
+            slim-ifc-dev = <&wcn3990_ifd>;
+            #sound-dai-cells = <1>;
+        };
+    };

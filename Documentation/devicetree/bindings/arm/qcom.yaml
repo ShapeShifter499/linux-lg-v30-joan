@@ -294,6 +294,7 @@ properties:
               - fxtec,pro1
               - hp,envy-x2
               - lenovo,miix-630
+              - lge,joan
               - oneplus,cheeseburger
               - oneplus,dumpling
               - qcom,msm8998-mtp

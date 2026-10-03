@@ -411,6 +411,10 @@ static inline int adreno_is_a540(const struct adreno_gpu *gpu)
 	return adreno_is_revn(gpu, 540);
 }
 
+/* a540_gfx_rail.c: MSM8998 VDD_GFX open-loop voltages and MEM-ACC */
+void a540_gfx_apply_open_loop(struct device *dev);
+int a540_gfx_set_opp_config(struct device *dev);
+
 static inline int adreno_is_a610(const struct adreno_gpu *gpu)
 {
 	return adreno_is_revn(gpu, 610);

@@ -1291,6 +1291,25 @@ out:
 	return 0;
 }
 
+/*
+ * LG's flipped plug mirrors each logical lane (v becomes 3-v). The PHY
+ * reports that through phy_configure(); the device-tree map stays the
+ * normal orientation.
+ */
+void msm_dp_link_apply_orientation(struct msm_dp_link *msm_dp_link, bool reversed)
+{
+	u32 *map = msm_dp_link->lane_map;
+	int i;
+
+	if (reversed == msm_dp_link->lanes_reversed)
+		return;
+
+	for (i = 0; i < DP_MAX_NUM_DP_LANES; i++)
+		map[i] = DP_MAX_NUM_DP_LANES - 1 - map[i];
+
+	msm_dp_link->lanes_reversed = reversed;
+}
+
 static int msm_dp_link_parse_dt(struct device *dev, struct msm_dp_link *msm_dp_link)
 {
 	struct device_node *of_node = dev->of_node;

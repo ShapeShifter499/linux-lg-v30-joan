@@ -13,6 +13,7 @@ obj-$(CONFIG_RADIO_GEMTEK) += radio-gemtek.o
 obj-$(CONFIG_RADIO_ISA) += radio-isa.o
 obj-$(CONFIG_RADIO_MAXIRADIO) += radio-maxiradio.o
 obj-$(CONFIG_RADIO_MIROPCM20) += radio-miropcm20.o
+obj-$(CONFIG_RADIO_QCA_FM) += radio-qca-fm.o
 obj-$(CONFIG_RADIO_RTRACK2) += radio-rtrack2.o
 obj-$(CONFIG_RADIO_RTRACK) += radio-aimslab.o
 obj-$(CONFIG_RADIO_SAA7706H) += saa7706h.o

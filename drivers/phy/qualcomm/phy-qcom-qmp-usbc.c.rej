@@ -1,0 +1,13 @@
+--- drivers/phy/qualcomm/phy-qcom-qmp-usbc.c
++++ drivers/phy/qualcomm/phy-qcom-qmp-usbc.c
+@@ -606,8 +610,8 @@ static const struct qmp_phy_cfg msm8998_usb3dp_phy_cfg = {
+ 	.rx_tbl_num             = ARRAY_SIZE(msm8998_usb3_rx_tbl),
+ 	.pcs_tbl                = msm8998_usb3_pcs_tbl,
+ 	.pcs_tbl_num            = ARRAY_SIZE(msm8998_usb3_pcs_tbl),
+-	.reset_list		= usb3dpphy_reset_l,
+-	.num_resets		= ARRAY_SIZE(usb3dpphy_reset_l),
++	.reset_list		= msm8998_usb3dpphy_reset_l,
++	.num_resets		= ARRAY_SIZE(msm8998_usb3dpphy_reset_l),
+ 	.vreg_list              = qmp_phy_msm8998_vreg_l,
+ 	.num_vregs              = ARRAY_SIZE(qmp_phy_msm8998_vreg_l),
+ 	.regs                   = qmp_v3_usb3phy_regs_layout,

@@ -6,12 +6,15 @@
 #ifndef __QCOM_PMIC_TYPEC_H__
 #define __QCOM_PMIC_TYPEC_H__
 
+struct pmic_typec_pmi8998;
+
 struct pmic_typec {
 	struct device		*dev;
 	struct tcpm_port	*tcpm_port;
 	struct tcpc_dev		tcpc;
 	struct pmic_typec_pdphy	*pmic_typec_pdphy;
 	struct pmic_typec_port	*pmic_typec_port;
+	struct pmic_typec_pmi8998 *pmic_typec_pmi8998;
 
 	int (*pdphy_start)(struct pmic_typec *tcpm,
 			   struct tcpm_port *tcpm_port);

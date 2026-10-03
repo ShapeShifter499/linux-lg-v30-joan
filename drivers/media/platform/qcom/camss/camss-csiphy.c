@@ -130,6 +130,19 @@ static u8 csiphy_get_bpp(const struct csiphy_format_info *formats,
 	return formats[0].bpp;
 }
 
+static bool __printf(2, 3)
+csiphy_match_clock_name(const char *clock_name, const char *format, ...)
+{
+	char name[16]; /* csiphyXXX_timer\0 */
+	va_list args;
+
+	va_start(args, format);
+	vsnprintf(name, sizeof(name), format, args);
+	va_end(args);
+
+	return !strcmp(clock_name, name);
+}
+
 /*
  * csiphy_set_clock_rates - Calculate and set clock rates on CSIPHY module
  * @csiphy: CSIPHY device
@@ -180,9 +193,18 @@ static int csiphy_set_clock_rates(struct csiphy_device *csiphy)
 				return -EINVAL;
 			}
 
-			csiphy->timer_clk_rate = round_rate;
+			/*
+			 * Only the timer clock drives the settle counter.
+			 * A CSIPHY may have more than one rated clock - the
+			 * v5.x PHYs also rate their own core clock - and
+			 * taking the rate of whichever came last silently
+			 * skews every settle count derived from it.
+			 */
+			if (csiphy_match_clock_name(clock->name, "csiphy%d_timer",
+						    csiphy->id))
+				csiphy->timer_clk_rate = round_rate;
 
-			ret = clk_set_rate(clock->clk, csiphy->timer_clk_rate);
+			ret = clk_set_rate(clock->clk, round_rate);
 			if (ret < 0) {
 				dev_err(dev, "clk set rate failed: %d\n", ret);
 				return ret;
@@ -556,19 +578,6 @@ static int csiphy_init_formats(struct v4l2_subdev *sd,
 	};
 
 	return csiphy_set_format(sd, fh ? fh->state : NULL, &format);
-}
-
-static bool __printf(2, 3)
-csiphy_match_clock_name(const char *clock_name, const char *format, ...)
-{
-	char name[16]; /* csiphyXXX_timer\0 */
-	va_list args;
-
-	va_start(args, format);
-	vsnprintf(name, sizeof(name), format, args);
-	va_end(args);
-
-	return !strcmp(clock_name, name);
 }
 
 /*

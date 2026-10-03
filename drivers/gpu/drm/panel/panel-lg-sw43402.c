@@ -8,10 +8,13 @@
  * the closest in-tree sibling (same LG SW434xx family, DSC 1.1).
  */
 
+#include <linux/backlight.h>
 #include <linux/delay.h>
 #include <linux/gpio/consumer.h>
+#include <linux/i2c.h>
 #include <linux/module.h>
 #include <linux/of.h>
+#include <linux/input/stmfts.h>
 #include <linux/regulator/consumer.h>
 
 #include <video/mipi_display.h>
@@ -21,6 +24,18 @@
 #include <drm/drm_probe_helper.h>
 #include <drm/display/drm_dsc.h>
 #include <drm/display/drm_dsc_helper.h>
+
+/*
+ * Downstream uses DBV 3 for off. Device testing found 6 to be the dimmest
+ * visible value. LG's lge,blmap_v1 ends at 251, but lge,blmap-ex reaches 255;
+ * direct testing confirmed that 252 through 255 are accepted, echoed, and
+ * visibly distinct. Expose the full raw range and leave perceptual brightness
+ * curves to userspace.
+ */
+#define SW43402_DBV_OFF		3
+#define SW43402_DBV_MIN		6
+#define SW43402_DBV_MAX		255
+#define SW43402_WRCTRLD		0x07
 
 static const struct regulator_bulk_data sw43402_supplies[] = {
 	{ .supply = "vddio" },	/* 1.8 V, board gpio-enabled */
@@ -33,11 +48,44 @@ struct sw43402_panel {
 	struct regulator_bulk_data *supplies;
 	struct gpio_desc *reset_gpio;
 	struct drm_dsc_config dsc;
+
+	/* joan: touch controller powered together with the display */
+	struct i2c_client *touch_client;
 };
 
 static inline struct sw43402_panel *to_sw43402(struct drm_panel *panel)
 {
 	return container_of(panel, struct sw43402_panel, base);
+}
+
+/*
+ * LG's brightness-control dimming setup. Downstream runs this at the end of
+ * every panel-on sequence and sends both commands in high-speed mode.
+ */
+static void sw43402_bc_dim_init(struct mipi_dsi_multi_context *dsi_ctx,
+				struct mipi_dsi_device *dsi)
+{
+	dsi->mode_flags &= ~MIPI_DSI_MODE_LPM;
+
+	mipi_dsi_dcs_write_seq_multi(dsi_ctx, 0xb8,
+				     0xca, 0x30, 0x30, 0x20, 0x20, 0x05, 0x00,
+				     0x00, 0x00, 0x39, 0x05, 0x00, 0x00, 0x00,
+				     0x40, 0x00, 0x10, 0x44, 0xdd, 0x15, 0x15,
+				     0x02, 0x00, 0x00);
+	mipi_dsi_dcs_write_seq_multi(dsi_ctx, 0x5e, 0x10);
+	mipi_dsi_msleep(dsi_ctx, 15);
+
+	dsi->mode_flags |= MIPI_DSI_MODE_LPM;
+}
+
+static void sw43402_write_wrctrld(struct mipi_dsi_multi_context *dsi_ctx,
+				  struct mipi_dsi_device *dsi)
+{
+	dsi->mode_flags &= ~MIPI_DSI_MODE_LPM;
+	mipi_dsi_dcs_write_seq_multi(dsi_ctx,
+				     MIPI_DCS_WRITE_CONTROL_DISPLAY,
+				     SW43402_WRCTRLD);
+	dsi->mode_flags |= MIPI_DSI_MODE_LPM;
 }
 
 static void sw43402_reset(struct sw43402_panel *ctx)
@@ -77,7 +125,15 @@ static int sw43402_prepare(struct drm_panel *panel)
 
 	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, MIPI_DCS_SET_DISPLAY_BRIGHTNESS, 0x03);
 	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0x53, 0x07);
-	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0x55, 0x0c);
+	/* The running Android stack was captured using 0x1c, not DTS' 0x0c. */
+	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0x55, 0x1c);
+
+	/* Native colour-manager mode, sent by Android on every panel-on. */
+	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xd9,
+				     0x70, 0x55, 0x78, 0x70, 0x08, 0x07, 0xf0,
+				     0xfa, 0x00, 0xfa, 0x0a, 0x00, 0x00, 0x00,
+				     0x00, 0x0a, 0x80, 0x7c, 0x80, 0x78, 0x78,
+				     0x7c, 0x71, 0x80, 0x80, 0x80, 0x78, 0x78);
 	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xb0, 0xa5, 0x00);
 	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xb2,
 				     0x5d, 0x41, 0x04, 0x8c, 0x00, 0xff, 0xff,
@@ -121,34 +177,24 @@ static int sw43402_prepare(struct drm_panel *panel)
 	mipi_dsi_msleep(&dsi_ctx, 60);
 	mipi_dsi_dcs_set_display_on_multi(&dsi_ctx);
 
-	/*
-	 * The downstream on-command sequence programs WRCTRLD (53h) with
-	 * LG-custom bits (0x07) that leave the standard brightness gate
-	 * (BCTRL) clear, and WRDISBV (51h) with the blmap floor value 3;
-	 * with BCTRL clear the panel gates DBV writes (any width reads
-	 * back 0 via 52h) and emits nothing visible. Stock relies on
-	 * Android raising brightness through bl_ctrl_dcs right after
-	 * boot. Enable the brightness-control block and go to full scale
-	 * so the panel is usable without userspace; a proper backlight
-	 * device can replace the hardcoded value later.
-	 *
-	 * The panel needs a moment after display-on before it will latch
-	 * these: written back-to-back with display-on, WRDISBV reads back
-	 * 0 via 52h and the panel stays dark; with ~20ms of settle (and a
-	 * repeated DBV write for margin) it reads back 0xff.
-	 */
-	mipi_dsi_msleep(&dsi_ctx, 20);
-	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, MIPI_DCS_WRITE_CONTROL_DISPLAY,
-				     0x2c);
-	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, MIPI_DCS_SET_DISPLAY_BRIGHTNESS,
-				     0xff);
-	mipi_dsi_msleep(&dsi_ctx, 20);
-	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, MIPI_DCS_SET_DISPLAY_BRIGHTNESS,
-				     0xff);
+	sw43402_write_wrctrld(&dsi_ctx, ctx->link);
+	sw43402_bc_dim_init(&dsi_ctx, ctx->link);
 
 	if (dsi_ctx.accum_err)
 		regulator_bulk_disable(ARRAY_SIZE(sw43402_supplies),
 				       ctx->supplies);
+
+	/* joan: re-initialize the touch controller now the display is on */
+	if (!ctx->touch_client) {
+		struct device_node *touch_np = of_find_compatible_node(NULL, NULL, "st,stmfts");
+
+		if (touch_np) {
+			ctx->touch_client = of_find_i2c_device_by_node(touch_np);
+			of_node_put(touch_np);
+		}
+	}
+	if (ctx->touch_client)
+		stmfts_set_power(ctx->touch_client, true);
 
 	return dsi_ctx.accum_err;
 }
@@ -158,9 +204,34 @@ static int sw43402_unprepare(struct drm_panel *panel)
 	struct sw43402_panel *ctx = to_sw43402(panel);
 	struct mipi_dsi_multi_context dsi_ctx = { .dsi = ctx->link };
 
+	/* joan: power the touch controller off before the display's power
+	 * transition so it cannot emit a spurious touch event that would
+	 * unblank the screen on its own. */
+	if (ctx->touch_client)
+		stmfts_set_power(ctx->touch_client, false);
+
+	/*
+	 * LG OLED ELVSS shutdown-prep sequence, byte-faithful to the
+	 * downstream DV3.1 off-command (dsi_lp_mode). Sending display-off
+	 * and sleep-in without this leaves the OLED voltage rails in an
+	 * unclean state, which shows up as transient rainbow/garbage on
+	 * the next blank/wake cycle until the panel re-initializes.
+	 */
+	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xca,
+				     0x00, 0x06, 0x00, 0x06, 0x00, 0x16, 0x10);
+	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xcb,
+				     0x0b, 0x68, 0x00, 0x0b, 0x68, 0x00, 0x0b, 0x68, 0x00,
+				     0x0b, 0x68, 0x00, 0x0b, 0x68, 0x00, 0x0b, 0x68, 0x00,
+				     0x0b, 0x68, 0x00, 0x0b, 0x68, 0x00, 0x0b, 0x68, 0x00,
+				     0x0b, 0x68, 0x00);
+	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xcc,
+				     0x0b, 0x68, 0x00, 0x0b, 0x68, 0x00, 0x0b, 0x68, 0x00,
+				     0x05, 0xb4, 0x00, 0x05, 0xb4, 0x00, 0x55, 0x12, 0x13);
+	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xe8, 0x08, 0x90, 0x10, 0x25);
+
 	mipi_dsi_dcs_set_display_off_multi(&dsi_ctx);
 	mipi_dsi_dcs_enter_sleep_mode_multi(&dsi_ctx);
-	mipi_dsi_msleep(&dsi_ctx, 100);
+	mipi_dsi_msleep(&dsi_ctx, 150);
 
 	gpiod_set_value(ctx->reset_gpio, 1);
 	regulator_bulk_disable(ARRAY_SIZE(sw43402_supplies), ctx->supplies);
@@ -187,6 +258,52 @@ static int sw43402_get_modes(struct drm_panel *panel,
 			     struct drm_connector *connector)
 {
 	return drm_connector_helper_get_modes_fixed(connector, &sw43402_mode);
+}
+
+static int sw43402_backlight_update_status(struct backlight_device *bl)
+{
+	struct mipi_dsi_device *dsi = bl_get_data(bl);
+	unsigned int brightness = backlight_get_brightness(bl);
+	u8 dbv;
+	int ret;
+
+	if (!brightness)
+		dbv = SW43402_DBV_OFF;
+	else
+		dbv = SW43402_DBV_MIN +
+		      DIV_ROUND_CLOSEST((brightness - 1) *
+					(SW43402_DBV_MAX - SW43402_DBV_MIN),
+					SW43402_DBV_MAX - 1);
+
+	/* One low-power WRDISBV command per update, matching Android. */
+	ret = mipi_dsi_dcs_write(dsi, MIPI_DCS_SET_DISPLAY_BRIGHTNESS,
+				 &dbv, sizeof(dbv));
+
+	return ret < 0 ? ret : 0;
+}
+
+static const struct backlight_ops sw43402_backlight_ops = {
+	.update_status = sw43402_backlight_update_status,
+};
+
+static int sw43402_backlight_init(struct sw43402_panel *ctx)
+{
+	struct device *dev = &ctx->link->dev;
+	const struct backlight_properties props = {
+		.type = BACKLIGHT_RAW,
+		.brightness = SW43402_DBV_MAX,
+		.max_brightness = SW43402_DBV_MAX,
+	};
+
+	ctx->base.backlight = devm_backlight_device_register(dev, dev_name(dev),
+							     dev, ctx->link,
+							     &sw43402_backlight_ops,
+							     &props);
+	if (IS_ERR(ctx->base.backlight))
+		return dev_err_probe(dev, PTR_ERR(ctx->base.backlight),
+				     "Failed to register backlight\n");
+
+	return 0;
 }
 
 static const struct drm_panel_funcs sw43402_funcs = {
@@ -220,6 +337,18 @@ static int sw43402_probe(struct mipi_dsi_device *dsi)
 	ctx->link = dsi;
 	mipi_dsi_set_drvdata(dsi, ctx);
 
+	/* joan: look up the touch controller so it can be powered with the display */
+	{
+		struct device_node *touch_np = of_find_compatible_node(NULL, NULL, "st,stmfts");
+
+		if (touch_np) {
+			ctx->touch_client = of_find_i2c_device_by_node(touch_np);
+			of_node_put(touch_np);
+			if (!ctx->touch_client)
+				dev_dbg(dev, "stmfts not available yet\n");
+		}
+	}
+
 	dsi->lanes = 4;
 	dsi->format = MIPI_DSI_FMT_RGB888;
 	dsi->mode_flags = MIPI_DSI_MODE_LPM | MIPI_DSI_CLOCK_NON_CONTINUOUS;
@@ -237,7 +366,7 @@ static int sw43402_probe(struct mipi_dsi_device *dsi)
 
 	ctx->base.prepare_prev_first = true;
 
-	ret = drm_panel_of_backlight(&ctx->base);
+	ret = sw43402_backlight_init(ctx);
 	if (ret)
 		return ret;
 

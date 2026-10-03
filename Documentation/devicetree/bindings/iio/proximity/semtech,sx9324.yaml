@@ -11,14 +11,18 @@ maintainers:
   - Daniel Campello <campello@chromium.org>
 
 description: |
-  Semtech's SX9324 proximity sensor.
+  Semtech's SX9324 proximity sensor. The SX9320 has the same register map.
 
 allOf:
   - $ref: /schemas/iio/iio.yaml#
 
 properties:
   compatible:
-    const: semtech,sx9324
+    oneOf:
+      - const: semtech,sx9324
+      - items:
+          - const: semtech,sx9320
+          - const: semtech,sx9324
 
   reg:
     maxItems: 1

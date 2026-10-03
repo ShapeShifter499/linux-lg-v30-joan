@@ -8,9 +8,15 @@
 
 /dts-v1/;
 
+#include <dt-bindings/sound/qcom,q6afe.h>
+#include <dt-bindings/sound/qcom,q6asm.h>
 #include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/iio/qcom,spmi-vadc.h>
 #include <dt-bindings/input/input.h>
+#include <dt-bindings/leds/common.h>
 #include <dt-bindings/pinctrl/qcom,pmic-gpio.h>
+#include <dt-bindings/usb/pd.h>
+#include <dt-bindings/phy/phy-qcom-qmp.h>
 #include "msm8998.dtsi"
 #include "pm8005.dtsi"
 #include "pm8998.dtsi"
@@ -27,7 +33,9 @@
 	 * LG aboot matches the appended DTB against the unit's hardware
 	 * revision. Downstream ships one DTB per rev (rev_a .. rev_1_3);
 	 * list every US998 (joan_nao_us) board id so a single DTB matches
-	 * any revision. Trim to the real rev once read from the device.
+	 * any revision. The stock DTBs for all ten revisions differ only in
+	 * battery, charging, USB-C SBU select and the Quad DAC LDO, none of
+	 * which this tree depends on.
 	 */
 	qcom,board-id = <0x308 0>, <0x608 0>, <0x708 0>,
 			<0x808 0>, <0x908 0>, <0xa08 0>,
@@ -92,12 +100,19 @@
 		};
 
 		reserved@95215000 {
-			reg = <0x0 0x95215000 0x0 0x3eb000>;
+			/*
+			 * Extended to 0x95700000 so it also covers mainline's
+			 * default gpu_mem spot (0x95600000), which lies inside
+			 * LG's SLPI range; gpu_mem moves to LG's pil_ipa_gpu
+			 * address below.
+			 */
+			reg = <0x0 0x95215000 0x0 0x4eb000>;
 			no-map;
 		};
 
 		reserved@95800000 {
-			reg = <0x0 0x95800000 0x0 0x500000>;
+			/* Ends at 0x95c00000: LG's pil_ipa_gpu starts there. */
+			reg = <0x0 0x95800000 0x0 0x400000>;
 			no-map;
 		};
 
@@ -123,6 +138,33 @@
 		};
 	};
 
+	/*
+	 * Main camera rails: external LDOs switched by PM8998 GPIOs, LG's
+	 * CAM0_AVDD (GPIO 8) and CAM0_VDIG (GPIO 20).  The voltages are the
+	 * sensor's nominal ones; nothing sets them.
+	 */
+	cam0_avdd_2p8: cam0-avdd-regulator {
+		compatible = "regulator-fixed";
+		regulator-name = "cam0_avdd_2p8";
+		regulator-min-microvolt = <2800000>;
+		regulator-max-microvolt = <2800000>;
+		gpio = <&pm8998_gpios 8 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		pinctrl-0 = <&cam0_avdd_en>;
+		pinctrl-names = "default";
+	};
+
+	cam0_dvdd_1p05: cam0-dvdd-regulator {
+		compatible = "regulator-fixed";
+		regulator-name = "cam0_dvdd_1p05";
+		regulator-min-microvolt = <1050000>;
+		regulator-max-microvolt = <1050000>;
+		gpio = <&pm8998_gpios 20 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		pinctrl-0 = <&cam0_dvdd_en>;
+		pinctrl-names = "default";
+	};
+
 	vph_pwr: vph-pwr-regulator {
 		compatible = "regulator-fixed";
 		regulator-name = "vph_pwr";
@@ -135,18 +177,156 @@
 	status = "okay";
 };
 
+&blsp1_uart3 {
+	status = "okay";
+	assigned-clocks = <&gcc GCC_BLSP1_UART3_APPS_CLK>;
+	assigned-clock-rates = <48000000>;
+
+	bluetooth {
+		compatible = "qcom,wcn3990-bt";
+		firmware-name = "crnv21.bin";
+		vddio-supply = <&vreg_s3a_1p35>;
+		vddxo-supply = <&vreg_s5a_2p04>;
+		vddrf-supply = <&vreg_l17a_1p3>;
+		vddch0-supply = <&vreg_l25a_3p3>;
+		max-speed = <3000000>;
+
+		/*
+		 * joan has no factory BD address: the NVM's address TLV is
+		 * all zeroes and the vendor stack generates a random address
+		 * on first use. The all-zero placeholder is rejected by the
+		 * core, which leaves the controller HCI_UNCONFIGURED so that
+		 * userspace can supply one (MGMT_OP_SET_PUBLIC_ADDRESS).
+		 */
+		local-bd-address = [ 00 00 00 00 00 00 ];
+
+		/* LG's FM radio app runs on this receiver */
+		qcom,fm-receiver;
+	};
+};
+
+/*
+ * Camera.  The main IMX351 is wired to CSIPHY0; the other two sensors
+ * (S5K3M3 at the back, HI553 at the front) have no mainline drivers yet,
+ * so their nodes, rails and MCLK pins come with those drivers.  The CSID
+ * supplies are LG's: mipi-csi-vdd is L2 at 1.2 V and vdd_sec is L1.
+ */
+&camss {
+	vdda-supply = <&vreg_l2a_1p2>;
+	vdd_sec-supply = <&vreg_l1a_0p875>;
+
+	status = "okay";
+
+	ports {
+		port@0 {
+			reg = <0>;
+
+			csiphy0_ep: endpoint {
+				data-lanes = <0 1 2 3>;
+				remote-endpoint = <&imx351_ep>;
+			};
+		};
+	};
+};
+
+&cci {
+	status = "okay";
+};
+
+&cci_i2c0 {
+	/*
+	 * Main camera: LG's camera@0 on CSIPHY0. LG gives qcom,mount-angle =
+	 * <90>, which Android counts clockwise; rotation counts the other way.
+	 */
+	camera@10 {
+		compatible = "sony,imx351";
+		reg = <0x10>;
+
+		clocks = <&mmcc CAMSS_MCLK0_CLK>;
+		assigned-clocks = <&mmcc CAMSS_MCLK0_CLK>;
+		assigned-clock-rates = <24000000>;
+
+		reset-gpios = <&tlmm 30 GPIO_ACTIVE_LOW>;
+		pinctrl-0 = <&cam0_mclk_default>;
+		pinctrl-names = "default";
+
+		avdd-supply = <&cam0_avdd_2p8>;
+		dvdd-supply = <&cam0_dvdd_1p05>;
+		dovdd-supply = <&vreg_lvs1a_1p8>;
+
+		orientation = <1>;
+		rotation = <270>;
+
+		/*
+		 * The module is dual-sourced: the ROHM BU24235 or a Renesas
+		 * controller sits at 0x3e/0x24, chosen per unit by the module
+		 * EEPROM.  bu24235.c reads the EEPROM map version and declines
+		 * the bus on Renesas units.  Both actuators take their power
+		 * from the module, so chip access waits for the first focus
+		 * request while the sensor streams.
+		 */
+		lens-focus = <&bu24235>;
+
+		port {
+			imx351_ep: endpoint {
+				data-lanes = <1 2 3 4>;
+				link-frequencies = /bits/ 64 <660000000 330000000>;
+				remote-endpoint = <&csiphy0_ep>;
+			};
+		};
+	};
+
+	/*
+	 * Laser autofocus (LG's "proxy", VL53L0), on the same bus as the main
+	 * camera.  LDAF_EN (GPIO 25) drives its XSHUT.  LG lists no supply
+	 * for it; it is taken to share the main camera module's analog rail.
+	 */
+	proximity@29 {
+		compatible = "st,vl53l0x";
+		reg = <0x29>;
+		reset-gpios = <&tlmm 25 GPIO_ACTIVE_LOW>;
+		vdd-supply = <&cam0_avdd_2p8>;
+	};
+
+	/*
+	 * ROHM BU24235 AF/OIS controller of the rear camera module (the
+	 * Renesas variant of the module uses 0x24 and has no driver yet).
+	 * No supplies: powered by the sensor's power-up.
+	 */
+	bu24235: lens@3e {
+		compatible = "rohm,bu24235";
+		reg = <0x3e>;
+	};
+};
+
 &pm8005_regulators {
-	/* VDD_GFX supply */
+	/* VDD_GFX supply; managed by the OPP framework + msm_gpu (vdd) */
 	pm8005_s1: s1 {
 		regulator-min-microvolt = <524000>;
 		regulator-max-microvolt = <1100000>;
 		regulator-enable-ramp-delay = <500>;
-		/* Hack until we rig up the gpu consumer */
-		regulator-always-on;
+		/*
+		 * No always-on: the GPU_GX GDSC now owns this rail via
+		 * vdd-gfx-supply, so it is enabled and disabled together with
+		 * the GX domain. Holding it on unconditionally kept VDD_GFX
+		 * powered even with the GPU idle.
+		 */
 	};
 };
 
 &pm8998_gpios {
+	cam0_avdd_en: cam0-avdd-en-state {
+		pins = "gpio8";
+		function = "normal";
+		output-low;
+	};
+
+	cam0_dvdd_en: cam0-dvdd-en-state {
+		pins = "gpio20";
+		function = "normal";
+		output-low;
+	};
+
 	vol_up_default: vol-up-state {
 		pins = "gpio6";
 		function = "normal";
@@ -156,9 +336,139 @@
 	};
 };
 
+&pm8998_pwrkey {
+	/*
+	 * joan's power switch chatters. A single press produces extra
+	 * press/release pairs with hold times as short as 3 ms, and the gaps
+	 * between them measure 17-19 ms -- just wide enough to clear the
+	 * 15.625 ms debounce inherited from pm8998.dtsi. The stray edge
+	 * arrives while the screen is blanking, so the display locks and
+	 * immediately wakes again as though the key had been pressed twice.
+	 *
+	 * Use the value the vendor ships for this PMIC: downstream's
+	 * msm-pm8998.dtsi sets qcom,pon-dbc-delay = <31250>, twice the
+	 * generic mainline figure, and the observed chatter falls in the
+	 * window between the two. Hold-to-power-off is measured in seconds
+	 * and is unaffected.
+	 */
+	debounce = <31250>;
+};
+
 &pm8998_resin {
 	linux,code = <KEY_VOLUMEDOWN>;
 	status = "okay";
+};
+
+/*
+ * USB-C.  PMI8998 runs the Type-C port and PD; LG's kernel limits the OTG
+ * boost to 1.25 A on joan (qcom,otg-cl-ua) and prefers the sink role.  The
+ * port driver has the hardware do that Try.SNK itself, so there is no
+ * try-power-role here: TCPM cannot move this port's terminations, and its
+ * own Try.SNK would only stall each attach.  Only a 5 V contract is offered
+ * or requested until the charger is known to handle higher input voltages.
+ */
+&pmi8998_vbus {
+	regulator-min-microamp = <1250000>;
+	regulator-max-microamp = <1250000>;
+	status = "okay";
+};
+
+&pmi8998_typec {
+	vdd-pdphy-supply = <&vreg_l24a_3p075>;
+	status = "okay";
+
+	connector {
+		compatible = "usb-c-connector";
+		label = "USB-C";
+
+		power-role = "dual";
+		data-role = "dual";
+		self-powered;
+
+		vbus-supply = <&pmi8998_vbus>;
+
+		source-pdos = <PDO_FIXED(5000, 1250,
+					 PDO_FIXED_DUAL_ROLE |
+					 PDO_FIXED_USB_COMM |
+					 PDO_FIXED_DATA_SWAP)>;
+		sink-pdos = <PDO_FIXED(5000, 3000,
+				       PDO_FIXED_DUAL_ROLE |
+				       PDO_FIXED_USB_COMM |
+				       PDO_FIXED_DATA_SWAP)>;
+		op-sink-microwatt = <15000000>;
+
+		/*
+		 * DFP_D, receptacle, pins C/D/E. Pin C is the DP-only
+		 * assignment this PHY can actually switch to. D would
+		 * need USB3 and DP together, which the block cannot do.
+		 */
+		altmodes {
+			displayport {
+				svid = <0xff01>;
+				vdo = <0x1c46>;
+			};
+		};
+
+		ports {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			port@0 {
+				reg = <0>;
+
+				pmi8998_hs_in: endpoint {
+					remote-endpoint = <&usb3_dwc3_hs>;
+				};
+			};
+
+			port@1 {
+				reg = <1>;
+
+				pmi8998_ss_in: endpoint {
+					remote-endpoint = <&usb3phy_out>;
+				};
+			};
+		};
+	};
+};
+
+/*
+ * Rear flash: LG drives both flash channels together into the one LED,
+ * 800 mA each for at most 500 ms.
+ */
+&pmi8998_flash {
+	status = "okay";
+
+	led-0 {
+		function = LED_FUNCTION_FLASH;
+		color = <LED_COLOR_ID_WHITE>;
+		led-sources = <1>, <2>;
+		led-max-microamp = <200000>;
+		flash-max-microamp = <1600000>;
+		flash-max-timeout-us = <500000>;
+	};
+};
+
+&pmi8998_charger {
+	qcom,usb-icl-ua = <1800000>;
+	qcom,fcc-max-ua = <3300000>;
+	monitored-battery = <&battery>;
+	status = "okay";
+};
+
+&pmi8998_fg {
+	power-supplies = <&pmi8998_charger>;
+	monitored-battery = <&battery>;
+	status = "okay";
+};
+
+/ {
+	battery: battery {
+		compatible = "simple-battery";
+		voltage-min-design-microvolt = <3200000>;
+		voltage-max-design-microvolt = <4400000>;
+		charge-full-design-microamp-hours = <3312000>;
+	};
 };
 
 &soc {
@@ -173,6 +483,22 @@
 		reg = <0x17817000 0x1000>;
 		clocks = <&sleep_clk>;
 	};
+};
+
+&gpucc {
+	/* The GX GDSC gates VDD_GFX with the GPU's own power domain. */
+	vdd-gfx-supply = <&pm8005_s1>;
+};
+
+/* LG's msm-4.4 kernel (CONFIG_LGE_PM) has LMh throttle at 85 C, not 95 C */
+&lmh_cluster0 {
+	qcom,lmh-temp-low-millicelsius = <84500>;
+	qcom,lmh-temp-high-millicelsius = <85000>;
+};
+
+&lmh_cluster1 {
+	qcom,lmh-temp-low-millicelsius = <84500>;
+	qcom,lmh-temp-high-millicelsius = <85000>;
 };
 
 &qusb2phy {
@@ -375,7 +701,18 @@
 			regulator-max-microvolt = <3008000>;
 		};
 
-		vreg_lvs1a_1p8: lvs1 { };
+		/*
+		 * cam_vio of the main camera module, and the rail CCI0 needs up
+		 * for anything on it to answer: with it off the VL53L0X times
+		 * out on the bus even with its own supply on and the pins
+		 * pulled up. LG gives the main camera's actuator and EEPROM on
+		 * CCI0 a cam_vio supply of their own; the VL53L0X has no
+		 * supply for it to take, so keep it on.
+		 */
+		vreg_lvs1a_1p8: lvs1 {
+			regulator-always-on;
+		};
+
 		vreg_lvs2a_1p8: lvs2 { };
 	};
 
@@ -405,7 +742,111 @@
 };
 
 &tlmm {
-	gpio-reserved-ranges = <0 4>, <49 4>, <81 4>;
+	/*
+	 * <0 4> came in as msm8998 boilerplate -- every mainline board carries it,
+	 * inherited from the MTP reference -- and it covers the whole BLSP1 QUP1
+	 * pin block (gpio0-3, SPI1/UART1/I2C1 muxed). joan actually uses QUP1 as
+	 * I2C for the ES9218P headphone DAC, and downstream drives gpio2/gpio3 with
+	 * function = "blsp_i2c1" under the same TZ firmware we boot, so AP access is
+	 * permitted. Reserving them made pinctrl reject the controller outright:
+	 *   msm8998-pinctrl: error -EINVAL: pin-2 (c175000.i2c)
+	 *   i2c_qup c175000.i2c: error -EINVAL: Error applying setting
+	 * and i2c-1 never appeared. Narrow to <0 2> so the unused SPI pins stay
+	 * reserved while SCL/SDA are available.
+	 */
+	gpio-reserved-ranges = <0 2>, <49 4>, <81 4>;
+
+	/*
+	 * Moisture-detect SBU switch. Both must stay low for normal SBU
+	 * routing. The AUX orientation switch is a different part and is
+	 * not hogged here: its enable pin is held high by LG, which the
+	 * generic gpio-sbu-mux would drive low.
+	 */
+	sbu-md-sel-hog {
+		gpio-hog;
+		gpios = <11 GPIO_ACTIVE_HIGH>;
+		output-low;
+		line-name = "sbu-md-sel";
+	};
+
+	sbu-md-oe-hog {
+		gpio-hog;
+		gpios = <16 GPIO_ACTIVE_HIGH>;
+		output-low;
+		line-name = "sbu-md-oe";
+	};
+
+	capsensor_default: capsensor-default-state {
+		pins = "gpio62";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-pull-up;
+	};
+
+	nfc_default: nfc-default-state {
+		en-pins {
+			pins = "gpio12", "gpio129";
+			function = "gpio";
+			drive-strength = <2>;
+			bias-disable;
+		};
+
+		irq-pins {
+			pins = "gpio116";
+			function = "gpio";
+			drive-strength = <2>;
+			bias-pull-down;
+		};
+	};
+
+	cam0_mclk_default: cam0-mclk-default-state {
+		pins = "gpio13";
+		function = "cam_mclk";
+		drive-strength = <2>;
+		bias-disable;
+	};
+
+	/*
+	 * Tertiary MI2S carries I2S playback to the TFA9872 speaker amplifier
+	 * (downstream: LPASS_BE_TERT_MI2S_RX / msm-dai-q6-mi2s.2 ->
+	 * tfa98xx.7-0034).  gpio75 SCK, gpio76 WS, gpio78 SD1; dai_mi2s2 sets
+	 * rx-lines = 2, i.e. SD1 out.
+	 */
+	tert_mi2s_default: tert-mi2s-default-state {
+		pins = "gpio75", "gpio76", "gpio78";
+		function = "ter_mi2s";
+		drive-strength = <8>;
+		bias-disable;
+	};
+
+	/*
+	 * Quaternary MI2S carries I2S playback to the ES9218P headphone DAC.
+	 * Downstream's dai-link is LPASS_BE_QUAT_MI2S_RX / msm-dai-q6-mi2s.3 ->
+	 * es9218-codec.1-0048 (msm8998.c, under CONFIG_SND_USE_QUAT_MI2S, which
+	 * every joan defconfig sets).  Pins from msm8998-pinctrl.dtsi:
+	 * gpio58 SCK, gpio59 WS, gpio61 SD1.  dai_mi2s3 sets rx-lines = 2, i.e.
+	 * SD1 out, so only the clock pair and SD1 are described here.
+	 */
+	quat_mi2s_default: quat-mi2s-default-state {
+		pins = "gpio58", "gpio59", "gpio61";
+		function = "qua_mi2s";
+		drive-strength = <8>;
+		bias-disable;
+	};
+
+	quat_mi2s_sleep: quat-mi2s-sleep-state {
+		pins = "gpio58", "gpio59", "gpio61";
+		function = "qua_mi2s";
+		drive-strength = <2>;
+		bias-pull-down;
+	};
+
+	wcd_intr_default: wcd-intr-default-state {
+		pins = "gpio54";
+		function = "gpio";
+		bias-pull-down;
+		drive-strength = <2>;
+	};
 
 	/*
 	 * The SoC-level sdc2_cd state uses the MTP's GPIO 95; joan routes
@@ -432,6 +873,20 @@
 		drive-strength = <2>;
 		bias-pull-down;
 	};
+
+	touch_int_default: touch-int-default-state {
+		pins = "gpio125";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-pull-up;
+	};
+
+	touch_reset_default: touch-reset-default-state {
+		pins = "gpio89";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-pull-up;
+	};
 };
 
 &ufshc {
@@ -455,36 +910,117 @@
 
 &usb3 {
 	status = "okay";
-
-	/* Run USB 2 only for bring-up */
-	qcom,select-utmi-as-pipe-clk;
 };
 
 &usb3_dwc3 {
-	/* Drop the unused USB 3 PHY */
-	phys = <&qusb2phy>;
-	phy-names = "usb2-phy";
+	/*
+	 * The data role comes from the PMI8998 Type-C port.  Whenever no role
+	 * is set -- nothing attached, or the port driver not loaded -- dwc3
+	 * stays a gadget, so the RAM-boot USB console does not depend on it.
+	 *
+	 * SuperSpeed does make USB depend on the QMP PHY driver, though:
+	 * dwc3 waits for its usb3-phy, so that driver (phy-qcom-qmp-usbc,
+	 * built by CONFIG_PHY_QCOM_QMP_COMBO) has to be built in, or be in
+	 * the initramfs, for USB to come up in a RAM boot.
+	 *
+	 * The cell selects the USB3 half. A missing cell would also do that,
+	 * but the raised #phy-cells makes dtc warn and is the change that
+	 * previously broke USB on boards that were not updated.
+	 */
+	phys = <&qusb2phy>, <&usb3phy QMP_USB43DP_USB3_PHY>;
+	dr_mode = "otg";
+	usb-role-switch;
+	role-switch-default-mode = "peripheral";
+};
 
-	/* Fastest mode for USB 2 */
-	maximum-speed = "high-speed";
+&usb3_dwc3_hs {
+	remote-endpoint = <&pmi8998_hs_in>;
+};
 
-	/* Force to peripheral until we can switch modes */
-	dr_mode = "peripheral";
+&usb3phy {
+	compatible = "qcom,msm8998-qmp-usb3-dp-phy";
+	reg = <0x0c010000 0x2000>;
+	#clock-cells = <1>;
+	#phy-cells = <1>;
+
+	resets = <&gcc GCC_USB3_PHY_BCR>,
+		 <&gcc GCC_USB3PHY_PHY_BCR>,
+		 <&gcc GCC_USB3_DP_PHY_BCR>;
+	reset-names = "phy", "phy_phy", "dp_phy";
+
+	/*
+	 * 0xb244 is the VLS clamp. 0xb248 selects the PHY mode and must
+	 * change while the resets above are asserted.
+	 */
+	qcom,tcsr-reg = <&tcsr_regs_2 0xb244 0xb248>;
+
+	vdda-phy-supply = <&vreg_l1a_0p875>;
+	vdda-pll-supply = <&vreg_l2a_1p2>;
+
+	mode-switch;
+	orientation-switch;
+
+	status = "okay";
+};
+
+&usb3phy_out {
+	remote-endpoint = <&pmi8998_ss_in>;
+};
+
+&mmcc {
+	clocks = <&rpmcc RPM_SMD_XO_CLK_SRC>,
+		 <&gcc GCC_MMSS_GPLL0_CLK>,
+		 <&mdss_dsi0_phy DSI_PIXEL_PLL_CLK>,
+		 <&mdss_dsi0_phy DSI_BYTE_PLL_CLK>,
+		 <&mdss_dsi1_phy DSI_PIXEL_PLL_CLK>,
+		 <&mdss_dsi1_phy DSI_BYTE_PLL_CLK>,
+		 <&mdss_hdmi_phy>,
+		 <&usb3phy QMP_USB43DP_DP_LINK_CLK>,
+		 <&usb3phy QMP_USB43DP_DP_VCO_DIV_CLK>,
+		 <&gcc GCC_MMSS_GPLL0_DIV_CLK>;
+};
+
+&mdss_dp {
+	status = "okay";
+	phys = <&usb3phy QMP_USB43DP_DP_PHY>;
+	phy-names = "dp";
+
+	ports {
+		port@1 {
+			mdss_dp_out: endpoint {
+				data-lanes = <2 3 1 0>;
+				remote-endpoint = <&usb3phy_dp_in>;
+			};
+		};
+	};
+};
+
+&usb3phy {
+	ports {
+		port@2 {
+			reg = <2>;
+
+			usb3phy_dp_in: endpoint {
+				remote-endpoint = <&mdss_dp_out>;
+			};
+		};
+	};
 };
 
 &wifi {
-	/* Leave disabled until MSS is functional */
 	vdd-0.8-cx-mx-supply = <&vreg_l5a_0p8>;
 	vdd-1.8-xo-supply = <&vreg_l7a_1p8>;
 	vdd-1.3-rfa-supply = <&vreg_l17a_1p3>;
 	vdd-3.3-ch0-supply = <&vreg_l25a_3p3>;
+	status = "okay";
 };
 
 /*
  * Display: SW43402 DSC command-mode panel.
- * NOTE: bringup-stage, not yet validated on device. The MDSS blocks sit
- * behind the mmss SMMU (cd00000.iommu), which currently fails deferred
- * probe (-110) — this chain will not light up until that is resolved.
+ * Validated on device — the panel lights up and GPU rendering works. The
+ * mmss SMMU (cd00000.iommu) deferred-probe -110 that once blocked this
+ * chain is resolved; see the MDSS BCR reset note below for the remaining
+ * bootloader-handoff workaround.
  * Panel rails are board GPIO-enabled fixed supplies (downstream uses
  * lge,gpio-vddio = TLMM 92, lge,gpio-vpnl = TLMM 69).
  */
@@ -560,4 +1096,1069 @@
 &mdss_dsi0_phy {
 	vdds-supply = <&vreg_l1a_0p875>;
 	status = "okay";
+};
+
+/*
+ * Touch: STMicro FingerTipS on blsp1_i2c5 at 0x49. Downstream binds its
+ * own "stm,ftm4" driver (lge_touch); mainline's stmfts speaks the same
+ * FingerTipS command set, so try it first. The controller keeps its
+ * firmware in on-chip flash — downstream only pushes L0S59P1_1_11.ftb
+ * for updates — so no firmware file is needed to bring it up.
+ *
+ * Both rails are GPIO load switches, not programmable regulators, so
+ * the voltages below are nominal descriptors only. Downstream names
+ * them vdd-gpio (TLMM 85) and vio-gpio (TLMM 86); the mapping onto
+ * stmfts's "avdd" (analog) and "vdd" (digital I/O) is inferred from the
+ * usual FingerTipS wiring and is unverified on this board.
+ */
+/ {
+	vreg_touch_avdd: regulator-touch-avdd {
+		compatible = "regulator-fixed";
+		regulator-name = "touch_avdd";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		gpio = <&tlmm 85 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+	};
+
+	vreg_touch_vdd: regulator-touch-vdd {
+		compatible = "regulator-fixed";
+		regulator-name = "touch_vdd";
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		gpio = <&tlmm 86 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+	};
+};
+
+/*
+ * BLSP1 QUP1: the ES9218P "Quad DAC" that drives joan's headphone jack.
+ * The WCD9340's own HPHL/HPHR reach the jack only through this part, so
+ * nothing is audible on the headphone path until it is driven.
+ *
+ * LG's es9218p.c documents the mode pins:
+ *   reset=H && hifi_mode2=L  -> HiFi mode          (driver's power-on state)
+ *   reset=L && hifi_mode2=H  -> Low Power Bypass   (WCD analog passes through)
+ *   reset=L && hifi_mode2=L  -> Standby / shutdown
+ *   reset=H && hifi_mode2=H  -> LowFi mode
+ *
+ * Polarity: RESETb is asserted low, so reset-gpios is ACTIVE_LOW and the
+ * driver's deassert leaves it physically high. power and hph-sw are plain
+ * active-high. PMIC DT numbering is 1-based and matches downstream, because
+ * pinctrl-spmi-gpio's of_xlate subtracts PMIC_GPIO_PHYSICAL_OFFSET.
+ */
+&blsp1_i2c1 {
+	status = "okay";
+
+	es9218p: headphone-dac@48 {
+		compatible = "ess,es9218p";
+		reg = <0x48>;
+
+		power-gpios = <&pm8998_gpios 10 GPIO_ACTIVE_HIGH>;
+		reset-gpios = <&pmi8998_gpios 2 GPIO_ACTIVE_LOW>;
+		hph-sw-gpios = <&pm8998_gpios 12 GPIO_ACTIVE_HIGH>;
+
+		/* US998 ships dac,use-internal-ldo; SEL1V stays clear. */
+		ess,internal-ldo;
+
+		#sound-dai-cells = <0>;
+	};
+
+	/* Vibration motor driver, as in LG's joan device tree */
+	haptics@59 {
+		compatible = "dongwoon,dw7800";
+		reg = <0x59>;
+	};
+};
+
+/*
+ * BLSP2 QUP1: the TFA9872 smart amplifier driving joan's loudspeaker.
+ * Downstream names it tfa98xx.7-0034, i.e. this bus at 0x34, fed by tertiary
+ * MI2S.  mainline's tfa989x drives it with the CoolFlux DSP bypassed, so there
+ * is no speaker protection: keep the gain conservative until the vendor
+ * firmware container is loaded.
+ */
+/* NFC: NXP PN547 on LG's i2c_6 (BLSP1 QUP6) */
+&blsp1_i2c6 {
+	status = "okay";
+
+	nfc@28 {
+		compatible = "nxp,pn547", "nxp,nxp-nci-i2c";
+		reg = <0x28>;
+
+		interrupts-extended = <&tlmm 116 IRQ_TYPE_EDGE_RISING>;
+		enable-gpios = <&tlmm 12 GPIO_ACTIVE_HIGH>;
+		firmware-gpios = <&tlmm 129 GPIO_ACTIVE_HIGH>;
+
+		pinctrl-0 = <&nfc_default>;
+		pinctrl-names = "default";
+	};
+};
+
+&blsp2_i2c1 {
+	status = "okay";
+
+	/*
+	 * SAR sensor. The SX9320 has the SX9324's register map; the properties
+	 * below reproduce the corresponding registers of LG's reg-init for it
+	 * (msm8998-joan-sensor.dtsi).
+	 */
+	proximity@28 {
+		compatible = "semtech,sx9320", "semtech,sx9324";
+		reg = <0x28>;
+
+		interrupt-parent = <&tlmm>;
+		interrupts = <62 IRQ_TYPE_LEVEL_LOW>;
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&capsensor_default>;
+
+		#io-channel-cells = <1>;
+
+		semtech,ph0-pin = <1 0 0>;
+		semtech,ph1-pin = <0 0 1>;
+		semtech,ph2-pin = <0 1 0>;
+		semtech,ph3-pin = <0 0 0>;
+
+		semtech,ph01-resolution = <128>;
+		semtech,ph23-resolution = <128>;
+		semtech,ph01-proxraw-strength = <1>;
+		semtech,ph23-proxraw-strength = <1>;
+		semtech,avg-pos-strength = <256>;
+
+		semtech,int-comp-resistor = "lowest";
+		semtech,input-precharge-resistor-ohms = <4000>;
+		semtech,input-analog-gain = <1>;
+		semtech,cs-idle-sleep = "hi-z";
+		semtech,startup-sensor = <1>;
+	};
+
+	speaker_amp: audio-codec@34 {
+		compatible = "nxp,tfa9872";
+		reg = <0x34>;
+		#sound-dai-cells = <0>;
+	};
+
+	/*
+	 * Parallel charger. LG drives it as a slave to the PMI8998 charger: its
+	 * driver disables charging at probe and enables it only when the main
+	 * charger hands over part of the current. bq25890_charger instead turns
+	 * charging on by itself at probe, outside the PMI8998's battery
+	 * temperature and current control, so keep it off until something
+	 * coordinates the two. Voltage and currents are LG's; LG leaves the
+	 * precharge, SYS_MIN and boost settings at their defaults, and the
+	 * values here only satisfy the binding.
+	 */
+	charger@6b {
+		compatible = "ti,bq25898s", "ti,bq25890";
+		reg = <0x6b>;
+
+		interrupt-parent = <&tlmm>;
+		interrupts = <119 IRQ_TYPE_EDGE_FALLING>;
+
+		ti,battery-regulation-voltage = <4200000>;
+		ti,charge-current = <2250000>;
+		ti,termination-current = <512000>;
+		ti,precharge-current = <128000>;
+		ti,minimum-sys-voltage = <3600000>;
+		ti,boost-voltage = <5000000>;
+		ti,boost-max-current = <1000000>;
+
+		status = "disabled";
+	};
+};
+
+&blsp1_i2c5 {
+	status = "okay";
+
+	touchscreen@49 {
+		compatible = "st,fts3670";
+		reg = <0x49>;
+
+		interrupt-parent = <&tlmm>;
+		interrupts = <125 IRQ_TYPE_LEVEL_LOW>;
+
+		vdd-supply = <&vreg_touch_vdd>;
+		avdd-supply = <&vreg_touch_avdd>;
+
+		reset-gpios = <&tlmm 89 GPIO_ACTIVE_LOW>;
+
+		touchscreen-size-x = <1440>;
+		touchscreen-size-y = <2880>;
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&touch_int_default &touch_reset_default>;
+	};
+};
+
+/*
+ * GPU (Adreno 540).
+ *
+ * gpu_mem moves to 0x95c00000, matching LG's pil_ipa_gpu region. This is
+ * required because mainline's default 0x95600000 lies inside LG's SLPI
+ * carve-out (0x94d00000-0x95c00000): letting the allocator hand out
+ * firmware-owned pages there causes an immediate silent XPU reset. The
+ * a540 zap blob itself is RELOCATABLE (QCOM_MDT_RELOCATABLE), so it does
+ * not require any particular address -- an earlier comment claiming it was
+ * address-locked was wrong; the move is about LG's memory map, not the blob.
+ *
+ * A540 reuses the redistributable A530 PM4/PFP command firmware supplied by
+ * linux-firmware. The A540 GPMU and signed LG ZAP payload remain
+ * owner-extracted, device-specific inputs. All four firmware roles must be
+ * available under qcom/ in the firmware search path (the initramfs for the
+ * early-probe images used here).
+ */
+&gpu_mem {
+	reg = <0x0 0x95c00000 0x0 0x100000>;
+};
+
+&adreno_gpu {
+	status = "okay";
+
+	vdd-supply = <&pm8005_s1>;
+
+	/*
+	 * The GPU scales VDD_GFX itself, so it also does what the downstream
+	 * GFX CPR did for the rail (a540_gfx_rail.c): take each part's fused
+	 * open-loop voltages instead of the table below, and drive the GFX
+	 * MEM-ACC select (TCSR 0x1fcf004, bit 0).
+	 */
+	nvmem-cells = <&gpu_cpr_init>, <&gpu_cpr_rev>,
+		      <&gpu_cpr_limit>, <&gpu_cpr_force>;
+	nvmem-cell-names = "gfx_cpr_init", "gfx_cpr_rev",
+			   "gfx_cpr_limit", "gfx_cpr_force";
+	qcom,mem-acc = <&tcsr_regs_2 0xf004>;
+
+	zap-shader {
+		memory-region = <&gpu_mem>;
+		firmware-name = "qcom/a540_zap.mdt";
+	};
+};
+
+/*
+ * GPU OPP levels and voltages.
+ *
+ * msm_gpu's enable_clk() sets the core clock to gpu->fast_rate -- the
+ * HIGHEST OPP -- as part of every resume, before any register access.
+ * The original bring-up capped the table at 257 MHz (MIN_SVS) because
+ * VDD_GFX (pm8005_s1) sat at the boot voltage (~752 mV) with no scaling
+ * in place, and turbo on a low-SVS voltage is not survivable.
+ *
+ * adreno_get_pwrlevels() registers the vdd supply with the OPP framework,
+ * so every dev_pm_opp_set_rate() scales the rail before raising the core
+ * clock. opp-level is intentionally omitted: the GPU's power domain is
+ * the GPU_GX GDSC (msm8998.dtsi), which has no performance states.
+ *
+ * The voltages below are only a fallback. At probe a540_gfx_rail.c
+ * replaces them with this part's fused open-loop voltages, the value the
+ * stock GFX CPR uses as each corner's ceiling. The fallback is the stock
+ * ceiling for fusing revision 1 and later (msm8998-v2.dtsi gfx_vreg),
+ * which is safe for any part. It is deliberately not the curve measured
+ * on the bench phone (2026-08-04, 628..936 mV): that was the stock CPR
+ * sitting on its floor (open-loop - 40/50 mV) on a fast part, and a part
+ * fused up to 150 mV higher would not survive it.
+ */
+&gpu_opp_table {
+	/delete-node/ opp-710000097;
+	/delete-node/ opp-670000048;
+	/delete-node/ opp-596000097;
+	/delete-node/ opp-515000097;
+	/delete-node/ opp-414000000;
+	/delete-node/ opp-342000000;
+	/delete-node/ opp-257000000;
+
+	opp-710000097 {
+		opp-hz = /bits/ 64 <710000097>;
+		opp-microvolt = <1088000>;
+		opp-supported-hw = <0xff>;
+	};
+
+	opp-670000048 {
+		opp-hz = /bits/ 64 <670000048>;
+		opp-microvolt = <1024000>;
+		opp-supported-hw = <0xff>;
+	};
+
+	opp-596000097 {
+		opp-hz = /bits/ 64 <596000097>;
+		opp-microvolt = <968000>;
+		opp-supported-hw = <0xff>;
+	};
+
+	opp-515000097 {
+		opp-hz = /bits/ 64 <515000097>;
+		opp-microvolt = <916000>;
+		opp-supported-hw = <0xff>;
+	};
+
+	opp-414000000 {
+		opp-hz = /bits/ 64 <414000000>;
+		opp-microvolt = <832000>;
+		opp-supported-hw = <0xff>;
+	};
+
+	opp-342000000 {
+		opp-hz = /bits/ 64 <342000000>;
+		opp-microvolt = <772000>;
+		opp-supported-hw = <0xff>;
+	};
+
+	opp-257000000 {
+		opp-hz = /bits/ 64 <257000000>;
+		opp-microvolt = <724000>;
+		opp-supported-hw = <0xff>;
+	};
+};
+
+/*
+ * Modem (MSS) bring-up.
+ *
+ * LG's firmware is signed for its own physical addresses and the MBA
+ * authenticates the modem image in place, so the regions the modem
+ * chain touches are transcribed from the vendor kernel's
+ * reserved-memory node rather than chosen. The generic msm8998.dtsi
+ * layout is a different packing of the same DDR and does not match:
+ *
+ *   region      mainline generic        LG stock
+ *   mpss_mem    0x8cc00000 + 0x7000000  0x8b400000 + 0x7700000
+ *   adsp_mem    0x8b200000 + 0x1a00000  0x92b00000 + 0x1b00000
+ *   mba_mem     0x94100000 + 0x200000   0x94b00000 + 0x200000
+ *   venus_mem   0x93c00000 + 0x500000   0x94600000 + 0x500000
+ *
+ * Note the generic adsp_mem at 0x8b200000 lies inside the range LG
+ * gives the modem (0x8b400000-0x92afffff), so the layout cannot be
+ * changed one region at a time -- it moves as a chain.
+ *
+ * slpi_mem is the exception. LG gives SLPI 0x94d00000 + 0xf00000, but
+ * that range covers ipa_fw_mem, ipa_gsi_mem and wlan_msa_mem, which sit
+ * at their mainline addresses and are working: WiFi is up on those and
+ * the GPU zap shader already uses LG's 0x95c00000 for gpu_mem. SLPI
+ * itself is not enabled here, so it is given only the 5 MB it needs to
+ * clear adsp_mem rather than LG's full extent. Revisit if SLPI is ever
+ * brought up -- and note IPA will need its own look, since LG lumps IPA
+ * and GPU firmware into one 1 MB pil_ipa_gpu_mem at 0x95c00000.
+ */
+&mpss_mem {
+	reg = <0x0 0x8b400000 0x0 0x7700000>;
+};
+
+&adsp_mem {
+	/*
+	 * 30 MB, matching joan's own downstream override
+	 * (msm8998-joan-common-pm.dtsi), not the generic msm8998 27 MB that
+	 * was here before.
+	 *
+	 * joan's adsp.mdt needs exactly 0x1e00000 of relocatable PT_LOAD span
+	 * (0x91900000..0x93700000; the 0x93700000 QCOM_MDT_TYPE_HASH phdr is
+	 * excluded). mainline mdt_loader.c and downstream pil_setup_region()
+	 * compute the same figure, and mdt_loader rejects on
+	 * `offset + p_memsz > mem_size` regardless of relocation -- so at 27 MB
+	 * the ADSP dies with "segment outside memory range" / rproc start -22.
+	 *
+	 * LG moves the chain with it. adsp/video/mba below are LG's values
+	 * verbatim. slpi deliberately is NOT: LG gives it 0xf00000 running to
+	 * 0x95f00000, which would swallow mainline's ipa_fw_mem, ipa_gsi_mem
+	 * and wlan_msa_mem. Following the existing design note above, SLPI is
+	 * not enabled here, so it keeps only enough to clear adsp and stops at
+	 * 0x95200000 where ipa_fw_mem begins. Everything from 0x95200000 up --
+	 * ipa, wlan_msa, gpu_mem and the reserved@ plug nodes -- is therefore
+	 * untouched and keeps working.
+	 *
+	 * The ADSP boots from this layout and carries audio and voice.
+	 */
+	reg = <0x0 0x92b00000 0x0 0x1e00000>;
+};
+
+&venus_mem {
+	/* LG joan pil_video_mem */
+	reg = <0x0 0x94900000 0x0 0x500000>;
+};
+
+&mba_mem {
+	/* LG joan pil_mba_mem */
+	reg = <0x0 0x94e00000 0x0 0x200000>;
+};
+
+&slpi_mem {
+	/*
+	 * 2 MB, stopping at ipa_fw_mem. LG's own value is 0xf00000 to
+	 * 0x95f00000, but that range holds mainline's ipa/wlan_msa/gpu
+	 * nodes, which work and must not move. SLPI is not enabled.
+	 */
+	reg = <0x0 0x95000000 0x0 0x200000>;
+};
+
+/*
+ * SLIMbus to the WCD9340. The NGD is managed by the ADSP, so the bus comes up
+ * only once remoteproc adsp is running.
+ */
+&slimbam {
+	status = "okay";
+};
+
+&slim {
+	status = "okay";
+
+	/*
+	 * WCD9340 (tavil). Downstream declares it as qcom,tavil-slim-pgd with
+	 * elemental-addr [00 01 50 02 17 02] -- manufacturer 0x217, product
+	 * 0x250 -- which is exactly mainline's "slim217,250", so the sdm845
+	 * node shape applies directly.
+	 *
+	 * joan specifics taken from downstream msm8998-audio.dtsi:
+	 *   interrupt  tlmm 54   (wcd9xxx_intc: qcom,gpio-connect = <&tlmm 54 0>)
+	 *   mclk       LN_BB from the PMIC (clock_audio_lnbb / wcd_clk); on
+	 *              msm8998 that is rpmcc RPM_SMD_LN_BB_CLK1, which is in the
+	 *              msm8998 rpm clk table and already used elsewhere here.
+	 */
+	slim@1 {
+		reg = <1>;
+		#address-cells = <2>;
+		#size-cells = <0>;
+
+		wcd9340_ifd: ifd@0,0 {
+			compatible = "slim217,250";
+			reg = <0 0>;
+		};
+
+		wcd9340: codec@1,0 {
+			compatible = "slim217,250";
+			reg = <1 0>;
+			slim-ifc-dev = <&wcd9340_ifd>;
+
+			/*
+			 * All five rails come off PM8998 S4 at 1.8 V. Downstream
+			 * feeds cdc-vdd-buck / cdc-buck-sido / cdc-vdd-tx-h /
+			 * cdc-vdd-rx-h / cdc-vddpx-1 all from <&pm8998_s4> at
+			 * 1800000, which is vreg_s4a_1p8 here. Without these the
+			 * codec runs on dummy regulators and SLIMbus logical-address
+			 * assignment fails ("Failed to get logical address").
+			 */
+			vdd-buck-supply = <&vreg_s4a_1p8>;
+			vdd-buck-sido-supply = <&vreg_s4a_1p8>;
+			vdd-tx-supply = <&vreg_s4a_1p8>;
+			vdd-rx-supply = <&vreg_s4a_1p8>;
+			vdd-io-supply = <&vreg_s4a_1p8>;
+
+			#sound-dai-cells = <1>;
+
+			interrupts-extended = <&tlmm 54 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+
+			/*
+			 * Codec reset. Downstream: wcd_rst_gpio msm_cdc_pinctrl@64
+			 * with qcom,cdc-rst-n-gpio = <&tlmm 64 0>. The mainline
+			 * wcd934x mfd takes this as an optional "reset" gpio and
+			 * asserts it before SLIMbus enumeration.
+			 */
+			reset-gpios = <&tlmm 64 GPIO_ACTIVE_HIGH>;
+
+			clock-names = "extclk";
+			clocks = <&rpmcc RPM_SMD_LN_BB_CLK1>;
+
+			#clock-cells = <0>;
+			clock-frequency = <9600000>;
+			clock-output-names = "mclk";
+
+			pinctrl-0 = <&wcd_intr_default>;
+			pinctrl-names = "default";
+
+			/*
+			 * Micbias levels read out of the stock LG device tree,
+			 * decompiled from the DTBs appended to the retail
+			 * boot.img (qcom,cdc-micbiasN-mv, in mV): MICBIAS1/3/4
+			 * = 0xabe = 2750, MICBIAS2 = 0x7d0 = 2000.  All ten
+			 * board revisions LG ships agree on these.
+			 *
+			 * These were previously all 1800000, which is
+			 * wcd-common.c's WCD_DEF_MICBIAS_MV fallback rather than
+			 * a measured value; it underbiases the analog mics.
+			 * MICBIAS2 additionally feeds MBHC -- wcd934x uses
+			 * common.micb_mv[1] as cfg->micb_mv -- so a wrong value
+			 * skews the jack-type and button comparator maths too.
+			 */
+			qcom,micbias1-microvolt = <2750000>;
+			qcom,micbias2-microvolt = <2000000>;
+			qcom,micbias3-microvolt = <2750000>;
+			qcom,micbias4-microvolt = <2750000>;
+
+			/*
+			 * Headset (MBHC) jack detection and in-line remote.
+			 * The jack is qcom,mbhc-audio-jack-type = "4-pole-jack"
+			 * downstream, i.e. it carries a mic and a remote.
+			 *
+			 * Switch types, from the stock DTB:
+			 *   qcom,msm-mbhc-hphl-swh = <1>  normally open
+			 *   qcom,msm-mbhc-gnd-swh  = <0>  normally closed
+			 *
+			 * Qualcomm's encoding is 1 = normally open, 0 = normally
+			 * closed, so HPHL wants mainline's default (property
+			 * absent leaves hphl_swh true) and ground needs telling
+			 * explicitly.  An earlier revision of this node had that
+			 * mapping inverted in a comment and left gnd_swh at its
+			 * default true, which writes the wrong value into
+			 * WCD_MBHC_GND_PLUG_TYPE; that is a candidate cause of
+			 * the live insert/remove IRQ never behaving.
+			 *
+			 * Without the button ladder, wcd_dt_parse_mbhc_data()
+			 * defaults btn_high[0..7] to 500000, so every button on
+			 * an in-line remote compares equal and decodes as BTN_0.
+			 * The thresholds are LG's own calibration for joan
+			 * (def_tavil_mbhc_cal() in its msm8998 machine driver,
+			 * for the models with the ES9218P): a 1.5 V headset
+			 * threshold, and 80/130/240/450 mV for media, assistant,
+			 * volume up and volume down.
+			 */
+			qcom,ground-jack-type-normally-closed;
+			qcom,mbhc-headset-vthreshold-microvolt = <1500000>;
+			qcom,mbhc-headphone-vthreshold-microvolt = <50000>;
+			qcom,mbhc-buttons-vthreshold-microvolt = <80000 130000 240000 450000
+								 450000 450000 450000 450000>;
+
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			wcdgpio: gpio-controller@42 {
+				compatible = "qcom,wcd9340-gpio";
+				gpio-controller;
+				#gpio-cells = <2>;
+				reg = <0x42 0x2>;
+			};
+
+			/*
+			 * The WCD934x SoundWire master only serves WSA881x
+			 * speaker amplifiers. joan has none: LG disables all
+			 * four wsa881x nodes and drives the loudspeaker with a
+			 * TFA9890 on I2C. The node must exist, because the
+			 * wcd934x MFD matches its soundwire cell by compatible
+			 * and warns "Failed to locate of_node" without one, but
+			 * mfd-core skips a disabled node without error, so the
+			 * controller never probes or clocks an empty bus.
+			 *
+			 * The port layout is the codec's own (same as
+			 * sdm845-wcd9340.dtsi). The regmap-irq table indexes
+			 * sources by WCD934X_IRQ_* (designated initializers),
+			 * so the domain has 21 slots and SoundWire is hwirq 20,
+			 * as on sdm845. hwirq 8 is WCD934X_IRQ_MBHC_SW_DET: it
+			 * collided with the MBHC jack-switch interrupt.
+			 */
+			swm: soundwire@c85 {
+				compatible = "qcom,soundwire-v1.3.0";
+				reg = <0xc85 0x40>;
+				interrupts-extended = <&wcd9340 20>;
+				status = "disabled";
+
+				qcom,dout-ports = <6>;
+				qcom,din-ports = <2>;
+				qcom,ports-sinterval-low = /bits/ 8 <0x07 0x1f 0x3f 0x7 0x1f 0x3f 0x0f 0x0f>;
+				qcom,ports-offset1 = /bits/ 8 <0x01 0x02 0x0c 0x6 0x12 0x0d 0x07 0x0a>;
+				qcom,ports-offset2 = /bits/ 8 <0x00 0x00 0x1f 0x00 0x00 0x1f 0x00 0x00>;
+
+				#sound-dai-cells = <1>;
+				clocks = <&wcd9340>;
+				clock-names = "iface";
+				#address-cells = <2>;
+				#size-cells = <0>;
+			};
+		};
+	};
+};
+
+&remoteproc_adsp {
+	firmware-name = "qcom/msm8998/joan/adsp.mdt";
+	status = "okay";
+};
+
+/*
+ * The ADSP's own IOMMU.  q6asmdai (msm8998.dtsi) takes its audio context
+ * bank from here, so the PCM buffer handed to the DSP is an IOVA the Q6 can
+ * translate rather than a bare physical address.
+ */
+&lpass_q6_smmu {
+	status = "okay";
+};
+
+&remoteproc_mss {
+	firmware-name = "qcom/msm8998/joan/mba.mbn",
+			"qcom/msm8998/joan/modem.mdt";
+	status = "okay";
+};
+
+/*
+ * IPA. Needed by ModemManager: it reads the QMI bus over QRTR fine but
+ * will not instantiate a modem without IPA's rmnet/wwan netdevs
+ * (pmaports !3531 reports the same on OnePlus 5/5T). The modem itself
+ * works without this -- it boots, authenticates and advertises its full
+ * QMI service set -- but nothing consumes it.
+ */
+&ipa {
+	memory-region = <&ipa_fw_mem>;
+	qcom,gsi-loader = "self";
+	status = "okay";
+};
+
+/*
+ * Sound card. Two MultiMedia frontends feed four backends: SLIMBUS_0 to and
+ * from the WCD9340 (earpiece, analog headphone path and the analog mics),
+ * tertiary MI2S to the TFA9872 loudspeaker amplifier and quaternary MI2S to
+ * the ES9218P headphone DAC.
+ *
+ * compatible is "qcom,sdm845-sndcard" deliberately. sound/soc/qcom/sdm845.c
+ * implements exactly this topology (q6 frontends + wcd934x over SLIMbus) and
+ * its match table says "Do not grow the list for compatible devices", which is
+ * why db845c and yoga-c630 reuse it too. joan has the same codec and the same
+ * DAI shape. If msm8998 later needs behaviour sdm845.c does not provide, this
+ * is the thing to revisit.
+ */
+/ {
+	sound {
+		compatible = "qcom,sdm845-sndcard";
+		model = "LG-V30";
+		status = "okay";
+
+		pinctrl-0 = <&quat_mi2s_default>, <&tert_mi2s_default>;
+		pinctrl-1 = <&quat_mi2s_sleep>;
+		pinctrl-names = "default", "sleep";
+
+		/*
+		 * "Left Spk"/"SPK1 OUT" was copied from db845c, which drives
+		 * WSA881x amps off the codec's SoundWire speaker output.  joan
+		 * has no WSA parts -- its loudspeaker is a TFA98xx on i2c_7 --
+		 * so that route named a widget nothing declares.  Dropped.
+		 *
+		 * The codec's own analog outputs (EAR, HPHL, HPHR) are
+		 * SND_SOC_DAPM_OUTPUT endpoints and need no board route to be
+		 * usable; they are reached by the RX INTn chain kcontrols.
+		 */
+		/*
+		 * joan has three built-in analog mics plus the headset mic; LG's
+		 * own factory test path ("mictest-allmic" in the stock
+		 * mixer_paths_tavil.xml) captures ADC1, ADC2, ADC3 and ADC4
+		 * together, and the camcorder paths use ADC1+ADC3+ADC4.  AMIC4
+		 * reaches ADC4 through the codec's AMIC4_5 SEL mux.
+		 *
+		 * No DMIC route is added.  Every path LG names "*-dmic-*"
+		 * selects analog mics despite the name, and the factory all-mic
+		 * test -- which one would expect to exercise every fitted mic --
+		 * uses only the four analog inputs.  Against that, the camcorder
+		 * paths do select DMIC0 on TX8, and qcom,cdc-dmic-sample-rate is
+		 * set to 4800000 in the stock DTB, so a digital mic cannot be
+		 * ruled out; both of those also appear in Qualcomm's generic
+		 * 8998 configuration, which is the likelier explanation.  Left
+		 * out until something can actually be captured from it.
+		 */
+		audio-routing =
+			"RX_BIAS", "MCLK",
+			"AMIC1", "MIC BIAS1",
+			"AMIC2", "MIC BIAS2",
+			"AMIC3", "MIC BIAS3",
+			"AMIC4", "MIC BIAS4";
+
+		mm1-dai-link {
+			link-name = "MultiMedia1";
+			cpu {
+				sound-dai = <&q6asmdai MSM_FRONTEND_DAI_MULTIMEDIA1>;
+			};
+		};
+
+		mm2-dai-link {
+			link-name = "MultiMedia2";
+			cpu {
+				sound-dai = <&q6asmdai MSM_FRONTEND_DAI_MULTIMEDIA2>;
+			};
+		};
+
+		slim-playback-dai-link {
+			link-name = "SLIM Playback";
+			cpu {
+				sound-dai = <&q6afedai SLIMBUS_0_RX>;
+			};
+
+			platform {
+				sound-dai = <&q6routing>;
+			};
+
+			codec {
+				sound-dai = <&wcd9340 0>;
+			};
+		};
+
+		tert-mi2s-dai-link {
+			link-name = "Tertiary MI2S Playback";
+
+			cpu {
+				sound-dai = <&q6afedai TERTIARY_MI2S_RX>;
+			};
+
+			platform {
+				sound-dai = <&q6routing>;
+			};
+
+			codec {
+				sound-dai = <&speaker_amp>;
+			};
+		};
+
+		quat-mi2s-dai-link {
+			link-name = "Quaternary MI2S Playback";
+
+			cpu {
+				sound-dai = <&q6afedai QUATERNARY_MI2S_RX>;
+			};
+
+			platform {
+				sound-dai = <&q6routing>;
+			};
+
+			codec {
+				sound-dai = <&es9218p>;
+			};
+		};
+
+		slim-capture-dai-link {
+			link-name = "SLIM Capture";
+			cpu {
+				sound-dai = <&q6afedai SLIMBUS_0_TX>;
+			};
+
+			platform {
+				sound-dai = <&q6routing>;
+			};
+
+			codec {
+				sound-dai = <&wcd9340 1>;
+			};
+		};
+
+		fm-capture-dai-link {
+			link-name = "FM Capture";
+
+			cpu {
+				sound-dai = <&q6afedai SLIMBUS_8_TX>;
+			};
+
+			platform {
+				sound-dai = <&q6routing>;
+			};
+
+			codec {
+				sound-dai = <&wcn3990_btfm 0>;
+			};
+		};
+	};
+};
+
+/*
+ * q6asm/q6afe DAI children. Both drivers count child nodes at probe --
+ * q6asm-dai fails with "No dais found in DT" / -EINVAL without them -- so the
+ * frontends and backends actually in use have to be declared here.
+ */
+&q6asmdai {
+	dai@0 {
+		reg = <MSM_FRONTEND_DAI_MULTIMEDIA1>;
+	};
+
+	dai@1 {
+		reg = <MSM_FRONTEND_DAI_MULTIMEDIA2>;
+	};
+};
+
+/*
+ * WCN3990 (Bluetooth/FM).  Downstream declares it under the second NGD
+ * engine (slim@17240000, cell-index 3) with the FM/BT slave on
+ * elemental address [00 01 20 02 17 02] -- manufacturer 0x217, product
+ * 0x220 -- which is the mainline form "slim217,220", and the interface
+ * device on [00 00 20 02 17 02] (device index 0).  The chip is powered
+ * by the Bluetooth stack, not by a DT regulator, like downstream.
+ */
+&slimbam2 {
+	status = "okay";
+};
+
+&slim2 {
+	status = "okay";
+
+	slim@3 {
+		reg = <3>;
+		#address-cells = <2>;
+		#size-cells = <0>;
+
+		wcn3990_ifd: ifd@0,0 {
+			compatible = "slim217,220";
+			reg = <0 0>;
+		};
+
+		wcn3990_btfm: codec@1,0 {
+			compatible = "slim217,220";
+			reg = <1 0>;
+			slim-ifc-dev = <&wcn3990_ifd>;
+			#sound-dai-cells = <1>;
+		};
+	};
+};
+
+/* Match the downstream WCD934x CDC SLIMbus slave configuration. */
+&q6afe {
+	qcom,cdc-slimbus-slave-config = <0x02500100 0x00000217 0 16>;
+};
+
+&q6afedai {
+	dai@2 {
+		reg = <SLIMBUS_0_RX>;
+	};
+
+	dai@3 {
+		reg = <SLIMBUS_0_TX>;
+	};
+
+	dai@152 {
+		reg = <SLIMBUS_8_TX>;
+	};
+
+	dai@20 {
+		reg = <TERTIARY_MI2S_RX>;
+		qcom,sd-lines = <1>;
+	};
+
+	dai@22 {
+		reg = <QUATERNARY_MI2S_RX>;
+		qcom,sd-lines = <1>;
+	};
+};
+
+/*
+ * Thermal policy, following LG's stock thermal-engine-8998.conf (LG joan
+ * vendor blobs) and msm_thermal DT, as far as kernel thermal zones can.
+ *
+ * Skin: the stock policy throttles on "vts", LG's virtual skin sensor
+ * 0.37 * xo_therm + 0.48 * bd_therm_2 + 3.83 C (LG kernel lge,vts). The caps
+ * and clear points below are the stock SKIN-*-FLOOR and GPU_MONITOR entries.
+ * Cooling states index each policy's frequency table from the top: gold
+ * 2361.6 MHz is state 0, 1958.4 is 7, 1728 is 10, 1056 is 19, 729.6 is 23;
+ * silver 1555.2 is state 4; GPU 670 MHz is 1, 515 is 3, 414 is 4, 342 is 5.
+ * The stock SKIN-MID-FLOOR reads "skin_ap", which has no mainline
+ * counterpart, so it uses vts here.
+ */
+&pm8998_adc {
+	channel@4c {
+		reg = <ADC5_XO_THERM_100K_PU>;
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+		label = "xo_therm";
+	};
+
+	channel@4f {
+		reg = <ADC5_AMUX_THM3_100K_PU>;
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+		label = "pa_therm0";
+	};
+
+	channel@50 {
+		reg = <ADC5_AMUX_THM4_100K_PU>;
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+		label = "pa_therm1";
+	};
+
+	channel@51 {
+		reg = <ADC5_AMUX_THM5_100K_PU>;
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+		label = "bd_therm_2";
+	};
+};
+
+/ {
+	skin_vts: thermal-sensor-vts {
+		compatible = "weighted-adc-thermal";
+		io-channels = <&pm8998_adc ADC5_XO_THERM_100K_PU>,
+			      <&pm8998_adc ADC5_AMUX_THM5_100K_PU>;
+		weights-milli = <370 480>;
+		offset-millicelsius = <3830>;
+		#thermal-sensor-cells = <0>;
+	};
+
+	thermal-zones {
+		skin-thermal {
+			polling-delay-passive = <2000>;
+			polling-delay = <5000>;
+			thermal-sensors = <&skin_vts>;
+
+			trips {
+				skin_gold_1958: trip-point0 {
+					temperature = <37000>;
+					hysteresis = <500>;
+					type = "passive";
+				};
+
+				skin_gpu_670: trip-point1 {
+					temperature = <38000>;
+					hysteresis = <500>;
+					type = "passive";
+				};
+
+				skin_gold_1728: trip-point2 {
+					temperature = <38500>;
+					hysteresis = <500>;
+					type = "passive";
+				};
+
+				skin_gpu_515: trip-point3 {
+					temperature = <39000>;
+					hysteresis = <500>;
+					type = "passive";
+				};
+
+				skin_gold_1056: trip-point4 {
+					temperature = <41000>;
+					hysteresis = <1000>;
+					type = "passive";
+				};
+
+				skin_gpu_414: trip-point5 {
+					temperature = <41000>;
+					hysteresis = <1000>;
+					type = "passive";
+				};
+
+				skin_gpu_342: trip-point6 {
+					temperature = <42500>;
+					hysteresis = <1000>;
+					type = "passive";
+				};
+
+				skin_gold_729: trip-point7 {
+					temperature = <44000>;
+					hysteresis = <1000>;
+					type = "passive";
+				};
+
+				skin_silver_1555: trip-point8 {
+					temperature = <46000>;
+					hysteresis = <1500>;
+					type = "passive";
+				};
+			};
+
+			cooling-maps {
+				map0 {	/* gold 1958.4 MHz */
+					trip = <&skin_gold_1958>;
+					cooling-device = <&cpu4 7 7>,
+						 <&cpu5 7 7>,
+						 <&cpu6 7 7>,
+						 <&cpu7 7 7>;
+				};
+
+				map1 {	/* GPU 670 MHz */
+					trip = <&skin_gpu_670>;
+					cooling-device = <&adreno_gpu 1 1>;
+				};
+
+				map2 {	/* gold 1728 MHz */
+					trip = <&skin_gold_1728>;
+					cooling-device = <&cpu4 10 10>,
+						 <&cpu5 10 10>,
+						 <&cpu6 10 10>,
+						 <&cpu7 10 10>;
+				};
+
+				map3 {	/* GPU 515 MHz */
+					trip = <&skin_gpu_515>;
+					cooling-device = <&adreno_gpu 3 3>;
+				};
+
+				map4 {	/* gold 1056 MHz */
+					trip = <&skin_gold_1056>;
+					cooling-device = <&cpu4 19 19>,
+						 <&cpu5 19 19>,
+						 <&cpu6 19 19>,
+						 <&cpu7 19 19>;
+				};
+
+				map5 {	/* GPU 414 MHz */
+					trip = <&skin_gpu_414>;
+					cooling-device = <&adreno_gpu 4 4>;
+				};
+
+				map6 {	/* GPU 342 MHz */
+					trip = <&skin_gpu_342>;
+					cooling-device = <&adreno_gpu 5 5>;
+				};
+
+				map7 {	/* gold 729.6 MHz */
+					trip = <&skin_gold_729>;
+					cooling-device = <&cpu4 23 23>,
+						 <&cpu5 23 23>,
+						 <&cpu6 23 23>,
+						 <&cpu7 23 23>;
+				};
+
+				map8 {	/* silver 1555.2 MHz */
+					trip = <&skin_silver_1555>;
+					cooling-device = <&cpu0 4 4>,
+						 <&cpu1 4 4>,
+						 <&cpu2 4 4>,
+						 <&cpu3 4 4>;
+				};
+			};
+		};
+	};
+};
+
+/*
+ * Junction: the stock policy steps each CPU cluster down at 85 C and clears
+ * at 80 C, and the GPU at 85 C clearing at 65 C (SS-CPUS-CLUSTER*, SS-GPU-*).
+ * msm8998.dtsi's generic 75 C / 80 C trips throttle ~10 C earlier than stock.
+ * The 110 C critical trips stay.
+ */
+&cpu0_alert0 {
+	temperature = <85000>;
+	hysteresis = <5000>;
+};
+
+&cpu1_alert0 {
+	temperature = <85000>;
+	hysteresis = <5000>;
+};
+
+&cpu2_alert0 {
+	temperature = <85000>;
+	hysteresis = <5000>;
+};
+
+&cpu3_alert0 {
+	temperature = <85000>;
+	hysteresis = <5000>;
+};
+
+&cpu4_alert0 {
+	temperature = <85000>;
+	hysteresis = <5000>;
+};
+
+&cpu5_alert0 {
+	temperature = <85000>;
+	hysteresis = <5000>;
+};
+
+&cpu6_alert0 {
+	temperature = <85000>;
+	hysteresis = <5000>;
+};
+
+&cpu7_alert0 {
+	temperature = <85000>;
+	hysteresis = <5000>;
+};
+
+&gpu1_alert1 {
+	temperature = <85000>;
+	hysteresis = <20000>;
+};
+
+&gpu2_alert1 {
+	temperature = <85000>;
+	hysteresis = <20000>;
 };

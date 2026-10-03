@@ -1,0 +1,75 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/sound/ess,es9218p.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: ESS Technology ES9218P headphone DAC and amplifier
+
+maintainers:
+  - Lance <Gero3977@gmail.com>
+
+description:
+  The ES9218P is a stereo DAC with an integrated headphone amplifier,
+  controlled over I2C and fed over I2S.  Its RESET_N and MODE2 pins together
+  select the operating mode (HiFi, LowFi, low power bypass or standby); in
+  low power bypass the part passes an external analog signal through to the
+  headphone output.
+
+allOf:
+  - $ref: dai-common.yaml#
+
+properties:
+  compatible:
+    const: ess,es9218p
+
+  reg:
+    maxItems: 1
+
+  power-gpios:
+    maxItems: 1
+    description: Enables the supply rails of the part.
+
+  reset-gpios:
+    maxItems: 1
+    description: The RESET_N pin.
+
+  hph-sw-gpios:
+    maxItems: 1
+    description:
+      The MODE2 pin.  Together with RESET_N it selects the operating mode.
+
+  ess,internal-ldo:
+    type: boolean
+    description:
+      The part runs its digital core from its internal LDO rather than from
+      an external 1.0 V supply.
+
+  "#sound-dai-cells":
+    const: 0
+
+required:
+  - compatible
+  - reg
+  - "#sound-dai-cells"
+
+unevaluatedProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/gpio/gpio.h>
+
+    i2c {
+        #address-cells = <1>;
+        #size-cells = <0>;
+
+        headphone-dac@48 {
+            compatible = "ess,es9218p";
+            reg = <0x48>;
+            power-gpios = <&pm8998_gpios 10 GPIO_ACTIVE_HIGH>;
+            reset-gpios = <&pmi8998_gpios 2 GPIO_ACTIVE_LOW>;
+            hph-sw-gpios = <&pm8998_gpios 12 GPIO_ACTIVE_HIGH>;
+            ess,internal-ldo;
+            #sound-dai-cells = <0>;
+        };
+    };

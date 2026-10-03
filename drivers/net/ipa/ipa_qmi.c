@@ -229,7 +229,50 @@ static void ipa_server_driver_init_complete(struct qmi_handle *qmi,
 	}
 }
 
-/* The server handles two request message types sent by the modem. */
+/* The modem sends CONFIG and INSTALL_FILTER_RULE as requests and blocks
+ * until they are answered; left unanswered, it never finishes bringing up
+ * its side of the data path.  The AP has nothing to act on in either, so
+ * acknowledge them with a bare success response.  Both responses consist of
+ * the standard result TLV only, which is the same encoding as the
+ * DRIVER_INIT_COMPLETE response.
+ */
+static void ipa_server_ack(struct qmi_handle *qmi, struct sockaddr_qrtr *sq,
+			   struct qmi_txn *txn, u32 msg_id)
+{
+	struct ipa_driver_init_complete_rsp rsp = { };
+	struct ipa_qmi *ipa_qmi;
+	struct ipa *ipa;
+	int ret;
+
+	ipa_qmi = container_of(qmi, struct ipa_qmi, server_handle);
+	ipa = container_of(ipa_qmi, struct ipa, qmi);
+
+	rsp.rsp.result = QMI_RESULT_SUCCESS_V01;
+	rsp.rsp.error = QMI_ERR_NONE_V01;
+
+	ret = qmi_send_response(qmi, sq, txn, msg_id,
+				IPA_QMI_DRIVER_INIT_COMPLETE_RSP_SZ,
+				ipa_driver_init_complete_rsp_ei, &rsp);
+	if (ret)
+		dev_err(ipa->dev, "error %d sending QMI %#x response\n",
+			ret, msg_id);
+}
+
+static void ipa_server_config(struct qmi_handle *qmi, struct sockaddr_qrtr *sq,
+			      struct qmi_txn *txn, const void *decoded)
+{
+	ipa_server_ack(qmi, sq, txn, IPA_QMI_CONFIG);
+}
+
+static void ipa_server_install_filter_rule(struct qmi_handle *qmi,
+					   struct sockaddr_qrtr *sq,
+					   struct qmi_txn *txn,
+					   const void *decoded)
+{
+	ipa_server_ack(qmi, sq, txn, IPA_QMI_INSTALL_FILTER_RULE);
+}
+
+/* The server handles four request message types sent by the modem. */
 static const struct qmi_msg_handler ipa_server_msg_handlers[] = {
 	{
 		.type		= QMI_REQUEST,
@@ -244,6 +287,20 @@ static const struct qmi_msg_handler ipa_server_msg_handlers[] = {
 		.ei		= ipa_driver_init_complete_req_ei,
 		.decoded_size	= IPA_QMI_DRIVER_INIT_COMPLETE_REQ_SZ,
 		.fn		= ipa_server_driver_init_complete,
+	},
+	{
+		.type		= QMI_REQUEST,
+		.msg_id		= IPA_QMI_CONFIG,
+		.ei		= ipa_empty_req_ei,
+		.decoded_size	= sizeof(u32),
+		.fn		= ipa_server_config,
+	},
+	{
+		.type		= QMI_REQUEST,
+		.msg_id		= IPA_QMI_INSTALL_FILTER_RULE,
+		.ei		= ipa_empty_req_ei,
+		.decoded_size	= sizeof(u32),
+		.fn		= ipa_server_install_filter_rule,
 	},
 	{ },
 };

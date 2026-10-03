@@ -51,6 +51,7 @@ static void put_iova_spaces(struct drm_gem_object *obj, struct drm_gpuvm *vm,
 
 static void msm_gem_close(struct drm_gem_object *obj, struct drm_file *file)
 {
+	struct msm_drm_private *priv = obj->dev->dev_private;
 	struct msm_context *ctx = file->driver_priv;
 	struct drm_exec exec;
 
@@ -61,8 +62,15 @@ static void msm_gem_close(struct drm_gem_object *obj, struct drm_file *file)
 	 * If VM isn't created yet, nothing to cleanup.  And in fact calling
 	 * put_iova_spaces() with vm=NULL would be bad, in that it will tear-
 	 * down the mappings of shared buffers in other contexts.
+	 *
+	 * The same is true when the context shares the global VM, which is
+	 * what msm_gpu_create_private_vm() hands out on targets without
+	 * per-process pagetables: the VMA torn down here belongs just as much
+	 * to every other context, and a self-imported dmabuf is the *same*
+	 * GEM object in all of them.  Leave those to msm_gem_vma_put(), once
+	 * the last handle and the last export are gone.
 	 */
-	if (!ctx->vm)
+	if (!ctx->vm || (priv->gpu && ctx->vm == priv->gpu->vm))
 		return;
 
 	/*
@@ -97,16 +105,30 @@ void msm_gem_vma_get(struct drm_gem_object *obj)
 void msm_gem_vma_put(struct drm_gem_object *obj)
 {
 	struct msm_drm_private *priv = obj->dev->dev_private;
+	struct drm_exec exec;
 
 	if (atomic_dec_return(&to_msm_bo(obj)->vma_ref))
 		return;
+
+	/*
+	 * Zero handles and no export left, so this is the first point at which
+	 * a mapping in the GPU's global VM can be freed without pulling it out
+	 * from under another context.  See msm_gem_close().  A no-op where
+	 * contexts get a private VM, as userspace buffers never land in
+	 * gpu->vm there.
+	 */
+	if (priv->gpu && priv->gpu->vm) {
+		dma_resv_wait_timeout(obj->resv, DMA_RESV_USAGE_BOOKKEEP, false,
+				      MAX_SCHEDULE_TIMEOUT);
+		msm_gem_lock_vm_and_obj(&exec, obj, priv->gpu->vm);
+		put_iova_spaces(obj, priv->gpu->vm, true, "vma_put");
+		drm_exec_fini(&exec);     /* drop locks */
+	}
 
 	if (!priv->kms)
 		return;
 
 #ifdef CONFIG_DRM_MSM_KMS
-	struct drm_exec exec;
-
 	msm_gem_lock_vm_and_obj(&exec, obj, priv->kms->vm);
 	put_iova_spaces(obj, priv->kms->vm, true, "vma_put");
 	drm_exec_fini(&exec);     /* drop locks */

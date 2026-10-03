@@ -1875,6 +1875,7 @@ static int wcd934x_trigger(struct snd_pcm_substream *substream, int cmd,
 	struct wcd_slim_codec_dai_data *dai_data;
 	struct wcd934x_codec *wcd;
 	struct slim_stream_config *cfg;
+	int ret;
 
 	wcd = snd_soc_component_get_drvdata(dai->component);
 
@@ -1885,8 +1886,19 @@ static int wcd934x_trigger(struct snd_pcm_substream *substream, int cmd,
 	case SNDRV_PCM_TRIGGER_RESUME:
 	case SNDRV_PCM_TRIGGER_PAUSE_RELEASE:
 		cfg = &dai_data->sconfig;
-		slim_stream_prepare(dai_data->sruntime, cfg);
-		slim_stream_enable(dai_data->sruntime);
+		ret = slim_stream_prepare(dai_data->sruntime, cfg);
+		if (ret) {
+			dev_err(dai->component->dev,
+				"slim_stream_prepare failed: %d\n", ret);
+			return ret;
+		}
+		ret = slim_stream_enable(dai_data->sruntime);
+		if (ret) {
+			dev_err(dai->component->dev,
+				"slim_stream_enable failed: %d\n", ret);
+			slim_stream_unprepare(dai_data->sruntime);
+			return ret;
+		}
 		break;
 	case SNDRV_PCM_TRIGGER_STOP:
 	case SNDRV_PCM_TRIGGER_SUSPEND:
@@ -2202,6 +2214,14 @@ static int wcd934x_init_dmic(struct snd_soc_component *comp)
 static void wcd934x_hw_init(struct wcd934x_codec *wcd)
 {
 	struct regmap *rm = wcd->regmap;
+
+	/*
+	 * Set the Rbuckfly/R_EAR(32) Class-H coefficient.  The WCD934x
+	 * downstream initialization programs this value for every codec
+	 * instance; the reset value is 0x0080.
+	 */
+	regmap_update_bits(rm, WCD934X_CDC_CLSH_K2_MSB, 0x0f, 0x00);
+	regmap_update_bits(rm, WCD934X_CDC_CLSH_K2_LSB, 0xff, 0x60);
 
 	/* set SPKR rate to FS_2P4_3P072 */
 	regmap_update_bits(rm, WCD934X_CDC_RX7_RX_PATH_CFG1, 0x08, 0x08);
@@ -3012,6 +3032,17 @@ static int wcd934x_comp_probe(struct snd_soc_component *component)
 	for (i = 0; i < NUM_CODEC_DAIS; i++)
 		INIT_LIST_HEAD(&wcd->dai[i].slim_ch_list);
 
+	/*
+	 * Initialize the slimbus port channel lists.  Without this the
+	 * rx_chs[]/tx_chs[] list heads contain garbage until set_channel_map()
+	 * runs, so list_empty() in slim_rx_mux_put() reports a false "PORT is
+	 * busy" and every SLIM RX/TX MUX write silently fails on a freshly
+	 * probed codec.
+	 */
+	for (i = 0; i < WCD934X_RX_MAX; i++)
+		INIT_LIST_HEAD(&wcd->rx_chs[i].list);
+	for (i = 0; i < WCD934X_TX_MAX; i++)
+		INIT_LIST_HEAD(&wcd->tx_chs[i].list);
 
 	ret = wcd934x_init_dmic(component);
 	if (ret) {

@@ -123,6 +123,7 @@ config SND_SOC_ALL_CODECS
 	imply SND_SOC_ES8328_I2C
 	imply SND_SOC_ES8375
 	imply SND_SOC_ES8389
+	imply SND_SOC_ES9218P
 	imply SND_SOC_ES9356
 	imply SND_SOC_ES7134
 	imply SND_SOC_ES7241
@@ -1307,6 +1308,14 @@ config SND_SOC_ES8389
 	tristate "Everest Semi ES8389 CODEC"
 	depends on I2C
 
+config SND_SOC_ES9218P
+	tristate "ESS Technology ES9218P headphone DAC"
+	depends on I2C
+	select REGMAP_I2C
+	help
+	  Enable support for the ESS Technology ES9218P headphone DAC and
+	  amplifier, as used for the "Quad DAC" on the LG V30.
+
 config SND_SOC_ES9356
 	tristate "Everest Semi ES9356 CODEC SDW"
 	depends on SND_SOC_SDCA
@@ -2419,6 +2428,17 @@ config SND_SOC_WCD_CLASSH
 
 config SND_SOC_WCD_COMMON
 	tristate
+
+config SND_SOC_BTFM_SLIM
+	tristate "Qualcomm WCN399x Bluetooth/FM SLIMbus audio"
+	depends on SLIMBUS
+	help
+	  Enable the SLIMbus audio path of the Qualcomm WCN399x Bluetooth
+	  combination chip, as found on the LG V30 (joan).  The FM receiver
+	  digitises the analogue baseband at 48 kHz and streams it over the
+	  second msm8998 SLIMbus engine to the ADSP (SLIMBUS_8_TX backend);
+	  the same slave also carries SCO/A2DP audio ports.  Ported from the
+	  Qualcomm/LG downstream btfm_slim drivers.
 
 config SND_SOC_WCD9335
 	tristate "WCD9335 Codec"

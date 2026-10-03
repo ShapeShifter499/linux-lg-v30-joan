@@ -2,6 +2,7 @@
 /* Copyright (c) 2016 The Linux Foundation. All rights reserved.
  */
 
+#include <linux/delay.h>
 #include <linux/pm_opp.h>
 #include "a5xx_gpu.h"
 
@@ -170,7 +171,61 @@ static void a530_lm_setup(struct msm_gpu *gpu)
 
 #define PAYLOAD_SIZE(_size) ((_size) * sizeof(u32))
 #define LM_DCVS_LIMIT 1
-#define LEVEL_CONFIG ~(0x303)
+/*
+ * Two two-bit fields, and the second one is at bit 16, not bit 8: the vendor
+ * writes ~(GENMASK(LM_DCVS_LIMIT, 0) | GENMASK(16 + LM_DCVS_LIMIT, 16)) in
+ * a540_lm_init() (drivers/gpu/msm/adreno_a5xx.c in android-msm-wahoo-4.4).
+ */
+#define LEVEL_CONFIG ((u32)~(GENMASK(LM_DCVS_LIMIT, 0) | \
+			     GENMASK(16 + LM_DCVS_LIMIT, 16)))
+
+/*
+ * Tell the GPMU more than one level, so the power estimate that drives its
+ * throttling is not stuck at fast_rate for the whole boot.
+ *
+ * Written fastest-first, because that is how the vendor's kgsl numbers power
+ * levels -- level 0 is the top OPP -- and the GPMU indexes this table by that
+ * number.
+ *
+ * FIVE, MEASURED. The firmware in linux-firmware's a540_gpmu.fw2 accepts five
+ * (mV, MHz) pairs and no more: with six, a5xx_gpmu_init() below never sees
+ * 0xBABEFACE and logs "GPMU firmware initialization timed out", and the GPMU
+ * does not run at all for the rest of the boot. Bisected on taimen 2026-09-20,
+ * one boot per level count, reading dmesg only after 45 s of uptime -- the
+ * error lands at ~14.5 s and ph-reboot returns at ~14 s, so a sample taken any
+ * earlier reports a clean boot that is not. The vendor writes all seven, but
+ * against its own GPMU build; this bound is a property of the firmware we
+ * actually load, not of the hardware.
+ */
+#define AGC_MAX_LEVELS 5
+
+static void a5xx_write_voltage_table(struct msm_gpu *gpu, u32 max_power)
+{
+	struct device *dev = &gpu->pdev->dev;
+	unsigned long rate = gpu->fast_rate;
+	struct dev_pm_opp *opp;
+	u32 levels = 0;
+
+	while (levels < AGC_MAX_LEVELS) {
+		opp = dev_pm_opp_find_freq_floor(dev, &rate);
+		if (IS_ERR(opp))
+			break;
+
+		gpu_write(gpu, AGC_MSG_PAYLOAD(2 + 2 * levels),
+			  dev_pm_opp_get_voltage(opp) / 1000);
+		gpu_write(gpu, AGC_MSG_PAYLOAD(3 + 2 * levels),
+			  rate / 1000000);
+		dev_pm_opp_put(opp);
+
+		levels++;
+		if (rate == 0)
+			break;
+		rate--;
+	}
+
+	gpu_write(gpu, AGC_MSG_PAYLOAD(0), max_power);
+	gpu_write(gpu, AGC_MSG_PAYLOAD(1), levels);
+}
 
 static void a540_lm_setup(struct msm_gpu *gpu)
 {
@@ -181,23 +236,31 @@ static void a540_lm_setup(struct msm_gpu *gpu)
 	config = AGC_LM_CONFIG_BCL_DISABLED;
 	config |= adreno_patchid(adreno_gpu) << AGC_LM_CONFIG_GPU_VERSION_SHIFT;
 
-	/* For now disable GPMU side throttling */
-	config |= AGC_LM_CONFIG_THROTTLE_DISABLE;
+	/*
+	 * GPMU-side throttling stays ON. The vendor sets AGC_THROTTLE_DISABLE
+	 * only when ADRENO_THROTTLING_CTRL is clear, and its adreno.c has that
+	 * bit set in the default pwrctrl_flag -- so on a shipping Pixel 2 the
+	 * bit is never written, and this is the a540's only working limiter:
+	 * the part carries no ADRENO_LM feature, so LM/BCL/ISENSE are off on
+	 * the vendor too and are correctly left off here.
+	 */
 
-	/* Until we get clock scaling 0 is always the active power level */
+	/*
+	 * Level 0 is the top OPP, which is where devfreq starts
+	 * (msm_devfreq_profile.initial_freq = gpu->fast_rate), so this is the
+	 * active level and not a placeholder. Nothing updates it afterwards --
+	 * see the comment below on why the per-transition handshake is not
+	 * ported.
+	 */
 	gpu_write(gpu, REG_A5XX_GPMU_GPMU_VOLTAGE, 0x80000000 | 0);
 
-	/* Fixed at 6000 for now */
+	/* Fixed at 6000, which is also taimen's qcom,lm-limit */
 	gpu_write(gpu, REG_A5XX_GPMU_GPMU_PWR_THRESHOLD, 0x80000000 | 6000);
 
 	gpu_write(gpu, AGC_MSG_STATE, 0x80000001);
 	gpu_write(gpu, AGC_MSG_COMMAND, AGC_POWER_CONFIG_PRODUCTION_ID);
 
-	gpu_write(gpu, AGC_MSG_PAYLOAD(0), 5448);
-	gpu_write(gpu, AGC_MSG_PAYLOAD(1), 1);
-
-	gpu_write(gpu, AGC_MSG_PAYLOAD(2), _get_mvolts(gpu, gpu->fast_rate));
-	gpu_write(gpu, AGC_MSG_PAYLOAD(3), gpu->fast_rate / 1000000);
+	a5xx_write_voltage_table(gpu, 5448);
 
 	gpu_write(gpu, AGC_MSG_PAYLOAD(AGC_LM_CONFIG), config);
 	gpu_write(gpu, AGC_MSG_PAYLOAD(AGC_LEVEL_CONFIG), LEVEL_CONFIG);
@@ -206,6 +269,36 @@ static void a540_lm_setup(struct msm_gpu *gpu)
 
 	gpu_write(gpu, AGC_INIT_MSG_MAGIC, AGC_INIT_MSG_VALUE);
 }
+
+/*
+ * Keep the GPMU's idea of the power level in step with devfreq. Without this
+ * it is told level 0 once at init and never again, so it models the GPU at
+ * fast_rate volts for the rest of the boot -- which is exactly the input its
+ * throttling decisions are made from.
+ *
+ * The pre/post pair and the acknowledge poll are the vendor's
+ * a5xx_pwrlevel_change_settings(), which for a540 runs on every transition
+ * gated on nothing but the GPMU being present.
+ */
+/*
+ * NOT PORTED: the vendor's per-transition level handshake.
+ *
+ * a5xx_pwrlevel_change_settings() writes 0x80000010|level and then
+ * 0x80000000|level to GPMU_GPMU_VOLTAGE on every power-level change and polls
+ * bit 31 until the GPMU has taken it. Measured on taimen 2026-09-20 with
+ * a540_gpmu.fw2 loaded and the GPU runtime-active, that bit NEVER clears: the
+ * register reads back exactly what was written, 0 acknowledgements in ~1500
+ * attempts. Mainline's GPMU is evidently not running the part of the vendor
+ * firmware contract that drains this mailbox.
+ *
+ * It is also the wrong hook. devfreq calls ->target() on every poll, not only
+ * on a change, so a gpu_set_freq doing this busy-waits under devfreq's lock
+ * twenty times a second for a frequency that did not move.
+ *
+ * What IS consumed is the AGC init message above, which mainline has always
+ * sent -- so the voltage table and the throttle bit land, and the stale
+ * level does not. See brain/findings/.
+ */
 
 /* Enable SP/TP cpower collapse */
 static void a5xx_pc_init(struct msm_gpu *gpu)

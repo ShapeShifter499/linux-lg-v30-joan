@@ -16,6 +16,7 @@
 #define DPU_ENCODER_FRAME_EVENT_ERROR			BIT(1)
 #define DPU_ENCODER_FRAME_EVENT_PANEL_DEAD		BIT(2)
 #define DPU_ENCODER_FRAME_EVENT_IDLE			BIT(3)
+#define DPU_ENCODER_FRAME_EVENT_STARTED		BIT(4)
 
 #define IDLE_TIMEOUT	(66 - 16/2)
 
@@ -55,6 +56,10 @@ int dpu_encoder_vsync_time(struct drm_encoder *drm_enc, ktime_t *wakeup_time);
 int dpu_encoder_wait_for_commit_done(struct drm_encoder *drm_encoder);
 
 int dpu_encoder_wait_for_tx_complete(struct drm_encoder *drm_encoder);
+
+int dpu_encoder_acquire_link(struct drm_encoder *drm_encoder);
+
+void dpu_encoder_release_link(struct drm_encoder *drm_encoder);
 
 enum dpu_intf_mode dpu_encoder_get_intf_mode(struct drm_encoder *encoder);
 

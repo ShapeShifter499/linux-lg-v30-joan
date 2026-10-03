@@ -3,6 +3,7 @@
 /*
  * Copyright (C) 2021, Linaro Limited. All rights reserved.
  */
+#include <linux/bits.h>
 #include <linux/module.h>
 #include <linux/interrupt.h>
 #include <linux/irq.h>
@@ -30,7 +31,23 @@
 
 #define LMH_REG_DCVS_INTR_CLR		0x8
 
-#define LMH_ENABLE_ALGOS		1
+/* Limits algorithms the OS enables at probe, as the vendor kernel does */
+#define LMH_ALGO_CRNT			BIT(0)
+#define LMH_ALGO_REL			BIT(1)
+#define LMH_ALGO_BCL			BIT(2)
+#define LMH_ALGO_THERMAL		BIT(3)
+#define LMH_PROFILE_1			BIT(4)
+
+#define LMH_SDM845_ALGOS		(LMH_ALGO_CRNT | LMH_ALGO_REL | LMH_ALGO_BCL | \
+					 LMH_ALGO_THERMAL | LMH_PROFILE_1)
+/*
+ * Until the reliability algorithm is enabled, the MSM8998 limits firmware
+ * caps both clusters at 1056 mV, which holds the gold cluster below its top
+ * frequencies. msm-4.4 enables reliability and current limiting, the thermal
+ * algorithm and limits profile 1; BCL is left alone.
+ */
+#define LMH_MSM8998_ALGOS		(LMH_ALGO_CRNT | LMH_ALGO_REL | \
+					 LMH_ALGO_THERMAL | LMH_PROFILE_1)
 
 struct lmh_hw_data {
 	void __iomem *base;
@@ -140,9 +157,9 @@ static int lmh_probe(struct platform_device *pdev)
 	}
 
 	/*
-	 * Only sdm845 has lmh hardware currently enabled from hlos. If this is needed
-	 * for other platforms, revisit this to check if the <cpu-id, node-id> should be part
-	 * of a dt match table.
+	 * Only sdm845 and msm8998 have lmh hardware currently enabled from hlos. If
+	 * this is needed for other platforms, revisit this to check if the <cpu-id,
+	 * node-id> should be part of a dt match table.
 	 */
 	if (cpu_id == 0) {
 		node_id = LMH_CLUSTER0_NODE_ID;
@@ -158,29 +175,37 @@ static int lmh_probe(struct platform_device *pdev)
 
 	enable_alg = (uintptr_t)of_device_get_match_data(dev);
 
-	if (enable_alg) {
+	if (enable_alg & LMH_ALGO_CRNT) {
 		ret = qcom_scm_lmh_dcvsh(LMH_SUB_FN_CRNT, LMH_ALGO_MODE_ENABLE, 1,
 					 LMH_NODE_DCVS, node_id, 0);
 		if (ret)
 			dev_err(dev, "Error %d enabling current subfunction\n", ret);
+	}
 
+	if (enable_alg & LMH_ALGO_REL) {
 		ret = qcom_scm_lmh_dcvsh(LMH_SUB_FN_REL, LMH_ALGO_MODE_ENABLE, 1,
 					 LMH_NODE_DCVS, node_id, 0);
 		if (ret)
 			dev_err(dev, "Error %d enabling reliability subfunction\n", ret);
+	}
 
+	if (enable_alg & LMH_ALGO_BCL) {
 		ret = qcom_scm_lmh_dcvsh(LMH_SUB_FN_BCL, LMH_ALGO_MODE_ENABLE, 1,
 					 LMH_NODE_DCVS, node_id, 0);
 		if (ret)
 			dev_err(dev, "Error %d enabling BCL subfunction\n", ret);
+	}
 
+	if (enable_alg & LMH_ALGO_THERMAL) {
 		ret = qcom_scm_lmh_dcvsh(LMH_SUB_FN_THERMAL, LMH_ALGO_MODE_ENABLE, 1,
 					 LMH_NODE_DCVS, node_id, 0);
 		if (ret) {
 			dev_err(dev, "Error %d enabling thermal subfunction\n", ret);
 			return ret;
 		}
+	}
 
+	if (enable_alg & LMH_PROFILE_1) {
 		ret = qcom_scm_lmh_profile_change(0x1);
 		if (ret) {
 			dev_err(dev, "Error %d changing profile\n", ret);
@@ -232,8 +257,9 @@ static int lmh_probe(struct platform_device *pdev)
 }
 
 static const struct of_device_id lmh_table[] = {
+	{ .compatible = "qcom,msm8998-lmh", .data = (void *)LMH_MSM8998_ALGOS},
 	{ .compatible = "qcom,sc8180x-lmh", },
-	{ .compatible = "qcom,sdm845-lmh", .data = (void *)LMH_ENABLE_ALGOS},
+	{ .compatible = "qcom,sdm845-lmh", .data = (void *)LMH_SDM845_ALGOS},
 	{ .compatible = "qcom,sm8150-lmh", },
 	{}
 };

@@ -301,6 +301,7 @@ static blk_status_t mmc_mq_queue_rq(struct blk_mq_hw_ctx *hctx,
 
 	if (!(req->rq_flags & RQF_DONTPREP)) {
 		req_to_mmc_queue_req(req)->retries = 0;
+		req_to_mmc_queue_req(req)->flags = 0;
 		req->rq_flags |= RQF_DONTPREP;
 	}
 

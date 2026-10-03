@@ -40,6 +40,19 @@ properties:
 
   monitored-battery: true
 
+  qcom,usb-icl-ua:
+    description: |
+      USB input current limit in microamps. Overrides the per-type
+      default (SDP 500 mA, CDP/DCP 1500 mA) applied on source
+      detection.
+    $ref: /schemas/types.yaml#/definitions/uint32
+
+  qcom,fcc-max-ua:
+    description: |
+      Maximum fast-charge current in microamps programmed into the
+      CHGR FCC register at probe.
+    $ref: /schemas/types.yaml#/definitions/uint32
+
 required:
   - compatible
   - reg

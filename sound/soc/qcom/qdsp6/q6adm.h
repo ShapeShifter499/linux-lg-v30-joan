@@ -7,6 +7,17 @@
 #define MAX_COPPS_PER_PORT	8
 #define NULL_COPP_TOPOLOGY	0x00010312
 
+/*
+ * ADM COPP topology IDs.  The processing chain each one names lives in the
+ * ADSP firmware; ACDB calibration only tunes it, so selecting a topology is
+ * enough to instantiate the modules with their firmware defaults.
+ */
+#define DEFAULT_COPP_TOPOLOGY			0x00010314
+#define VPM_TX_SM_ECNS_COPP_TOPOLOGY		0x00010F71
+#define VPM_TX_DM_FLUENCE_COPP_TOPOLOGY		0x00010F72
+#define VPM_TX_QMIC_FLUENCE_COPP_TOPOLOGY	0x00010F75
+#define VPM_TX_DM_RFECNS_COPP_TOPOLOGY		0x00010F86
+
 /* multiple copp per stream. */
 struct route_payload {
 	int num_copps;

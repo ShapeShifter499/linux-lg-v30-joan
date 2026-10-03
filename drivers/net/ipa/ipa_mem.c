@@ -88,7 +88,7 @@ int ipa_mem_setup(struct ipa *ipa)
 	/* Get a transaction to define the header memory region and to zero
 	 * the processing context and modem memory regions.
 	 */
-	trans = ipa_cmd_trans_alloc(ipa, 4);
+	trans = ipa_cmd_trans_alloc(ipa, 5);
 	if (!trans) {
 		dev_err(ipa->dev, "no transaction for memory setup\n");
 		return -EBUSY;
@@ -106,6 +106,17 @@ int ipa_mem_setup(struct ipa *ipa)
 		size += mem->size;
 
 	ipa_cmd_hdr_init_local_add(trans, offset, size, addr);
+
+	/* The default route set by ipa_endpoint_default_route_set() names the
+	 * header table in system memory, as the downstream driver does, but
+	 * unlike that driver we never locate one, so the IPA takes headers
+	 * from wherever its base register points.  On IPA v3.1 (msm8998)
+	 * that is IOVA 0, and the uplink path reads it as soon as it carries
+	 * traffic.  Give the IPA a table to read: the zeroed DMA buffer, an
+	 * empty table as far as the hardware is concerned.
+	 */
+	if (ipa->version == IPA_VERSION_3_1)
+		ipa_cmd_hdr_init_system_add(trans, addr);
 
 	ipa_mem_zero_region_add(trans, IPA_MEM_MODEM_PROC_CTX);
 	ipa_mem_zero_region_add(trans, IPA_MEM_AP_PROC_CTX);
@@ -436,6 +447,76 @@ int ipa_mem_zero_modem(struct ipa *ipa)
 	return 0;
 }
 
+/*
+ * On IPA v3.1 (msm8998) something in the IPA reads from IOVA 0x38 as soon as
+ * the modem's uplink channel carries traffic.  Nothing is mapped there, so the
+ * read takes an SMMU translation fault, and the GSI bus error that follows
+ * ends with the modem asserting inside its IPA HAL.  The value read is
+ * consumed rather than ignored -- zeroes are benign, while a poison pattern
+ * stops data flowing without any fault -- so this is a real structure whose
+ * owner has not been identified yet.
+ *
+ * The likely owner is the system header table, whose base ipa_mem_setup()
+ * now programs with IPA_CMD_HDR_INIT_SYSTEM.  Until that is confirmed on
+ * hardware -- cellular data working with "ipa.lowmem=0" and no fault at
+ * IOVA 0x38 -- keep backing the bottom of the IOVA space with zeroed memory
+ * as well.  This is on by default only where the fault has been seen;
+ * "ipa.lowmem=0" or "ipa.lowmem=1" overrides that.
+ */
+static int ipa_lowmem = -1;
+module_param_named(lowmem, ipa_lowmem, int, 0444);
+MODULE_PARM_DESC(lowmem,
+		 "Map zeroed scratch memory at IOVA 0 (-1 = auto, 0 = off, 1 = on)");
+
+#define IPA_SCRATCH_SIZE	SZ_1M
+
+static void ipa_scratch_init(struct ipa *ipa)
+{
+	struct device *dev = ipa->dev;
+	struct iommu_domain *domain;
+	void *virt;
+	int ret;
+
+	if (ipa_lowmem < 0 ? ipa->version != IPA_VERSION_3_1 : !ipa_lowmem)
+		return;
+
+	domain = iommu_get_domain_for_dev(dev);
+	if (!domain) {
+		dev_warn(dev, "no IOMMU domain for IOVA 0 scratch\n");
+		return;
+	}
+
+	virt = (void *)__get_free_pages(GFP_KERNEL | __GFP_ZERO,
+					get_order(IPA_SCRATCH_SIZE));
+	if (!virt)
+		return;
+
+	ret = iommu_map(domain, 0, virt_to_phys(virt), IPA_SCRATCH_SIZE,
+			IOMMU_READ | IOMMU_WRITE, GFP_KERNEL);
+	if (ret) {
+		dev_warn(dev, "error %d mapping IOVA 0 scratch\n", ret);
+		free_pages((unsigned long)virt, get_order(IPA_SCRATCH_SIZE));
+		return;
+	}
+
+	ipa->scratch_virt = virt;
+}
+
+static void ipa_scratch_exit(struct ipa *ipa)
+{
+	struct iommu_domain *domain;
+
+	if (!ipa->scratch_virt)
+		return;
+
+	domain = iommu_get_domain_for_dev(ipa->dev);
+	if (domain)
+		iommu_unmap(domain, 0, IPA_SCRATCH_SIZE);
+	free_pages((unsigned long)ipa->scratch_virt,
+		   get_order(IPA_SCRATCH_SIZE));
+	ipa->scratch_virt = NULL;
+}
+
 /**
  * ipa_imem_init() - Initialize IMEM memory used by the IPA
  * @ipa:	IPA pointer
@@ -678,9 +759,11 @@ int ipa_mem_init(struct ipa *ipa, struct platform_device *pdev,
 		imem_size = mem_data->imem_size;
 	}
 
+	ipa_scratch_init(ipa);
+
 	ret = ipa_imem_init(ipa, imem_base, imem_size);
 	if (ret)
-		goto err_unmap;
+		goto err_scratch_exit;
 
 	ret = ipa_smem_init(ipa, mem_data->smem_size);
 	if (ret)
@@ -690,6 +773,8 @@ int ipa_mem_init(struct ipa *ipa, struct platform_device *pdev,
 
 err_imem_exit:
 	ipa_imem_exit(ipa);
+err_scratch_exit:
+	ipa_scratch_exit(ipa);
 err_unmap:
 	memunmap(ipa->mem_virt);
 
@@ -701,5 +786,6 @@ void ipa_mem_exit(struct ipa *ipa)
 {
 	ipa_smem_exit(ipa);
 	ipa_imem_exit(ipa);
+	ipa_scratch_exit(ipa);
 	memunmap(ipa->mem_virt);
 }

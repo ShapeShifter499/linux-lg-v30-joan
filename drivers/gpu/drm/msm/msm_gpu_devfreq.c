@@ -267,16 +267,9 @@ static void msm_devfreq_boost_work(struct kthread_work *work)
 	dev_pm_qos_update_request(&df->boost_freq, 0);
 }
 
-void msm_devfreq_boost(struct msm_gpu *gpu, unsigned factor)
+static void devfreq_boost_to(struct msm_gpu *gpu, uint64_t freq)
 {
 	struct msm_gpu_devfreq *df = &gpu->devfreq;
-	uint64_t freq;
-
-	if (!has_devfreq(gpu))
-		return;
-
-	freq = get_freq(gpu);
-	freq *= factor;
 
 	/*
 	 * A nice little trap is that PM QoS operates in terms of KHz,
@@ -289,6 +282,14 @@ void msm_devfreq_boost(struct msm_gpu *gpu, unsigned factor)
 	msm_hrtimer_queue_work(&df->boost_work,
 			       ms_to_ktime(msm_devfreq_profile.polling_ms),
 			       HRTIMER_MODE_REL);
+}
+
+void msm_devfreq_boost(struct msm_gpu *gpu, unsigned int factor)
+{
+	if (!has_devfreq(gpu))
+		return;
+
+	devfreq_boost_to(gpu, (uint64_t)get_freq(gpu) * factor);
 }
 
 void msm_devfreq_active(struct msm_gpu *gpu)
@@ -329,12 +330,24 @@ void msm_devfreq_active(struct msm_gpu *gpu)
 
 	/*
 	 * If we've been idle for a significant fraction of a polling
-	 * interval, then we won't meet the threshold of busyness for
-	 * the governor to ramp up the freq.. so give some boost
+	 * interval, then we won't meet the threshold of busyness for the
+	 * governor to ramp up the freq.. so wake straight to the top OPP for
+	 * one interval and let the governor settle down from there.
+	 *
+	 * Doubling the *current* frequency, which is what this used to do, is
+	 * not enough: interactive work always arrives after an idle gap, so
+	 * the GPU is parked at the bottom OPP by then and doubling only
+	 * reaches the second step, from where the governor still has to
+	 * climb. On a GPU without a GMU each of those steps reprograms the
+	 * core PLL and moves the core rail while frames are already in
+	 * flight, and the first frames of every scroll and every animation
+	 * pay for it. Waking at the top and falling back is what the vendor
+	 * driver does, and it costs nothing while the GPU is genuinely idle:
+	 * runtime PM has already collapsed it, and the boost expires after
+	 * one polling interval.
 	 */
-	if (idle_time > msm_devfreq_profile.polling_ms) {
-		msm_devfreq_boost(gpu, 2);
-	}
+	if (idle_time > msm_devfreq_profile.polling_ms)
+		devfreq_boost_to(gpu, gpu->fast_rate);
 }
 
 

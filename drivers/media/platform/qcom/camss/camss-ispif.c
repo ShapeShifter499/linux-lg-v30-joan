@@ -341,6 +341,41 @@ static int ispif_reset(struct ispif_device *ispif, u8 vfe_id)
 	if (ret)
 		dev_dbg(camss->dev, "ISPIF Reset failed\n");
 
+	/*
+	 * The msm8998 block reset does not clear the interface state, so the
+	 * IRQ masks, input selects and CID masks a previous session programmed
+	 * survive it. Starting a second session then arms the old routing
+	 * alongside the new one. Downstream's msm_ispif_reset() writes the
+	 * whole interface state out by hand; do the same. Per VFE: line-buf
+	 * enable only, masks off, everything pending cleared, interfaces
+	 * stopped immediately, no inputs and no CIDs.
+	 */
+	if (camss->res->version == CAMSS_8998) {
+		unsigned int m;
+
+		for (m = 0; m < camss->res->vfe_num; m++) {
+			writel_relaxed(ISPIF_VFE_m_CTRL_0_PIX0_LINE_BUF_EN,
+				       ispif->base + ISPIF_VFE_m_CTRL_0(m));
+			writel_relaxed(0, ispif->base + ISPIF_VFE_m_IRQ_MASK_0(m));
+			writel_relaxed(0, ispif->base + ISPIF_VFE_m_IRQ_MASK_1(m));
+			writel_relaxed(0, ispif->base + ISPIF_VFE_m_IRQ_MASK_2(m));
+			writel_relaxed(0xffffffff, ispif->base + ISPIF_VFE_m_IRQ_CLEAR_0(m));
+			writel_relaxed(0xffffffff, ispif->base + ISPIF_VFE_m_IRQ_CLEAR_1(m));
+			writel_relaxed(0xffffffff, ispif->base + ISPIF_VFE_m_IRQ_CLEAR_2(m));
+			writel_relaxed(0, ispif->base + ISPIF_VFE_m_INTF_INPUT_SEL(m));
+			writel_relaxed(CMD_ALL_DISABLE_IMMEDIATELY,
+				       ispif->base + ISPIF_VFE_m_INTF_CMD_0(m));
+			writel_relaxed(CMD_ALL_DISABLE_IMMEDIATELY,
+				       ispif->base + ISPIF_VFE_m_INTF_CMD_1(m));
+			writel_relaxed(0, ispif->base + ISPIF_VFE_m_PIX_INTF_n_CID_MASK(m, 0));
+			writel_relaxed(0, ispif->base + ISPIF_VFE_m_PIX_INTF_n_CID_MASK(m, 1));
+			writel_relaxed(0, ispif->base + ISPIF_VFE_m_RDI_INTF_n_CID_MASK(m, 0));
+			writel_relaxed(0, ispif->base + ISPIF_VFE_m_RDI_INTF_n_CID_MASK(m, 1));
+			writel_relaxed(0, ispif->base + ISPIF_VFE_m_RDI_INTF_n_CID_MASK(m, 2));
+		}
+		writel(0x1, ispif->base + ISPIF_IRQ_GLOBAL_CLEAR_CMD);
+	}
+
 	camss_disable_clocks(ispif->nclocks_for_reset, ispif->clock_for_reset);
 
 	camss_pm_domain_off(camss, PM_DOMAIN_VFE0);
@@ -831,7 +866,8 @@ static int ispif_set_stream(struct v4l2_subdev *sd, int enable)
 		ispif_config_irq(ispif, intf, vfe, 1);
 		if (camss->res->version == CAMSS_8x96 ||
 		    camss->res->version == CAMSS_8x53 ||
-		    camss->res->version == CAMSS_660)
+		    camss->res->version == CAMSS_660 ||
+		    camss->res->version == CAMSS_8998)
 			ispif_config_pack(ispif,
 					  line->fmt[MSM_ISPIF_PAD_SINK].code,
 					  intf, cid, vfe, 1);
@@ -850,7 +886,8 @@ static int ispif_set_stream(struct v4l2_subdev *sd, int enable)
 		mutex_lock(&ispif->config_lock);
 		if (camss->res->version == CAMSS_8x96 ||
 		    camss->res->version == CAMSS_8x53 ||
-		    camss->res->version == CAMSS_660)
+		    camss->res->version == CAMSS_660 ||
+		    camss->res->version == CAMSS_8998)
 			ispif_config_pack(ispif,
 					  line->fmt[MSM_ISPIF_PAD_SINK].code,
 					  intf, cid, vfe, 0);
@@ -1116,7 +1153,8 @@ int msm_ispif_subdev_init(struct camss *camss,
 		ispif->line_num = 3;
 	else if (camss->res->version == CAMSS_8x96 ||
 		 camss->res->version == CAMSS_8x53 ||
-		 camss->res->version == CAMSS_660)
+		 camss->res->version == CAMSS_660 ||
+		 camss->res->version == CAMSS_8998)
 		ispif->line_num = 4;
 	else
 		return -EINVAL;
@@ -1137,7 +1175,8 @@ int msm_ispif_subdev_init(struct camss *camss,
 					ARRAY_SIZE(ispif_formats_8x16);
 		} else if (camss->res->version == CAMSS_8x96 ||
 			   camss->res->version == CAMSS_8x53 ||
-			   camss->res->version == CAMSS_660) {
+			   camss->res->version == CAMSS_660 ||
+			   camss->res->version == CAMSS_8998) {
 			ispif->line[i].formats = ispif_formats_8x96;
 			ispif->line[i].nformats =
 					ARRAY_SIZE(ispif_formats_8x96);
@@ -1171,7 +1210,8 @@ int msm_ispif_subdev_init(struct camss *camss,
 			       IRQF_TRIGGER_RISING, ispif->irq_name, ispif);
 	else if (camss->res->version == CAMSS_8x96 ||
 		 camss->res->version == CAMSS_8x53 ||
-		 camss->res->version == CAMSS_660)
+		 camss->res->version == CAMSS_660 ||
+		 camss->res->version == CAMSS_8998)
 		ret = devm_request_irq(dev, ispif->irq, ispif_isr_8x96,
 			       IRQF_TRIGGER_RISING, ispif->irq_name, ispif);
 	else

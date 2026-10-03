@@ -59,7 +59,8 @@
 #define CHARGING_ENABLE_CMD				0x42
 #define CHARGING_ENABLE_CMD_BIT				BIT(0)
 
-#define CHGR_CFG2					0x51
+#define CHGR_CFG2				0x51
+#define CHGR_FCC_CFG				0x40
 #define CHG_EN_SRC_BIT					BIT(7)
 #define CHG_EN_POLARITY_BIT				BIT(6)
 #define PRETOFAST_TRANSITION_CFG_BIT			BIT(5)
@@ -391,6 +392,8 @@ struct smb_chip {
 	unsigned int base;
 	struct regmap *regmap;
 	struct power_supply_battery_info *batt_info;
+	u32 usb_icl_ua;
+	u32 fcc_max_ua;
 
 	struct delayed_work status_change_work;
 	int cable_irq;
@@ -595,6 +598,10 @@ static void smb_status_change_work(struct work_struct *work)
 		break;
 	}
 
+	/* DT override applies to charging sources only, never SDP (PC port) */
+	if (chip->usb_icl_ua && charger_type != POWER_SUPPLY_USB_TYPE_SDP)
+		current_ua = chip->usb_icl_ua;
+
 	smb_set_current_limit(chip, current_ua);
 	power_supply_changed(chip->chg_psy);
 }
@@ -790,8 +797,8 @@ static const struct power_supply_desc smb_psy_desc = {
 static const struct smb_init_register smb_init_seq[] = {
 	{ .addr = AICL_RERUN_TIME_CFG, .mask = AICL_RERUN_TIME_MASK, .val = 0 },
 	/*
-	 * By default configure us as an upstream facing port
-	 * FIXME: This will be handled by the type-c driver
+	 * By default configure us as an upstream facing port, unless a Type-C
+	 * port driver owns this register (see smb_typec_port_managed()).
 	 */
 	{ .addr = TYPE_C_INTRPT_ENB_SOFTWARE_CTRL,
 	  .mask = TYPEC_POWER_ROLE_CMD_MASK | VCONN_EN_SRC_BIT |
@@ -889,11 +896,35 @@ static const struct smb_init_register smb_init_seq[] = {
 	  .val = 1000000 / CURRENT_SCALE_FACTOR },
 };
 
+/*
+ * The Type-C port shares the USBIN peripheral with the charger.  When it is
+ * described and enabled, its driver runs the port state machine, and the
+ * power role and VCONN controls in TYPE_C_INTRPT_ENB_SOFTWARE_CTRL are its to
+ * program; writing the charger's defaults there would race it.
+ */
+static bool smb_typec_port_managed(struct smb_chip *chip)
+{
+	struct device_node *np;
+	bool managed;
+
+	np = of_get_compatible_child(chip->dev->parent->of_node,
+				     "qcom,pmi8998-typec");
+	managed = np && of_device_is_available(np);
+	of_node_put(np);
+
+	return managed;
+}
+
 static int smb_init_hw(struct smb_chip *chip)
 {
+	bool typec_managed = smb_typec_port_managed(chip);
 	int rc, i;
 
 	for (i = 0; i < ARRAY_SIZE(smb_init_seq); i++) {
+		if (typec_managed &&
+		    smb_init_seq[i].addr == TYPE_C_INTRPT_ENB_SOFTWARE_CTRL)
+			continue;
+
 		dev_dbg(chip->dev, "%d: Writing 0x%02x to 0x%02x\n", i,
 			smb_init_seq[i].val, smb_init_seq[i].addr);
 		rc = regmap_update_bits(chip->regmap,
@@ -1005,6 +1036,20 @@ static int smb_probe(struct platform_device *pdev)
 				FLOAT_VOLTAGE_SETTING_MASK, rc);
 	if (rc < 0)
 		return dev_err_probe(chip->dev, rc, "Couldn't set vbat max\n");
+
+	device_property_read_u32(chip->dev, "qcom,usb-icl-ua", &chip->usb_icl_ua);
+
+	rc = device_property_read_u32(chip->dev, "qcom,fcc-max-ua",
+				      &chip->fcc_max_ua);
+	if (!rc && chip->fcc_max_ua) {
+		u16 fcc_ma = chip->fcc_max_ua / 1000;
+
+		rc = regmap_bulk_write(chip->regmap, chip->base + CHGR_FCC_CFG,
+				       &fcc_ma, sizeof(fcc_ma));
+		if (rc < 0)
+			return dev_err_probe(chip->dev, rc,
+					     "Couldn't set fast charge current\n");
+	}
 
 	rc = smb_init_irq(chip, &irq, "bat-ov", smb_handle_batt_overvoltage);
 	if (rc < 0)

@@ -62,8 +62,12 @@
 #define SLIMBUS_QMI_SELECT_INSTANCE_REQ_MAX_MSG_LEN	14
 #define SLIMBUS_QMI_SELECT_INSTANCE_RESP_MAX_MSG_LEN	7
 #define SLIMBUS_QMI_CHECK_FRAMER_STAT_RESP_MAX_MSG_LEN	7
-/* QMI response timeout of 500ms */
-#define SLIMBUS_QMI_RESP_TOUT	1000
+/*
+ * QMI response timeout.  The ADSP can take well over a second to answer
+ * while it is still initialising, so LG's msm8998 kernel carries 3 s here
+ * as a board workaround; with 1 s the handshake is lost intermittently.
+ */
+#define SLIMBUS_QMI_RESP_TOUT	3000
 
 /* User defined commands */
 #define SLIM_USR_MC_GENERIC_ACK	0x25
@@ -563,6 +567,25 @@ static void qcom_slim_ngd_tx_msg_dma_cb(void *args)
 	spin_unlock_irqrestore(&ctrl->tx_buf_lock, flags);
 }
 
+/*
+ * A caller that gave up waiting for its message to go out is about to
+ * return, taking the on-stack completion it handed to
+ * qcom_slim_ngd_tx_msg_get() with it.  Detach that completion from the
+ * descriptor so a late DMA callback cannot complete() dead stack.
+ */
+static void qcom_slim_ngd_tx_msg_abandon(struct qcom_slim_ngd_ctrl *ctrl,
+					 struct completion *comp)
+{
+	unsigned long flags;
+	int i;
+
+	spin_lock_irqsave(&ctrl->tx_buf_lock, flags);
+	for (i = 0; i < QCOM_SLIM_NGD_DESC_NUM; i++)
+		if (ctrl->txdesc[i].comp == comp)
+			ctrl->txdesc[i].comp = NULL;
+	spin_unlock_irqrestore(&ctrl->tx_buf_lock, flags);
+}
+
 static int qcom_slim_ngd_tx_msg_post(struct qcom_slim_ngd_ctrl *ctrl,
 				     void *buf, int len)
 {
@@ -895,6 +918,7 @@ static int qcom_slim_ngd_xfer_msg(struct slim_controller *sctrl,
 	if (!time_left) {
 		dev_err(sctrl->dev, "TX timed out:MC:0x%x,mt:0x%x", txn->mc,
 					txn->mt);
+		qcom_slim_ngd_tx_msg_abandon(ctrl, &tx_sent);
 		mutex_unlock(&ctrl->tx_lock);
 		return -ETIMEDOUT;
 	}
@@ -1018,7 +1042,13 @@ static int qcom_slim_ngd_enable_stream(struct slim_stream_runtime *rt)
 		if (txn.msg->num_bytes == 0) {
 			int exp = 0, coef = 0;
 
-			wbuf[txn.msg->num_bytes++] = sdev->laddr;
+			/*
+			 * Only the low five bits carry the client number;
+			 * the ADSP reads the bits above them as the data
+			 * format, so a full logical address such as 0xcf
+			 * would be taken as data format 6.
+			 */
+			wbuf[txn.msg->num_bytes++] = sdev->laddr & 0x1f;
 			wbuf[txn.msg->num_bytes] = rt->bps >> 2 |
 						   (port->ch.aux_fmt << 6);
 
@@ -1375,6 +1405,15 @@ static int qcom_slim_ngd_qmi_new_server(struct qmi_handle *hdl,
 
 	complete(&ctrl->qmi_up);
 
+	/*
+	 * The up worker waits only a second for this server.  If the ADSP
+	 * registers the service after that window has closed, nothing else
+	 * would ever enable the controller, so run the worker again.  It
+	 * rechecks the controller state under ssr_lock before acting.
+	 */
+	if (ctrl->state == QCOM_SLIM_NGD_CTRL_DOWN)
+		schedule_work(&ctrl->ngd_up_work);
+
 	return 0;
 }
 
@@ -1461,7 +1500,9 @@ static void qcom_slim_ngd_up_worker(struct work_struct *work)
 	}
 
 	mutex_lock(&ctrl->ssr_lock);
-	qcom_slim_ngd_enable(ctrl, true);
+	/* A late new_server may have queued a second run; enable only once. */
+	if (ctrl->state == QCOM_SLIM_NGD_CTRL_DOWN)
+		qcom_slim_ngd_enable(ctrl, true);
 	mutex_unlock(&ctrl->ssr_lock);
 }
 
@@ -1548,8 +1589,17 @@ static int of_qcom_slim_ngd_register(struct device *parent,
 			kfree(ngd);
 			return ret;
 		}
-		ngd->base = ctrl->base + ngd->id * data->offset +
-					(ngd->id - 1) * data->size;
+		/*
+		 * The per-instance register block sits at an odd/even split
+		 * inside the region: odd instances at +offset, even ones at
+		 * +2 * offset (downstream slim-msm-ngd.c NGD_BASE_V2).  The
+		 * previous id * offset + (id - 1) * size expression only
+		 * ever produced the right address for instance 1 and sent
+		 * instance 3 (msm8998 second engine) to a register block
+		 * that does not exist.
+		 */
+		ngd->base = ctrl->base + ((ngd->id % 2) ? data->offset :
+							2 * data->offset);
 
 		return 0;
 	}

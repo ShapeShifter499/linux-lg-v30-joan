@@ -1,0 +1,70 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/display/panel/lg,sw43402.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: LG SW43402 OLED DDIC
+
+maintainers:
+  - Lance <Gero3977@gmail.com>
+
+description:
+  The SW43402 is a display driver IC for OLED panels, driven over a four
+  lane MIPI DSI link in command mode with Display Stream Compression.  The
+  LG V30 pairs it with a 6.0 inch 1440x2880 panel.
+
+allOf:
+  - $ref: panel-common.yaml#
+
+properties:
+  compatible:
+    const: lg,sw43402
+
+  reg:
+    maxItems: 1
+
+  port: true
+  reset-gpios: true
+
+  vddio-supply:
+    description: 1.8 V I/O supply
+
+  vpnl-supply:
+    description: Panel supply
+
+required:
+  - compatible
+  - reg
+  - port
+  - reset-gpios
+  - vddio-supply
+  - vpnl-supply
+
+additionalProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/gpio/gpio.h>
+
+    dsi {
+        #address-cells = <1>;
+        #size-cells = <0>;
+
+        panel@0 {
+            compatible = "lg,sw43402";
+            reg = <0>;
+
+            vddio-supply = <&vreg_panel_vddio>;
+            vpnl-supply = <&vreg_panel_vpnl>;
+
+            reset-gpios = <&tlmm 35 GPIO_ACTIVE_LOW>;
+
+            port {
+                endpoint {
+                    remote-endpoint = <&mdss_dsi0_out>;
+                };
+            };
+        };
+    };
+...

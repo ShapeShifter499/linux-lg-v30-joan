@@ -252,6 +252,18 @@ enum {
 	 */
 	HCI_QUIRK_BROKEN_READ_TRANSMIT_POWER,
 
+	/*
+	 * When this quirk is set, LE Set Default PHY is not sent to the
+	 * controller and only the 1M PHY is used.
+	 *
+	 * This quirk is for controllers that advertise the command in their
+	 * supported commands bitmap but answer it with Unknown HCI Command,
+	 * which fails LE init and leaves the controller unusable.
+	 *
+	 * This quirk must be set before hci_register_dev is called.
+	 */
+	HCI_QUIRK_BROKEN_LE_SET_DEFAULT_PHY,
+
 	/* When this quirk is set, HCI_OP_SET_EVENT_FLT requests with
 	 * HCI_FLT_CLEAR_ALL are ignored and event filtering is
 	 * completely avoided. A subset of the CSR controller
@@ -3413,8 +3425,9 @@ static inline struct hci_iso_hdr *hci_iso_hdr(const struct sk_buff *skb)
 #define hci_iso_flags_pack(pb, ts)	((pb & 0x03) | ((ts & 0x01) << 2))
 
 /* ISO data length and flags pack/unpack */
-#define hci_iso_data_len_pack(h, f)	((__u16) ((h) | ((f) << 14)))
-#define hci_iso_data_len(h)		((h) & 0x3fff)
+#define hci_iso_data_len_pack(h, f)	((__u16) (((h) & 0x0fff) | \
+						  (((f) & 0x3) << 14)))
+#define hci_iso_data_len(h)		((h) & 0x0fff)
 #define hci_iso_data_flags(h)		((h) >> 14)
 
 /* codec transport types */

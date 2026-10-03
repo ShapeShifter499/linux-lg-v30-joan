@@ -6,6 +6,7 @@
 #include <linux/types.h>
 #include <linux/cpumask.h>
 #include <linux/firmware/qcom/qcom_scm.h>
+#include <linux/moduleparam.h>
 #include <linux/pm_opp.h>
 #include <linux/nvmem-consumer.h>
 #include <linux/slab.h>
@@ -15,6 +16,47 @@
 
 extern bool hang_debug;
 static void a5xx_dump(struct msm_gpu *gpu);
+
+/*
+ * Preemption and per-process pagetables are mutually exclusive on a5xx, and
+ * this tree enables both -- so preemption is off by default.
+ *
+ * a5xx_preempt_hw_init() programs CP_CONTEXT_SWITCH_SMMU_INFO = 0, i.e. "we
+ * aren't switching pagetables". Upstream a5xx has no per-process pagetables,
+ * so its preemption code may assume a single TTBR0 across every ring. Here,
+ * the msm8998 denylist in qcom_adreno_can_do_ttbr1() (drivers/iommu/arm/
+ * arm-smmu/arm-smmu-qcom.c) is commented out, so IO_PGTABLE_QUIRK_ARM_TTBR1
+ * is available and a5xx_set_pagetable() emits a CP_SMMU_TABLE_UPDATE per
+ * submit whenever a private (per-process) vm is in use. A ring restored by
+ * preemption resumes mid-ring without replaying that packet, and the
+ * preemption record carries no SMMU info to restore it -- so it runs against
+ * whichever TTBR0 the ring it preempted away from happened to leave
+ * installed.
+ *
+ * Measured 2026-07-27. With preemption on, opening any GL app strands a
+ * submit: the CP stops a submit short (rb0 rptr 94 / wptr 131, fence
+ * 205/206) and the compositor blocks forever in DRM_IOCTL_MSM_WAIT_FENCE.
+ * With preemption off the same phosh session -- Settings, gedit, on-screen
+ * keyboard -- is fully usable.
+ *
+ * That is upstream a0bee0086c47 ("Skip the TTBR1 quirk for MSM8998 and
+ * SDM630", "Adreno 5xx doesn't have separate pagetables support") reached
+ * from the other side: it disables the pagetables, we disable the
+ * preemption. Restoring that denylist instead was tried and regressed
+ * badly, so this is the cheaper half to give up. Re-enabling preemption
+ * requires teaching the preemption record to carry SMMU info first.
+ *
+ * Named a5xx_enable_preemption rather than enable_preemption: 6.18 already
+ * has a global "enable_preemption" module param in adreno_device.c that is
+ * A7xx-only (tri-state int: 1=on, 0=off, -1=auto). Reusing that name here
+ * would register two "enable_preemption" kernel parameters for the msm
+ * module -- different types, different chips, same sysfs node -- so this
+ * gets its own name instead of colliding with it.
+ */
+static bool a5xx_enable_preemption;
+MODULE_PARM_DESC(a5xx_enable_preemption,
+		 "Enable preemption (A5XX only; broken while per-process pagetables are on)");
+module_param(a5xx_enable_preemption, bool, 0600);
 
 #define GPU_PAS_ID 13
 
@@ -699,6 +741,25 @@ static int a5xx_hw_init(struct msm_gpu *gpu)
 	u32 hbb;
 	int ret;
 
+	/*
+	 * A runtime suspend and resume pair can be as little as tens of
+	 * microseconds apart, which is not long enough for the GX rail to
+	 * discharge. The GPU then keeps its state across what the driver
+	 * believes was a power collapse: CP_RB_CNTL still describes the old
+	 * ring and the ME is not halted. Writing the new CP_RB_BASE below
+	 * therefore points a live CP at a ring it has no valid configuration
+	 * for; it starts fetching, and the VBIF traffic that follows ends in an
+	 * external abort that takes the SoC down. Nothing upstream of here
+	 * notices, because runtime PM reports the device as active throughout.
+	 *
+	 * Do not assume the hardware came back reset. Put it through the same
+	 * software reset a5xx_recover() uses to get the GPU into a known state;
+	 * everything hw_init() programs comes after it.
+	 */
+	gpu_write(gpu, REG_A5XX_RBBM_SW_RESET_CMD, 1);
+	gpu_read(gpu, REG_A5XX_RBBM_SW_RESET_CMD);
+	gpu_write(gpu, REG_A5XX_RBBM_SW_RESET_CMD, 0);
+
 	gpu_write(gpu, REG_A5XX_VBIF_ROUND_ROBIN_QOS_ARB, 0x00000003);
 
 	if (adreno_is_a509(adreno_gpu) || adreno_is_a512(adreno_gpu) ||
@@ -735,9 +796,16 @@ static int a5xx_hw_init(struct msm_gpu *gpu)
 			0xFFFFFFFF);
 	}
 
-	/* Enable fault detection */
+	/* Enable fault detection.
+	 *
+	 * The threshold is in units of 16 GPU cycles. 0xFFFF is about one
+	 * million cycles -- 1.5ms at the a540's top frequency -- which is
+	 * short enough that a single long but perfectly healthy draw trips
+	 * it. Qualcomm's own driver has always used 0x3FFFF here, four
+	 * million cycles, for every a5xx past a530v1. Use their number.
+	 */
 	gpu_write(gpu, REG_A5XX_RBBM_INTERFACE_HANG_INT_CNTL,
-		(1 << 30) | 0xFFFF);
+		(1 << 30) | 0x3FFFF);
 
 	/* Turn on performance counters */
 	gpu_write(gpu, REG_A5XX_RBBM_PERFCTR_CNTL, 0x01);
@@ -1394,8 +1462,47 @@ static int a5xx_pm_suspend(struct msm_gpu *gpu)
 {
 	struct adreno_gpu *adreno_gpu = to_adreno_gpu(gpu);
 	struct a5xx_gpu *a5xx_gpu = to_a5xx_gpu(adreno_gpu);
+	u32 sp_status, rbccu_status;
 	u32 mask = 0xf;
 	int i, ret;
+
+	/*
+	 * Downstream only considers A540 idle after the GPMU has
+	 * collapsed both the SP/TP and RBCCU domains.  Cutting the outer
+	 * power rail while either domain is still on can leave A540's NoC
+	 * path wedged.  Give the GPMU the same bounded 100 usec window used
+	 * downstream, and fail the runtime suspend without touching VBIF,
+	 * clocks or regulators if collapse never completes.
+	 *
+	 * Only the GPMU ever performs that collapse, and it is loaded and
+	 * started by hw_init().  a5xx_pm_resume() powers SP/TP and RBCCU up by
+	 * hand on every resume, so a GPU that was woken but never initialised
+	 * -- a wake with no submit, which runtime PM autosuspends again a
+	 * moment later -- has both domains on with nothing running that could
+	 * turn them off.  Polling then cannot do anything but time out and
+	 * strand the device in runtime-PM error.  Skip the wait in that case,
+	 * the same way a6xx_gmu_shutdown() special-cases a GMU that never
+	 * completed a wake handshake.
+	 */
+	if (adreno_is_a540(adreno_gpu) && !gpu->needs_hw_init) {
+		ret = spin_usecs(gpu, 100, REG_A5XX_GPMU_SP_PWR_CLK_STATUS,
+				 BIT(20), 0);
+		if (!ret)
+			ret = spin_usecs(gpu, 100,
+					 REG_A5XX_GPMU_RBCCU_PWR_CLK_STATUS,
+					 BIT(20), 0);
+
+		if (ret) {
+			sp_status = gpu_read(gpu,
+					     REG_A5XX_GPMU_SP_PWR_CLK_STATUS);
+			rbccu_status = gpu_read(gpu,
+						REG_A5XX_GPMU_RBCCU_PWR_CLK_STATUS);
+			dev_err_ratelimited(gpu->dev->dev,
+					    "aborting suspend: SPTP/RBCCU still on (sp=%08x rbccu=%08x)\n",
+					    sp_status, rbccu_status);
+			return ret;
+		}
+	}
 
 	/* A505, A506, A508, A510 have 3 XIN ports in VBIF */
 	if (adreno_is_a505(adreno_gpu) || adreno_is_a506(adreno_gpu) ||
@@ -1744,10 +1851,39 @@ static struct msm_gpu *a5xx_gpu_init(struct drm_device *dev)
 	if (config->info->revn == 510)
 		nr_rings = 1;
 
+	if (!a5xx_enable_preemption)
+		nr_rings = 1;
+
 	ret = adreno_gpu_init(dev, pdev, adreno_gpu, config->info->funcs, nr_rings);
 	if (ret) {
 		a5xx_destroy(&(a5xx_gpu->base.base));
 		return ERR_PTR(ret);
+	}
+
+	/*
+	 * Vote for memory bandwidth on the GPU's interconnect path. The
+	 * path is optional: boards without an interconnect provider (or
+	 * without the DT property) get -ENODATA and simply run without
+	 * bus scaling. -EPROBE_DEFER propagates so the GPU comes up once
+	 * the interconnect driver is ready.
+	 */
+	{
+		struct icc_path *icc_path = devm_of_icc_get(&pdev->dev, "gfx-mem");
+
+		if (IS_ERR(icc_path)) {
+			ret = PTR_ERR(icc_path);
+			if (ret == -ENODATA)
+				icc_path = NULL;
+			else if (ret != -EPROBE_DEFER)
+				dev_err(&pdev->dev, "failed to get gfx-mem interconnect: %d\n", ret);
+		}
+
+		if (!IS_ERR_OR_NULL(icc_path)) {
+			/* Max bandwidth for now; scale with devfreq later. */
+			icc_set_bw(icc_path, 0, Bps_to_icc(gpu->fast_rate) * 8);
+			dev_info(&pdev->dev, "gfx-mem interconnect: %llu Bps\n",
+				 Bps_to_icc(gpu->fast_rate) * 8ULL);
+		}
 	}
 
 	/* Set the speedbin value that is passed to userspace */

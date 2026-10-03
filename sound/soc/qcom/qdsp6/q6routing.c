@@ -339,14 +339,73 @@ struct session_data {
 	struct q6copp *copps[MAX_COPPS_PER_PORT];
 };
 
+static struct msm_routing_data *routing_data;
+
 struct msm_routing_data {
 	struct session_data sessions[MAX_SESSIONS];
 	struct session_data port_data[AFE_MAX_PORTS];
 	struct device *dev;
 	struct mutex lock;
+	unsigned int tx_topology;
 };
 
-static struct msm_routing_data *routing_data;
+/*
+ * Capture-path COPP topology.
+ *
+ * The ADSP builds the processing chain for a COPP from the topology ID given
+ * in ADM_CMD_DEVICE_OPEN_V5, using definitions carried in its own firmware;
+ * ACDB calibration only retunes what that chain already contains.  Opening
+ * with NULL_COPP_TOPOLOGY, which is all this driver could ever do before,
+ * therefore gives a bit-transparent capture path with no processing at all.
+ *
+ * The other entries here name the echo-cancellation and noise-suppression
+ * chains.  Which one a device wants is a board property, so it is left to
+ * userspace (a UCM device's EnableSequence) rather than guessed here, and the
+ * default stays NULL_COPP_TOPOLOGY so behaviour is unchanged unless asked for.
+ */
+static const char * const tx_topology_text[] = {
+	"None", "SM_ECNS", "DM_Fluence", "QMIC_Fluence", "DM_RFECNS",
+};
+
+static const unsigned int tx_topology_id[] = {
+	NULL_COPP_TOPOLOGY,
+	VPM_TX_SM_ECNS_COPP_TOPOLOGY,
+	VPM_TX_DM_FLUENCE_COPP_TOPOLOGY,
+	VPM_TX_QMIC_FLUENCE_COPP_TOPOLOGY,
+	VPM_TX_DM_RFECNS_COPP_TOPOLOGY,
+};
+
+static SOC_ENUM_SINGLE_EXT_DECL(tx_topology_enum, tx_topology_text);
+
+static int msm_routing_tx_topology_get(struct snd_kcontrol *kcontrol,
+				       struct snd_ctl_elem_value *ucontrol)
+{
+	ucontrol->value.enumerated.item[0] = routing_data->tx_topology;
+
+	return 0;
+}
+
+static int msm_routing_tx_topology_put(struct snd_kcontrol *kcontrol,
+				       struct snd_ctl_elem_value *ucontrol)
+{
+	unsigned int item = ucontrol->value.enumerated.item[0];
+
+	if (item >= ARRAY_SIZE(tx_topology_id))
+		return -EINVAL;
+
+	if (routing_data->tx_topology == item)
+		return 0;
+
+	routing_data->tx_topology = item;
+
+	return 1;
+}
+
+static const struct snd_kcontrol_new msm_routing_controls[] = {
+	SOC_ENUM_EXT("TX COPP Topology", tx_topology_enum,
+		     msm_routing_tx_topology_get, msm_routing_tx_topology_put),
+};
+
 
 /**
  * q6routing_stream_open() - Register a new stream for route setup
@@ -390,7 +449,10 @@ int q6routing_stream_open(int fedai_id, int perf_mode,
 	session->bits_per_sample = pdata->bits_per_sample;
 
 	payload.num_copps = 0; /* only RX needs to use payload */
-	topology = NULL_COPP_TOPOLOGY;
+	if (session->path_type == ADM_PATH_LIVE_REC)
+		topology = tx_topology_id[routing_data->tx_topology];
+	else
+		topology = NULL_COPP_TOPOLOGY;
 	copp = q6adm_open(routing_data->dev, session->port_id,
 			      session->path_type, session->sample_rate,
 			      session->channels, topology, perf_mode,
@@ -1120,6 +1182,8 @@ static int q6routing_reg_write(struct snd_soc_component *component,
 static const struct snd_soc_component_driver msm_soc_routing_component = {
 	.probe = msm_routing_probe,
 	.name = DRV_NAME,
+	.controls = msm_routing_controls,
+	.num_controls = ARRAY_SIZE(msm_routing_controls),
 	.hw_params = routing_hw_params,
 	.dapm_widgets = msm_qdsp6_widgets,
 	.num_dapm_widgets = ARRAY_SIZE(msm_qdsp6_widgets),

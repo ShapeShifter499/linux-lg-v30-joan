@@ -217,8 +217,58 @@ adreno_iommu_create_vm(struct msm_gpu *gpu,
 	start = max_t(u64, SZ_16M, geometry->aperture_start);
 	size = geometry->aperture_end - start + 1;
 
-	vm = msm_gem_vm_create(gpu->dev, mmu, "gpu", start & GENMASK_ULL(48, 0),
-			       size, true);
+	/*
+	 * Use the aperture base as it is, and clamp the size instead of masking
+	 * the base into GENMASK_ULL(48, 0).
+	 *
+	 * That mask is 49 bits, so it keeps bit 48. Measured on msm8998, whose
+	 * GPU SMMU reports a TTBR1 aperture of
+	 * 0xffff000000000000-0xffffffffffffffff, it produced a base of exactly
+	 * 2^48 -- an address in neither half of the split address space, since
+	 * the hardware translates 48-bit VAs (TTBR0 0..2^48-1, TTBR1
+	 * 0xffff000000000000 and up). The GPU then truncated those VAs to 48
+	 * bits, so a global buffer at 2^48 + X was accessed as X, looked up in
+	 * TTBR0 where nothing maps it, and faulted on a write.
+	 *
+	 * The reason the base was masked at all is that this aperture ends at
+	 * U64_MAX: start + size is 2^64, which wraps to 0 and leaves drm_mm with
+	 * a broken range, so every allocation fails and msm_gpu_init() dies with
+	 * "could not allocate memptrs: -28". Clamping the size keeps the range
+	 * representable while leaving the base in the half the hardware expects.
+	 */
+	if (start + size < start)
+		size = U64_MAX - start;
+
+	/*
+	 * The GPU issues 48-bit VAs. Within the TTBR1 aperture the SMMU
+	 * reconstructs the full 64-bit VA by sign-extending the top bit of the
+	 * upstream address (SEP), so the only TTBR1 VAs a 48-bit master can
+	 * actually form are the ones whose bit 47 is set:
+	 * 0xffff800000000000 and up. The aperture's lower half
+	 * (0xffff000000000000..0xffff7fffffffffff) is unreachable -- a buffer
+	 * placed there is issued with bit 47 clear, sign-extends to a LOW
+	 * address, gets looked up in TTBR0 where nothing maps it, and faults.
+	 *
+	 * That unreachable half is exactly where this vm used to start, and is
+	 * why running the crashdumper (GPU recovery, or any read of
+	 * debugfs/dri/0/gpu, which allocates its 1 MB scratch here) reliably
+	 * wedged the A540: the recovery path itself faulted, a5xx_hw_init()
+	 * returned -22, and the device looped to fastboot.
+	 *
+	 * Base the vm in the reachable half. The clamp above already keeps
+	 * start + size from wrapping.
+	 */
+	if (start == 0xffff000000000000ULL) {
+		start = 0xffff800000000000ULL;
+		size = U64_MAX - start;
+	}
+
+	DRM_DEV_INFO(&pdev->dev,
+		     "gpu aspace: aperture %#llx-%#llx, base %#llx, size %#llx\n",
+		     geometry->aperture_start, geometry->aperture_end,
+		     start, size);
+
+	vm = msm_gem_vm_create(gpu->dev, mmu, "gpu", start, size, true);
 
 	if (IS_ERR(vm) && !IS_ERR(mmu))
 		mmu->funcs->destroy(mmu);
@@ -1104,6 +1154,29 @@ static int adreno_get_pwrlevels(struct device *dev,
 
 	gpu->fast_rate = 0;
 
+	/*
+	 * Register the VDD_GFX supply (vdd-supply in DT) with the OPP
+	 * framework BEFORE the table is populated so every
+	 * dev_pm_opp_set_rate() scales the rail to the OPP's
+	 * opp-microvolt before raising the core clock. The OPP core
+	 * refuses regulator configuration after OPPs are initialized
+	 * (-EBUSY). Without this the GPU would run the higher OPPs at
+	 * the regulator's boot voltage, which is not survivable on
+	 * msm8998 (the LG V30 stock kernel runs 710 MHz at 936 mV; boot
+	 * voltage is ~752 mV).
+	 */
+	if (device_property_present(dev, "vdd-supply")) {
+		const char * const supply_names[] = { "vdd", NULL };
+
+		ret = devm_pm_opp_set_regulators(dev, supply_names);
+		if (ret) {
+			DRM_DEV_ERROR(dev, "Unable to register OPP regulators: %d\n", ret);
+			return ret;
+		}
+	} else {
+		dev_dbg(dev, "No vdd-supply; skipping OPP regulator scaling\n");
+	}
+
 	/* devm_pm_opp_of_add_table may error out but will still create an OPP table */
 	ret = devm_pm_opp_of_add_table(dev);
 	if (ret == -ENODEV) {
@@ -1122,6 +1195,9 @@ static int adreno_get_pwrlevels(struct device *dev,
 		DRM_DEV_ERROR(dev, "Unable to set the OPP table\n");
 		return ret;
 	}
+
+	if (adreno_is_a540(adreno_gpu))
+		a540_gfx_apply_open_loop(dev);
 
 	/* Find the fastest defined rate */
 	opp = dev_pm_opp_find_freq_floor(dev, &freq);
@@ -1208,7 +1284,14 @@ int adreno_gpu_init(struct drm_device *drm, struct platform_device *pdev,
 		 * This can only be done before devm_pm_opp_of_add_table(), or
 		 * dev_pm_opp_set_config() will WARN_ON()
 		 */
-		if (IS_ERR(devm_clk_get(dev, "core"))) {
+		ret = adreno_is_a540(adreno_gpu) ?
+			a540_gfx_set_opp_config(dev) : -ENOENT;
+		if (ret && ret != -ENOENT)
+			return dev_err_probe(dev, ret, "GFX MEM-ACC setup failed\n");
+
+		if (!ret) {
+			/* core clock registered with MEM-ACC sequencing */
+		} else if (IS_ERR(devm_clk_get(dev, "core"))) {
 			/*
 			 * If "core" is absent, go for the legacy clock name.
 			 * If we got this far in probing, it's a given one of

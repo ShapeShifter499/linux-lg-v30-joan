@@ -121,6 +121,27 @@ static void dpu_encoder_phys_cmd_te_rd_ptr_irq(void *arg)
 
 	dpu_encoder_vblank_callback(phys_enc->parent, phys_enc);
 
+	/*
+	 * The read pointer has started this frame's transfer, so the previous
+	 * framebuffer is no longer referenced -- which is the pageflip event
+	 * semantic. Delivering it here rather than at transfer *completion*
+	 * lets the compositor render the next frame while this one is still
+	 * being pushed over DSI. Without it the whole session is locked to
+	 * half the panel rate: a 14.6 ms transfer inside a 16.7 ms TE slot,
+	 * with the flip at +14.6 ms, serialises everything to 33.4 ms.
+	 *
+	 * Gated on a kickoff being in flight: the tearcheck read pointer also
+	 * ticks on bare TE with no commit pending, and signalling a flip then
+	 * would release a buffer the panel is still being fed from.
+	 *
+	 * MSM8998 cannot use the CTL_START interrupt for this -- it has none
+	 * (see dpu_3_0_msm8998.h) -- but rd_ptr is already its vblank source,
+	 * and DRM delivers pageflip events at vblank anyway.
+	 */
+	if (atomic_read(&phys_enc->pending_kickoff_cnt))
+		dpu_encoder_frame_done_callback(phys_enc->parent, phys_enc,
+						DPU_ENCODER_FRAME_EVENT_STARTED);
+
 	atomic_add_unless(&cmd_enc->pending_vblank_cnt, -1, 0);
 	wake_up_all(&cmd_enc->pending_vblank_wq);
 	DPU_ATRACE_END("rd_ptr_irq");
@@ -486,6 +507,13 @@ static void dpu_encoder_phys_cmd_enable(struct dpu_encoder_phys *phys_enc)
 
 	dpu_encoder_phys_cmd_enable_helper(phys_enc);
 	phys_enc->enable_state = DPU_ENC_ENABLED;
+
+	/*
+	 * Mark that the next kickoff is the first after this enable
+	 * transition (including every blank -> unblank wake) so it waits
+	 * for one TE edge before sending the first frame.
+	 */
+	cmd_enc->first_kickoff_after_enable = true;
 }
 
 static void _dpu_encoder_phys_cmd_connect_te(
@@ -607,6 +635,40 @@ static void dpu_encoder_phys_cmd_prepare_for_kickoff(
 	}
 
 	dpu_encoder_phys_cmd_enable_te(phys_enc);
+
+	/*
+	 * First kickoff after an enable/wake transition: wait for one TE
+	 * (read-pointer) edge before sending the first frame. On blank ->
+	 * unblank the panel's scan-out and TE re-establish while the first
+	 * command-mode frame is being prepared; if it is kicked before the
+	 * first TE edge, the panel receives it mid-scan and shows transient
+	 * garbage (owner-visible "rainbow" on the LG V30 sw43402 wake
+	 * transition) until the next frame lands cleanly.
+	 *
+	 * The TE IRQ is only live on the master encoder, and only when the
+	 * vblank/read-pointer callback is registered (vblank_refcount > 0);
+	 * guard on both. The wait is bounded and fail-open: if no TE edge
+	 * arrives (e.g. the panel is idle), log once and proceed rather than
+	 * wedging the wake path.
+	 */
+	if (cmd_enc->first_kickoff_after_enable) {
+		cmd_enc->first_kickoff_after_enable = false;
+
+		if (dpu_encoder_phys_cmd_is_master(phys_enc) &&
+		    phys_enc->vblank_refcount > 0 &&
+		    phys_enc->irq[INTR_IDX_RDPTR]) {
+			atomic_set(&cmd_enc->pending_vblank_cnt, 1);
+			ret = wait_event_timeout(cmd_enc->pending_vblank_wq,
+					!atomic_read(&cmd_enc->pending_vblank_cnt),
+					KICKOFF_TIMEOUT_JIFFIES);
+			if (!ret)
+				DPU_ERROR_CMDENC(cmd_enc,
+					"first kickoff TE wait timed out, proceeding\n");
+			else
+				DPU_DEBUG_CMDENC(cmd_enc,
+					"first kickoff gated on TE edge\n");
+		}
+	}
 
 	DPU_DEBUG_CMDENC(cmd_enc, "pp:%d pending_cnt %d\n",
 			phys_enc->hw_pp->idx - PINGPONG_0,

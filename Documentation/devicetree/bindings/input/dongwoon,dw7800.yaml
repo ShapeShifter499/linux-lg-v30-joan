@@ -1,0 +1,42 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/input/dongwoon,dw7800.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Dongwoon DW7800 haptic driver
+
+maintainers:
+  - Lance <Gero3977@gmail.com>
+
+description:
+  The DW7800 drives a linear resonant actuator from 8-bit samples that the
+  host streams into its FIFO over I2C.
+
+properties:
+  compatible:
+    const: dongwoon,dw7800
+
+  reg:
+    maxItems: 1
+
+  vdd-supply: true
+
+required:
+  - compatible
+  - reg
+
+additionalProperties: false
+
+examples:
+  - |
+    i2c {
+        #address-cells = <1>;
+        #size-cells = <0>;
+
+        haptics@59 {
+            compatible = "dongwoon,dw7800";
+            reg = <0x59>;
+        };
+    };
+...

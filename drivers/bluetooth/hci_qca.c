@@ -36,6 +36,7 @@
 
 #include <net/bluetooth/bluetooth.h>
 #include <net/bluetooth/hci_core.h>
+#include <net/bluetooth/qca_fm.h>
 
 #include "hci_uart.h"
 #include "btqca.h"
@@ -230,6 +231,7 @@ struct qca_serdev {
 	bool bdaddr_property_broken;
 	bool support_hfp_hw_offload;
 	const char *firmware_name[2];
+	struct qca_fm_device *fm;
 };
 
 static int qca_regulator_enable(struct qca_serdev *qcadev);
@@ -1242,6 +1244,83 @@ static int qca_recv_event(struct hci_dev *hdev, struct sk_buff *skb)
 	return hci_recv_frame(hdev, skb);
 }
 
+/* FM events share the UART with Bluetooth; hand them to the radio driver */
+static int qca_recv_fm_event(struct hci_dev *hdev, struct sk_buff *skb)
+{
+	struct hci_uart *hu = hci_get_drvdata(hdev);
+	struct qca_fm_device *fm = NULL;
+	unsigned long flags;
+
+	if (hu->serdev) {
+		struct qca_serdev *qcadev = serdev_device_get_drvdata(hu->serdev);
+
+		fm = READ_ONCE(qcadev->fm);
+	}
+
+	if (fm) {
+		spin_lock_irqsave(&fm->lock, flags);
+		if (fm->event) {
+			fm->event(fm->priv, skb);
+			skb = NULL;
+		}
+		spin_unlock_irqrestore(&fm->lock, flags);
+	}
+
+	kfree_skb(skb);
+	return 0;
+}
+
+int qca_fm_send(struct qca_fm_device *fm, const void *data, size_t len)
+{
+	struct hci_uart *hu = fm->hu;
+	struct sk_buff *skb;
+	int ret = -ENETDOWN;
+
+	skb = bt_skb_alloc(len, GFP_KERNEL);
+	if (!skb)
+		return -ENOMEM;
+
+	skb_put_data(skb, data, len);
+	hci_skb_pkt_type(skb) = QCA_FM_CMD_PKT;
+
+	/* Not while the controller is off or still loading its firmware */
+	percpu_down_read(&hu->proto_lock);
+	if (test_bit(HCI_UART_PROTO_READY, &hu->flags) &&
+	    test_bit(HCI_UP, &hu->hdev->flags)) {
+		ret = qca_enqueue(hu, skb);
+		skb = NULL;
+	}
+	percpu_up_read(&hu->proto_lock);
+
+	if (skb)
+		kfree_skb(skb);
+	else
+		hci_uart_tx_wakeup(hu);
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(qca_fm_send);
+
+void qca_fm_set_event_handler(struct qca_fm_device *fm,
+			      void (*event)(void *priv, struct sk_buff *skb),
+			      void *priv)
+{
+	unsigned long flags;
+
+	spin_lock_irqsave(&fm->lock, flags);
+	fm->event = event;
+	fm->priv = priv;
+	spin_unlock_irqrestore(&fm->lock, flags);
+}
+EXPORT_SYMBOL_GPL(qca_fm_set_event_handler);
+
+#define QCA_FM_EVENT \
+	.type = QCA_FM_EVENT_PKT, \
+	.hlen = 2, \
+	.loff = 1, \
+	.lsize = 1, \
+	.maxlen = HCI_MAX_EVENT_SIZE
+
 #define QCA_IBS_SLEEP_IND_EVENT \
 	.type = HCI_IBS_SLEEP_IND, \
 	.hlen = 0, \
@@ -1271,6 +1350,7 @@ static const struct h4_recv_pkt qca_recv_pkts[] = {
 	{ QCA_IBS_WAKE_IND_EVENT,  .recv = qca_ibs_wake_ind  },
 	{ QCA_IBS_WAKE_ACK_EVENT,  .recv = qca_ibs_wake_ack  },
 	{ QCA_IBS_SLEEP_IND_EVENT, .recv = qca_ibs_sleep_ind },
+	{ QCA_FM_EVENT,            .recv = qca_recv_fm_event },
 };
 
 static int qca_recv(struct hci_uart *hu, const void *data, int count)
@@ -1985,6 +2065,27 @@ retry:
 		if (qcadev && qcadev->bdaddr_property_broken)
 			hci_set_quirk(hdev, HCI_QUIRK_BDADDR_PROPERTY_BROKEN);
 
+		if (soc_type == QCA_WCN3990) {
+			/*
+			 * WCN3990 answers HCI_OP_LE_READ_TRANSMIT_POWER with a
+			 * one byte command complete instead of the three the
+			 * spec requires, which fails the command and aborts
+			 * HCI init:
+			 *
+			 *   Bluetooth: hci0: unexpected cc 0x204b length: 1 < 3
+			 *   Bluetooth: hci0: Opcode 0x204b failed: -38
+			 *
+			 * It also claims LE Set Default PHY and extended
+			 * scanning, but answers both with Unknown HCI Command,
+			 * which fails LE init and discovery respectively:
+			 *
+			 *   Bluetooth: hci0: Opcode 0x2041 failed: -56
+			 */
+			hci_set_quirk(hdev, HCI_QUIRK_BROKEN_READ_TRANSMIT_POWER);
+			hci_set_quirk(hdev, HCI_QUIRK_BROKEN_LE_SET_DEFAULT_PHY);
+			hci_set_quirk(hdev, HCI_QUIRK_BROKEN_EXT_SCAN);
+		}
+
 		hci_set_aosp_capable(hdev);
 
 		ret = qca_read_soc_version(hdev, &ver, soc_type);
@@ -2075,12 +2176,30 @@ out:
 	else
 		hu->hdev->set_bdaddr = qca_set_bdaddr;
 
+	/* Some QCA controllers carry no BD address of their own; let the
+	 * HCI core pull "local-bd-address" from the DT so they are not
+	 * left HCI_UNCONFIGURED.
+	 *
+	 * Only opt in when the platform actually describes the property.
+	 * The core folds this quirk into its "invalid_bdaddr" decision, so
+	 * setting it unconditionally would also force every controller that
+	 * does carry a usable address in NVM into HCI_UNCONFIGURED, where
+	 * bluetoothd never adopts it.
+	 */
+	if (qcadev && !qcadev->bdaddr_property_broken &&
+	    device_property_present(&hu->serdev->dev, "local-bd-address"))
+		hci_set_quirk(hdev, HCI_QUIRK_USE_BDADDR_PROPERTY);
+
 	if (qcadev && qcadev->support_hfp_hw_offload)
 		qca_configure_hfp_offload(hdev);
 
 	qca->fw_version = le16_to_cpu(ver.patch_ver);
 	qca->controller_id = le16_to_cpu(ver.rom_ver);
 	hci_devcd_register(hdev, hci_coredump_qca, qca_dmp_hdr, NULL);
+
+	/* The FM receiver lost its state if the controller was powered off */
+	if (qcadev && qcadev->fm)
+		atomic_inc(&qcadev->fm->generation);
 
 	return ret;
 }
@@ -2385,6 +2504,45 @@ static int qca_init_regulators(struct qca_power *qca,
 	return 0;
 }
 
+static void qca_fm_release(struct device *dev)
+{
+	kfree(to_qca_fm(to_auxiliary_dev(dev)));
+}
+
+/* Offer the FM receiver to the radio driver as an auxiliary device */
+static int qca_fm_register(struct qca_serdev *qcadev)
+{
+	struct qca_fm_device *fm;
+	int ret;
+
+	fm = kzalloc_obj(*fm);
+	if (!fm)
+		return -ENOMEM;
+
+	fm->hu = &qcadev->serdev_hu;
+	spin_lock_init(&fm->lock);
+	atomic_set(&fm->generation, 0);
+	fm->adev.name = "fm";
+	fm->adev.id = qcadev->serdev_hu.hdev->id;
+	fm->adev.dev.parent = &qcadev->serdev_hu.serdev->dev;
+	fm->adev.dev.release = qca_fm_release;
+
+	ret = auxiliary_device_init(&fm->adev);
+	if (ret) {
+		kfree(fm);
+		return ret;
+	}
+
+	ret = auxiliary_device_add(&fm->adev);
+	if (ret) {
+		auxiliary_device_uninit(&fm->adev);
+		return ret;
+	}
+
+	WRITE_ONCE(qcadev->fm, fm);
+	return 0;
+}
+
 static int qca_serdev_probe(struct serdev_device *serdev)
 {
 	struct qca_serdev *qcadev;
@@ -2563,6 +2721,13 @@ static int qca_serdev_probe(struct serdev_device *serdev)
 			qcadev->support_hfp_hw_offload = true;
 	}
 
+	if (device_property_read_bool(&serdev->dev, "qcom,fm-receiver")) {
+		err = qca_fm_register(qcadev);
+		if (err)
+			dev_warn(&serdev->dev, "FM receiver not registered: %d\n",
+				 err);
+	}
+
 	return 0;
 }
 
@@ -2570,6 +2735,13 @@ static void qca_serdev_remove(struct serdev_device *serdev)
 {
 	struct qca_serdev *qcadev = serdev_device_get_drvdata(serdev);
 	struct qca_power *power = qcadev->bt_power;
+	struct qca_fm_device *fm = qcadev->fm;
+
+	/* Unbind the radio driver while the controller can still answer it */
+	if (fm) {
+		auxiliary_device_delete(&fm->adev);
+		WRITE_ONCE(qcadev->fm, NULL);
+	}
 
 	switch (qcadev->btsoc_type) {
 	case QCA_WCN3988:
@@ -2587,6 +2759,10 @@ static void qca_serdev_remove(struct serdev_device *serdev)
 	}
 
 	hci_uart_unregister_device(&qcadev->serdev_hu);
+
+	/* The UART is closed now, so no FM event can still be in flight */
+	if (fm)
+		auxiliary_device_uninit(&fm->adev);
 }
 
 static void qca_serdev_shutdown(struct serdev_device *serdev)

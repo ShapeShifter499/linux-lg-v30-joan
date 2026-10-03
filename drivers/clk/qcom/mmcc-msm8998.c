@@ -698,43 +698,30 @@ static struct clk_rcg2 dp_crypto_clk_src = {
 	},
 };
 
-static const struct freq_tbl ftbl_dp_link_clk_src[] = {
-	F(162000, P_DPLINK, 2, 0, 0),
-	F(270000, P_DPLINK, 2, 0, 0),
-	F(540000, P_DPLINK, 2, 0, 0),
-	{ }
-};
-
 static struct clk_rcg2 dp_link_clk_src = {
 	.cmd_rcgr = 0x2200,
 	.hid_width = 5,
 	.parent_map = mmss_xo_dp_map,
-	.freq_tbl = ftbl_dp_link_clk_src,
 	.clkr.hw.init = &(struct clk_init_data){
 		.name = "dp_link_clk_src",
 		.parent_data = mmss_xo_dp,
 		.num_parents = ARRAY_SIZE(mmss_xo_dp),
-		.ops = &clk_rcg2_ops,
+		.flags = CLK_SET_RATE_PARENT,
+		.ops = &clk_byte2_ops,
 	},
-};
-
-static const struct freq_tbl ftbl_dp_pixel_clk_src[] = {
-	F(154000000, P_DPVCO, 1, 0, 0),
-	F(337500000, P_DPVCO, 2, 0, 0),
-	F(675000000, P_DPVCO, 2, 0, 0),
-	{ }
 };
 
 static struct clk_rcg2 dp_pixel_clk_src = {
 	.cmd_rcgr = 0x2240,
+	.mnd_width = 16,
 	.hid_width = 5,
 	.parent_map = mmss_xo_dp_map,
-	.freq_tbl = ftbl_dp_pixel_clk_src,
 	.clkr.hw.init = &(struct clk_init_data){
 		.name = "dp_pixel_clk_src",
 		.parent_data = mmss_xo_dp,
 		.num_parents = ARRAY_SIZE(mmss_xo_dp),
-		.ops = &clk_rcg2_ops,
+		.flags = CLK_SET_RATE_PARENT,
+		.ops = &clk_dp_ops,
 	},
 };
 
@@ -879,14 +866,15 @@ static const struct freq_tbl ftbl_mclk_clk_src[] = {
 	F(16666667, P_GPLL0_DIV, 2, 1, 9),
 	F(19200000, P_XO, 1, 0, 0),
 	F(24000000, P_GPLL0_DIV, 1, 2, 25),
-	F(33333333, P_GPLL0_DIV, 1, 2, 9),
+	F(33333333, P_GPLL0_DIV, 1, 1, 9),
 	F(48000000, P_GPLL0, 1, 2, 25),
-	F(66666667, P_GPLL0, 1, 2, 9),
+	F(66666667, P_GPLL0, 1, 1, 9),
 	{ }
 };
 
 static struct clk_rcg2 mclk0_clk_src = {
 	.cmd_rcgr = 0x3360,
+	.mnd_width = 8,
 	.hid_width = 5,
 	.parent_map = mmss_xo_mmpll4_mmpll7_mmpll10_gpll0_gpll0_div_map,
 	.freq_tbl = ftbl_mclk_clk_src,
@@ -900,6 +888,7 @@ static struct clk_rcg2 mclk0_clk_src = {
 
 static struct clk_rcg2 mclk1_clk_src = {
 	.cmd_rcgr = 0x3390,
+	.mnd_width = 8,
 	.hid_width = 5,
 	.parent_map = mmss_xo_mmpll4_mmpll7_mmpll10_gpll0_gpll0_div_map,
 	.freq_tbl = ftbl_mclk_clk_src,
@@ -913,6 +902,7 @@ static struct clk_rcg2 mclk1_clk_src = {
 
 static struct clk_rcg2 mclk2_clk_src = {
 	.cmd_rcgr = 0x33c0,
+	.mnd_width = 8,
 	.hid_width = 5,
 	.parent_map = mmss_xo_mmpll4_mmpll7_mmpll10_gpll0_gpll0_div_map,
 	.freq_tbl = ftbl_mclk_clk_src,
@@ -926,6 +916,7 @@ static struct clk_rcg2 mclk2_clk_src = {
 
 static struct clk_rcg2 mclk3_clk_src = {
 	.cmd_rcgr = 0x33f0,
+	.mnd_width = 8,
 	.hid_width = 5,
 	.parent_map = mmss_xo_mmpll4_mmpll7_mmpll10_gpll0_gpll0_div_map,
 	.freq_tbl = ftbl_mclk_clk_src,
@@ -2471,7 +2462,15 @@ static struct clk_branch fd_ahb_clk = {
 			.parent_hws = (const struct clk_hw *[]){ &ahb_clk_src.clkr.hw },
 			.num_parents = 1,
 			.ops = &clk_branch2_ops,
-			.flags = CLK_SET_RATE_PARENT,
+			/*
+			 * The MMSS config NoC carries every register access
+			 * inside MMSS, including the CBCRs of this controller's
+			 * own branches. With it gated a branch enable writes
+			 * the enable bit and then times out waiting for the
+			 * halt bit, so the consumer sees -EBUSY. Same reason
+			 * gcc_mmss_noc_cfg_ahb_clk is critical one level up.
+			 */
+			.flags = CLK_IS_CRITICAL | CLK_SET_RATE_PARENT,
 		},
 	},
 };

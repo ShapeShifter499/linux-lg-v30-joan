@@ -29,6 +29,7 @@ properties:
               - qcom,glymur-cci
               - qcom,kaanapali-cci
               - qcom,milos-cci
+              - qcom,msm8998-cci
               - qcom,qcm2290-cci
               - qcom,qcs8300-cci
               - qcom,sa8775p-cci
@@ -173,6 +174,26 @@ allOf:
             - const: cci_ahb
             - const: cci
             - const: camss_ahb
+
+  - if:
+      properties:
+        compatible:
+          contains:
+            enum:
+              - qcom,msm8998-cci
+    then:
+      properties:
+        clocks:
+          minItems: 4
+          maxItems: 4
+        clock-names:
+          # camss_ahb first: it is turned off last, after the CAMSS AHB
+          # branches that depend on it
+          items:
+            - const: camss_ahb
+            - const: camss_top_ahb
+            - const: cci_ahb
+            - const: cci
 
   - if:
       properties:

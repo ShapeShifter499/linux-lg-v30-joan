@@ -9,6 +9,7 @@
  */
 
 #include <linux/device.h>
+#include <linux/dma-mapping.h>
 #include <linux/interrupt.h>
 #include <linux/io.h>
 #include <linux/iopoll.h>
@@ -28,6 +29,9 @@
 #define VFE_0_GLOBAL_RESET_CMD_TESTGEN	BIT(7)
 #define VFE_0_GLOBAL_RESET_CMD_DSP	BIT(8)
 #define VFE_0_GLOBAL_RESET_CMD_IDLE_CGC	BIT(9)
+
+#define VFE_0_CGC_OVERRIDE_1		0x03c
+#define VFE_0_CGC_OVERRIDE_1_IMAGE_Mx_CGC_OVERRIDE(x)	BIT(x)
 
 #define VFE_0_MODULE_LENS_EN		0x040
 #define VFE_0_MODULE_LENS_EN_DEMUX		BIT(2)
@@ -104,6 +108,17 @@
 #define VFE_0_BUS_IMAGE_MASTER_n_WR_CFG_WR_PATH_SHIFT	0
 #define VFE_0_BUS_IMAGE_MASTER_n_WR_PING_ADDR(n)	(0x0a4 + 0x2c * (n))
 #define VFE_0_BUS_IMAGE_MASTER_n_WR_PONG_ADDR(n)	(0x0ac + 0x2c * (n))
+/*
+ * VFE 4.7/4.8 added a per-buffer address limit beside each address register --
+ * that is why the write-master stride grew from 0x24 (4.0/4.4/4.6) to 0x2c.
+ * Downstream writes both, the limit as (addr + buf_size) & 0xffffffe0. The
+ * 4.7/4.8 ports bumped the stride but kept the 4.1 register list, so these two
+ * are never written and read zero -- and a write master whose address limit is
+ * zero cannot emit a single beat: it takes data in, fills its unified-buffer
+ * slice, raises BUS_OVERFLOW and never completes a burst.
+ */
+#define VFE_0_BUS_IMAGE_MASTER_n_WR_PING_ADDR_LIMIT(n)	(0x0a8 + 0x2c * (n))
+#define VFE_0_BUS_IMAGE_MASTER_n_WR_PONG_ADDR_LIMIT(n)	(0x0b0 + 0x2c * (n))
 #define VFE_0_BUS_IMAGE_MASTER_n_WR_ADDR_CFG(n)		(0x0b4 + 0x2c * (n))
 #define VFE_0_BUS_IMAGE_MASTER_n_WR_ADDR_CFG_FRM_BASED_SHIFT	1
 #define VFE_0_BUS_IMAGE_MASTER_n_WR_ADDR_CFG_FRM_DROP_PER_SHIFT	2
@@ -259,6 +274,14 @@ static inline void vfe_reg_set(struct vfe_device *vfe, u32 reg, u32 set_bits)
 	writel_relaxed(bits | set_bits, vfe->base + reg);
 }
 
+/*
+ * VFE 4.8 does not reset the AXI bus bridge along with the rest of the core:
+ * the vendor driver picks 0x3f7 here where 4.7 uses 0x3ff, the one bit of
+ * difference being BUS_BDG. A bridge reset issued while its clocks and the
+ * VBIF are up comes back refusing grants, so the write masters latch their
+ * configuration and take pixel data but never issue a beat and never
+ * acknowledge a halt.
+ */
 static void vfe_global_reset(struct vfe_device *vfe)
 {
 	u32 reset_bits = VFE_0_GLOBAL_RESET_CMD_IDLE_CGC	|
@@ -267,7 +290,6 @@ static void vfe_global_reset(struct vfe_device *vfe)
 			 VFE_0_GLOBAL_RESET_CMD_BUS_MISR	|
 			 VFE_0_GLOBAL_RESET_CMD_PM		|
 			 VFE_0_GLOBAL_RESET_CMD_REGISTER	|
-			 VFE_0_GLOBAL_RESET_CMD_BUS_BDG		|
 			 VFE_0_GLOBAL_RESET_CMD_BUS		|
 			 VFE_0_GLOBAL_RESET_CMD_CAMIF		|
 			 VFE_0_GLOBAL_RESET_CMD_CORE;
@@ -437,12 +459,16 @@ static void vfe_wm_set_ping_addr(struct vfe_device *vfe, u8 wm, u32 addr)
 {
 	writel_relaxed(addr,
 		       vfe->base + VFE_0_BUS_IMAGE_MASTER_n_WR_PING_ADDR(wm));
+	writel_relaxed(addr ? (addr + vfe->sizeimage) & 0xffffffe0 : 0,
+		       vfe->base + VFE_0_BUS_IMAGE_MASTER_n_WR_PING_ADDR_LIMIT(wm));
 }
 
 static void vfe_wm_set_pong_addr(struct vfe_device *vfe, u8 wm, u32 addr)
 {
 	writel_relaxed(addr,
 		       vfe->base + VFE_0_BUS_IMAGE_MASTER_n_WR_PONG_ADDR(wm));
+	writel_relaxed(addr ? (addr + vfe->sizeimage) & 0xffffffe0 : 0,
+		       vfe->base + VFE_0_BUS_IMAGE_MASTER_n_WR_PONG_ADDR_LIMIT(wm));
 }
 
 static int vfe_wm_get_ping_pong_status(struct vfe_device *vfe, u8 wm)
@@ -854,7 +880,15 @@ static void vfe_set_clamp_cfg(struct vfe_device *vfe)
 
 static void vfe_set_cgc_override(struct vfe_device *vfe, u8 wm, u8 enable)
 {
-	/* empty */
+	u32 val = VFE_0_CGC_OVERRIDE_1_IMAGE_Mx_CGC_OVERRIDE(wm);
+
+	if (enable)
+		vfe_reg_set(vfe, VFE_0_CGC_OVERRIDE_1, val);
+	else
+		vfe_reg_clr(vfe, VFE_0_CGC_OVERRIDE_1, val);
+
+	/* The clock has to be on before the master is handed any data */
+	wmb();
 }
 
 static void vfe_set_camif_cfg(struct vfe_device *vfe, struct vfe_line *line)
@@ -1015,6 +1049,35 @@ static u16 vfe_get_ub_size(u8 vfe_id)
 	return MSM_VFE_VFE0_UB_SIZE_RDI;
 }
 
+/*
+ * Park a write master's ping/pong addresses on an always-mapped scratch page.
+ *
+ * Downstream keeps a scratch buffer for idle write masters; mainline leaves the
+ * last frame buffer's IOVA in the write master instead. Once userspace closes
+ * the video node those IOVAs are unmapped from the camera SMMU, and a straggler
+ * write from the disabled master faults. The fault stalls the fabric silently:
+ * stream stop completes, then a few seconds later the display controller -- on
+ * the same NoC -- starts timing out frame-done, and the watchdog resets the SoC.
+ * The address limit keeps anything larger than the page on the page.
+ *
+ * Register writes only: vfe_disable_output() calls this with output_lock held,
+ * so the page itself is allocated once at subdev init.
+ */
+static void vfe_wm_park(struct vfe_device *vfe, u8 wm)
+{
+	u32 iova = lower_32_bits(vfe->scratch_iova);
+
+	if (!vfe->scratch)
+		return;
+
+	writel_relaxed(iova, vfe->base + VFE_0_BUS_IMAGE_MASTER_n_WR_PING_ADDR(wm));
+	writel_relaxed(iova + PAGE_SIZE,
+		       vfe->base + VFE_0_BUS_IMAGE_MASTER_n_WR_PING_ADDR_LIMIT(wm));
+	writel_relaxed(iova, vfe->base + VFE_0_BUS_IMAGE_MASTER_n_WR_PONG_ADDR(wm));
+	writel_relaxed(iova + PAGE_SIZE,
+		       vfe->base + VFE_0_BUS_IMAGE_MASTER_n_WR_PONG_ADDR_LIMIT(wm));
+}
+
 static void vfe_wm_enable(struct vfe_device *vfe, u8 wm, u8 enable)
 {
 	if (enable)
@@ -1026,6 +1089,9 @@ static void vfe_wm_enable(struct vfe_device *vfe, u8 wm, u8 enable)
 
 	/* The WM must be enabled before sending other commands */
 	wmb();
+
+	if (!enable)
+		vfe_wm_park(vfe, wm);
 }
 
 static void vfe_set_qos(struct vfe_device *vfe)
@@ -1128,6 +1194,12 @@ static const struct vfe_hw_ops_gen1 vfe_ops_gen1_4_8 = {
 
 static void vfe_subdev_init(struct device *dev, struct vfe_device *vfe)
 {
+	vfe->scratch = dmam_alloc_coherent(dev, PAGE_SIZE, &vfe->scratch_iova,
+					   GFP_KERNEL);
+	if (!vfe->scratch)
+		dev_warn(dev,
+			 "no scratch page, idle write masters keep the last buffer\n");
+
 	vfe->isr_ops = vfe_isr_ops_gen1;
 	vfe->ops_gen1 = &vfe_ops_gen1_4_8;
 	vfe->video_ops = vfe_video_ops_gen1;

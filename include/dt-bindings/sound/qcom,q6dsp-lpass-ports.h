@@ -18,6 +18,9 @@
 #define SLIMBUS_5_TX    13
 #define SLIMBUS_6_RX    14
 #define SLIMBUS_6_TX    15
+#define SLIMBUS_7_RX    150
+#define SLIMBUS_7_TX    151
+#define SLIMBUS_8_TX    152
 #define PRIMARY_MI2S_RX		16
 #define PRIMARY_MI2S_TX		17
 #define SECONDARY_MI2S_RX	18

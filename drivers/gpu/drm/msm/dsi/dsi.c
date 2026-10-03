@@ -236,6 +236,7 @@ int msm_dsi_modeset_init(struct msm_dsi *msm_dsi, struct drm_device *dev,
 	int ret;
 
 	msm_dsi->dev = dev;
+	msm_dsi->encoder = encoder;
 
 	ret = msm_dsi_host_modeset_init(msm_dsi->host, dev);
 	if (ret) {

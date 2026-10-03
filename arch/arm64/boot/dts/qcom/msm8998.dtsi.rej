@@ -1,0 +1,18 @@
+--- arch/arm64/boot/dts/qcom/msm8998.dtsi
++++ arch/arm64/boot/dts/qcom/msm8998.dtsi
+@@ -2630,10 +2630,12 @@ usb3phy: phy@c010000 {
+ 			#clock-cells = <1>;
+ 			#phy-cells = <1>;
+ 
+-			resets = <&gcc GCC_USB3PHY_PHY_BCR>,
++			resets = <&gcc GCC_USB3_PHY_BCR>,
++				 <&gcc GCC_USB3PHY_PHY_BCR>,
+ 				 <&gcc GCC_USB3_DP_PHY_BCR>;
+-			reset-names = "phy_phy",
+-				      "dp_phy";
++			reset-names = "phy",
++				      "phy_phy",
++				      "dp_phy";
+ 
+ 			qcom,tcsr-reg = <&tcsr_regs_2 0xb244>;
+ 

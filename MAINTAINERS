@@ -6342,7 +6342,7 @@ F:	.clang-format
 
 CLANG/LLVM BUILD SUPPORT
 M:	Nathan Chancellor <nathan@kernel.org>
-R:	Nick Desaulniers <nick.desaulniers+lkml@gmail.com>
+R:	Nick Desaulniers <ndesaulniers@google.com>
 R:	Bill Wendling <morbo@google.com>
 R:	Justin Stitt <justinstitt@google.com>
 L:	llvm@lists.linux.dev
@@ -7792,6 +7792,13 @@ L:	linux-doc@vger.kernel.org
 S:	Maintained
 F:	Documentation/translations/ja_JP
 
+DONGWOON DW7800 HAPTICS DRIVER
+M:	Lance <Gero3977@gmail.com>
+L:	linux-input@vger.kernel.org
+S:	Maintained
+F:	Documentation/devicetree/bindings/input/dongwoon,dw7800.yaml
+F:	drivers/input/misc/dw7800-haptics.c
+
 DONGWOON DW9714 LENS VOICE COIL DRIVER
 M:	Sakari Ailus <sakari.ailus@linux.intel.com>
 L:	linux-media@vger.kernel.org
@@ -8137,6 +8144,12 @@ M:	Jagan Teki <jagan@edgeble.ai>
 S:	Maintained
 F:	Documentation/devicetree/bindings/display/panel/jadard,jd9365da-h3.yaml
 F:	drivers/gpu/drm/panel/panel-jadard-jd9365da-h3.c
+
+DRM DRIVER FOR LG SW43402 PANELS
+M:	Lance <Gero3977@gmail.com>
+S:	Maintained
+F:	Documentation/devicetree/bindings/display/panel/lg,sw43402.yaml
+F:	drivers/gpu/drm/panel/panel-lg-sw43402.c
 
 DRM DRIVER FOR LG SW43408 PANELS
 M:	Sumit Semwal <sumit.semwal@linaro.org>
@@ -9646,6 +9659,13 @@ R:	socketcan@esd.eu
 L:	linux-can@vger.kernel.org
 S:	Maintained
 F:	drivers/net/can/usb/esd_usb.c
+
+ESS ES9218P HEADPHONE DAC DRIVER
+M:	Lance <Gero3977@gmail.com>
+L:	linux-sound@vger.kernel.org
+S:	Maintained
+F:	Documentation/devicetree/bindings/sound/ess,es9218p.yaml
+F:	sound/soc/codecs/es9218p.c
 
 ESWIN DEVICETREES
 M:	Min Lin <linmin@eswincomputing.com>
@@ -17204,6 +17224,7 @@ R:	Liam R. Howlett <liam@infradead.org>
 R:	Vlastimil Babka <vbabka@kernel.org>
 R:	Harry Yoo <harry@kernel.org>
 R:	Jann Horn <jannh@google.com>
+R:	Lance Yang <lance.yang@linux.dev>
 L:	linux-mm@kvack.org
 S:	Maintained
 F:	include/linux/rmap.h
@@ -20405,7 +20426,7 @@ F:	kernel/padata.c
 
 PAGE CACHE
 M:	Matthew Wilcox (Oracle) <willy@infradead.org>
-R:	Jan Kara <jack@suse.cz>
+M:	Jan Kara <jack@suse.cz>
 L:	linux-fsdevel@vger.kernel.org
 L:	linux-mm@kvack.org
 S:	Supported
@@ -25237,6 +25258,13 @@ S:	Maintained
 T:	git git://linuxtv.org/media.git
 F:	Documentation/devicetree/bindings/media/i2c/sony,imx335.yaml
 F:	drivers/media/i2c/imx335.c
+
+SONY IMX351 SENSOR DRIVER
+M:	Lance <Gero3977@gmail.com>
+L:	linux-media@vger.kernel.org
+S:	Maintained
+F:	Documentation/devicetree/bindings/media/i2c/sony,imx351.yaml
+F:	drivers/media/i2c/imx351.c
 
 SONY IMX355 SENSOR DRIVER
 M:	Tianshu Qiu <tian.shu.qiu@intel.com>

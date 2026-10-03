@@ -53,12 +53,13 @@ static struct dpu_kms *_dpu_crtc_get_kms(struct drm_crtc *crtc)
 
 static struct drm_encoder *get_encoder_from_crtc(struct drm_crtc *crtc)
 {
-	struct drm_device *dev = crtc->dev;
 	struct drm_encoder *encoder;
 
-	drm_for_each_encoder(encoder, dev)
-		if (encoder->crtc == crtc)
-			return encoder;
+	if (!crtc->state)
+		return NULL;
+
+	drm_for_each_encoder_mask(encoder, crtc->dev, crtc->state->encoder_mask)
+		return encoder;
 
 	return NULL;
 }
@@ -189,7 +190,7 @@ static u32 dpu_crtc_get_vblank_counter(struct drm_crtc *crtc)
 {
 	struct drm_encoder *encoder = get_encoder_from_crtc(crtc);
 	if (!encoder) {
-		DRM_ERROR("no encoder found for crtc %d\n", crtc->index);
+		DRM_DEBUG_KMS("no encoder found for crtc %d\n", crtc->index);
 		return 0;
 	}
 
@@ -279,7 +280,7 @@ static bool dpu_crtc_get_scanout_position(struct drm_crtc *crtc,
 
 	encoder = get_encoder_from_crtc(crtc);
 	if (!encoder) {
-		DRM_ERROR("no encoder found for crtc %d\n", pipe);
+		DRM_DEBUG_KMS("no encoder found for crtc %d\n", pipe);
 		return false;
 	}
 
@@ -722,6 +723,17 @@ void dpu_crtc_frame_event_cb(struct drm_crtc *crtc, u32 event)
 	/* Nothing to do on idle event */
 	if (event & DPU_ENCODER_FRAME_EVENT_IDLE)
 		return;
+
+	/*
+	 * Frame latched into the panel transfer (cmd mode): send the pending
+	 * pageflip now so userspace can pipeline the next frame into the
+	 * ongoing transfer. complete_commit()'s later call is a no-op once
+	 * the event has been sent.
+	 */
+	if (event & DPU_ENCODER_FRAME_EVENT_STARTED) {
+		_dpu_crtc_complete_flip(crtc);
+		return;
+	}
 
 	dpu_crtc = to_dpu_crtc(crtc);
 	priv = crtc->dev->dev_private;

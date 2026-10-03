@@ -19,6 +19,7 @@ properties:
     oneOf:
       - enum:
           - qcom,glymur-dp
+          - qcom,msm8998-dp
           - qcom,sa8775p-dp
           - qcom,sc7180-dp
           - qcom,sc7280-dp
@@ -224,6 +225,23 @@ allOf:
           aux-bus: false
         required:
           - "#sound-dai-cells"
+
+  - if:
+      properties:
+        compatible:
+          contains:
+            const: qcom,msm8998-dp
+    then:
+      properties:
+        reg:
+          minItems: 4
+          maxItems: 4
+        clocks:
+          minItems: 5
+          maxItems: 5
+        clock-names:
+          minItems: 5
+          maxItems: 5
 
   - if:
       properties:
