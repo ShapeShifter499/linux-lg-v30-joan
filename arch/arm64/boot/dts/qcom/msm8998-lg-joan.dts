@@ -1875,6 +1875,16 @@
 	status = "okay";
 };
 
+/*
+ * Sensor DSP (SLPI/SSC). LG boots the same image as "slpi" through PIL with
+ * pas-id 12; the signed v2-silicon image ships as qcom/msm8998/joan/slpi_v2.mdt
+ * (firmware-lg-joan) and spans exactly the 15 MiB of slpi_mem.
+ */
+&remoteproc_slpi {
+	firmware-name = "qcom/msm8998/joan/slpi_v2.mdt";
+	status = "okay";
+};
+
 &remoteproc_mss {
 	firmware-name = "qcom/msm8998/joan/mba.mbn",
 			"qcom/msm8998/joan/modem.mdt";
