@@ -474,6 +474,15 @@ static int q6afe_dai_prepare(struct snd_pcm_substream *substream,
 		q6afe_slim_port_prepare(dai_data->port[dai->id],
 					&dai_data->port_config[dai->id].slim);
 		break;
+	case SLIMBUS_7_RX ... SLIMBUS_8_TX:
+		/*
+		 * The WCN399x BT/FM slave needs no CDC slave
+		 * configuration; that is the WCD interface-device
+		 * programming for the first slimbus engine.
+		 */
+		q6afe_slim_port_prepare(dai_data->port[dai->id],
+					&dai_data->port_config[dai->id].slim);
+		break;
 	case SENARY_MI2S_RX ... SENARY_MI2S_TX:
 	case QUINARY_MI2S_RX ... QUINARY_MI2S_TX:
 	case PRIMARY_MI2S_RX ... QUATERNARY_MI2S_TX:
@@ -600,6 +609,9 @@ static const struct snd_soc_dapm_route q6afe_dapm_routes[] = {
 	{"SLIMBUS_4_TX", NULL, "Slimbus4 Capture"},
 	{"SLIMBUS_5_TX", NULL, "Slimbus5 Capture"},
 	{"SLIMBUS_6_TX", NULL, "Slimbus6 Capture"},
+	{"Slimbus7 Playback", NULL, "SLIMBUS_7_RX"},
+	{"SLIMBUS_7_TX", NULL, "Slimbus7 Capture"},
+	{"SLIMBUS_8_TX", NULL, "Slimbus8 Capture"},
 
 	{"Primary MI2S Playback", NULL, "PRI_MI2S_RX"},
 	{"Secondary MI2S Playback", NULL, "SEC_MI2S_RX"},
@@ -838,6 +850,9 @@ static const struct snd_soc_dapm_widget q6afe_dai_widgets[] = {
 	SND_SOC_DAPM_AIF_OUT("SLIMBUS_4_TX", NULL, 0, SND_SOC_NOPM, 0, 0),
 	SND_SOC_DAPM_AIF_OUT("SLIMBUS_5_TX", NULL, 0, SND_SOC_NOPM, 0, 0),
 	SND_SOC_DAPM_AIF_OUT("SLIMBUS_6_TX", NULL, 0, SND_SOC_NOPM, 0, 0),
+	SND_SOC_DAPM_AIF_IN("SLIMBUS_7_RX", NULL, 0, SND_SOC_NOPM, 0, 0),
+	SND_SOC_DAPM_AIF_OUT("SLIMBUS_7_TX", NULL, 0, SND_SOC_NOPM, 0, 0),
+	SND_SOC_DAPM_AIF_OUT("SLIMBUS_8_TX", NULL, 0, SND_SOC_NOPM, 0, 0),
 	SND_SOC_DAPM_AIF_IN("SEN_MI2S_RX", NULL, 0, SND_SOC_NOPM, 0, 0),
 	SND_SOC_DAPM_AIF_OUT("SEN_MI2S_TX", NULL, 0, SND_SOC_NOPM, 0, 0),
 	SND_SOC_DAPM_AIF_IN("QUIN_MI2S_RX", NULL,

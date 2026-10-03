@@ -385,6 +385,44 @@ static struct snd_soc_dai_driver q6dsp_audio_fe_dais[] = {
 		},
 	}, {
 		.playback = {
+			.stream_name = "Slimbus7 Playback",
+			.rates = SNDRV_PCM_RATE_8000 | SNDRV_PCM_RATE_16000 |
+				 SNDRV_PCM_RATE_48000,
+			.formats = SNDRV_PCM_FMTBIT_S16_LE,
+			.channels_min = 1,
+			.channels_max = 2,
+			.rate_min = 8000,
+			.rate_max = 48000,
+		},
+		.name = "SLIMBUS_7_RX",
+		.id = SLIMBUS_7_RX,
+	}, {
+		.name = "SLIMBUS_7_TX",
+		.id = SLIMBUS_7_TX,
+		.capture = {
+			.stream_name = "Slimbus7 Capture",
+			.rates = SNDRV_PCM_RATE_8000 | SNDRV_PCM_RATE_16000 |
+				 SNDRV_PCM_RATE_48000,
+			.formats = SNDRV_PCM_FMTBIT_S16_LE,
+			.channels_min = 1,
+			.channels_max = 1,
+			.rate_min = 8000,
+			.rate_max = 48000,
+		},
+	}, {
+		.name = "SLIMBUS_8_TX",
+		.id = SLIMBUS_8_TX,
+		.capture = {
+			.stream_name = "Slimbus8 Capture",
+			.rates = SNDRV_PCM_RATE_48000,
+			.formats = SNDRV_PCM_FMTBIT_S16_LE,
+			.channels_min = 1,
+			.channels_max = 2,
+			.rate_min = 48000,
+			.rate_max = 48000,
+		},
+
+		.playback = {
 			.stream_name = "Primary MI2S Playback",
 			.rates = SNDRV_PCM_RATE_48000 | SNDRV_PCM_RATE_8000 |
 				 SNDRV_PCM_RATE_16000,
@@ -706,6 +744,7 @@ struct snd_soc_dai_driver *q6dsp_audio_ports_set_config(struct device *dev,
 			q6dsp_audio_fe_dais[i].ops = cfg->q6hdmi_ops;
 			break;
 		case SLIMBUS_0_RX ... SLIMBUS_6_TX:
+		case SLIMBUS_7_RX ... SLIMBUS_8_TX:
 			q6dsp_audio_fe_dais[i].ops = cfg->q6slim_ops;
 			break;
 		case SENARY_MI2S_RX ... SENARY_MI2S_TX:

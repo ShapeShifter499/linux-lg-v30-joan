@@ -127,6 +127,12 @@
 #define AFE_PORT_ID_SLIMBUS_MULTI_CHAN_6_RX      0x400c
 /* SLIMbus Tx port on channel 6. */
 #define AFE_PORT_ID_SLIMBUS_MULTI_CHAN_6_TX      0x400d
+/* SLIMbus Rx port on channel 7. */
+#define AFE_PORT_ID_SLIMBUS_MULTI_CHAN_7_RX      0x400e
+/* SLIMbus Tx port on channel 7. */
+#define AFE_PORT_ID_SLIMBUS_MULTI_CHAN_7_TX      0x400f
+/* SLIMbus Tx port on channel 8, the WCN399x BT/FM slave. */
+#define AFE_PORT_ID_SLIMBUS_MULTI_CHAN_8_TX      0x4011
 #define AFE_PORT_ID_PRIMARY_MI2S_RX         0x1000
 #define AFE_PORT_ID_PRIMARY_MI2S_TX         0x1001
 #define AFE_PORT_ID_SECONDARY_MI2S_RX       0x1002
@@ -708,6 +714,12 @@ static struct afe_port_map port_maps[AFE_PORT_MAX] = {
 				SLIMBUS_5_TX, 0, 1},
 	[SLIMBUS_6_TX] = { AFE_PORT_ID_SLIMBUS_MULTI_CHAN_6_TX,
 				SLIMBUS_6_TX, 0, 1},
+	[SLIMBUS_7_RX] = { AFE_PORT_ID_SLIMBUS_MULTI_CHAN_7_RX,
+				SLIMBUS_7_RX, 1, 1},
+	[SLIMBUS_7_TX] = { AFE_PORT_ID_SLIMBUS_MULTI_CHAN_7_TX,
+				SLIMBUS_7_TX, 0, 1},
+	[SLIMBUS_8_TX] = { AFE_PORT_ID_SLIMBUS_MULTI_CHAN_8_TX,
+				SLIMBUS_8_TX, 0, 1},
 	[PRIMARY_MI2S_RX] = { AFE_PORT_ID_PRIMARY_MI2S_RX,
 				PRIMARY_MI2S_RX, 1, 1},
 	[PRIMARY_MI2S_TX] = { AFE_PORT_ID_PRIMARY_MI2S_TX,
@@ -1469,7 +1481,13 @@ void q6afe_slim_port_prepare(struct q6afe_port *port,
 	union afe_port_config *pcfg = &port->port_cfg;
 
 	pcfg->slim_cfg.sb_cfg_minor_version = AFE_API_VERSION_SLIMBUS_CONFIG;
-	pcfg->slim_cfg.slimbus_dev_id = AFE_SLIMBUS_DEVICE_1;
+	/*
+	 * SLIMBUS_7/8 live on the second slimbus engine, where the
+	 * WCN399x Bluetooth/FM slave hangs (downstream msm-dai-q6).
+	 */
+	pcfg->slim_cfg.slimbus_dev_id = (port->token >= SLIMBUS_7_RX) ?
+					AFE_SLIMBUS_DEVICE_2 :
+					AFE_SLIMBUS_DEVICE_1;
 	pcfg->slim_cfg.sample_rate = cfg->sample_rate;
 	pcfg->slim_cfg.bit_width = cfg->bit_width;
 	pcfg->slim_cfg.num_channels = cfg->num_channels;
@@ -1909,6 +1927,9 @@ struct q6afe_port *q6afe_port_get_from_id(struct device *dev, int id)
 	case AFE_PORT_ID_SLIMBUS_MULTI_CHAN_4_RX:
 	case AFE_PORT_ID_SLIMBUS_MULTI_CHAN_5_RX:
 	case AFE_PORT_ID_SLIMBUS_MULTI_CHAN_6_RX:
+	case AFE_PORT_ID_SLIMBUS_MULTI_CHAN_7_RX:
+	case AFE_PORT_ID_SLIMBUS_MULTI_CHAN_7_TX:
+	case AFE_PORT_ID_SLIMBUS_MULTI_CHAN_8_TX:
 		cfg_type = AFE_PARAM_ID_SLIMBUS_CONFIG;
 		break;
 
