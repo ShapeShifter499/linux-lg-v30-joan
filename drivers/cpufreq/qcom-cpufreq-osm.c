@@ -25,6 +25,7 @@
 #include <linux/pm_domain.h>
 #include <linux/pm_opp.h>
 #include <linux/slab.h>
+#include <linux/workqueue.h>
 #include <linux/firmware/qcom/qcom_scm.h>
 #include <soc/qcom/cpr.h>
 
@@ -708,17 +709,29 @@ static int qcom_cpufreq_hw_acd_init(struct device *cpu_dev,
 	const struct qcom_cpufreq_soc_data *sdata = ddata->soc_data;
 	const struct qcom_cpufreq_soc_acd_data *aregs = &sdata->acd_data;
 	char acd_resname[] = "osm-acdX";
+	const char *step;
+	struct resource *res;
 	void __iomem *acd_base;
 	u32 rmask;
 	int ret;
 
 	snprintf(acd_resname, sizeof(acd_resname), "osm-acd%d", index);
 
-	acd_base = devm_platform_ioremap_resource_byname(pdev, acd_resname);
-	if (IS_ERR(acd_base)) {
+	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, acd_resname);
+	if (!res) {
 		dev_vdbg(cpu_dev, "Skipping ACD initialization.\n");
 		return 0;
 	}
+
+	/*
+	 * Mapped only for the duration of the init, and not with a devm
+	 * request: if this fails, the next CPU of the cluster to come up
+	 * retries the whole OSM setup, and a still-claimed region would turn
+	 * that retry into a silent "no ACD" success.
+	 */
+	acd_base = ioremap(res->start, resource_size(res));
+	if (!acd_base)
+		return -ENOMEM;
 
 	writel(aregs->tl_delay_val, acd_base + aregs->tl_delay_reg);
 	writel(aregs->acd_ctrl_val, acd_base + aregs->acd_ctrl_reg);
@@ -730,35 +743,40 @@ static int qcom_cpufreq_hw_acd_init(struct device *cpu_dev,
 		qcom_cpufreq_acd_regbit(aregs->tl_delay_reg) |
 		qcom_cpufreq_acd_regbit(aregs->softstart_reg) |
 		qcom_cpufreq_acd_regbit(aregs->ext_intf_reg);
+	step = "auto-transfer";
 	ret = qcom_cpufreq_hw_acd_write_autoxfer(ddata, acd_base, rmask);
 	if (ret)
-		return ret;
+		goto fail;
 
 	/* Switch CPUSS clock source to ACD clock */
+	step = "GFMUX switch";
 	ret = qcom_cpufreq_hw_acd_write_xfer(ddata, acd_base,
 					     aregs->gfmux_cfg_reg, 1);
 	if (ret)
-		return ret;
+		goto fail;
 
 	/* (Set, then) Clear DCVS_SW */
+	step = "DCVS_SW set";
 	ret = qcom_cpufreq_hw_acd_write_xfer(ddata, acd_base,
 					     aregs->dcvs_sw_reg, 1);
 	if (ret)
-		return ret;
+		goto fail;
+	step = "DCVS_SW clear";
 	ret = qcom_cpufreq_hw_acd_write_xfer(ddata, acd_base,
 					     aregs->dcvs_sw_reg, 0);
 	if (ret)
-		return ret;
+		goto fail;
 
 	/* Wait for clock switch time */
 	udelay(1);
 
 	/* Program the final ACD external interface */
+	step = "final EXTINT";
 	ret = qcom_cpufreq_hw_acd_write_xfer(ddata, acd_base,
 					     aregs->ext_intf_reg,
 					     aregs->ext_intf1_val);
 	if (ret)
-		return ret;
+		goto fail;
 
 	/* Initiate transfer of the final ACD value */
 	rmask |= qcom_cpufreq_acd_regbit(aregs->gfmux_cfg_reg);
@@ -766,7 +784,56 @@ static int qcom_cpufreq_hw_acd_init(struct device *cpu_dev,
 
 	/* Wait for ACD to stabilize. Same wait as the OSM boot time... */
 	udelay(OSM_BOOT_TIME_US);
+	iounmap(acd_base);
 	return 0;
+
+fail:
+	dev_err(cpu_dev, "ACD %s timed out on CPU%d: autoxfer_sts=%#x write_sts=%#x\n",
+		step, raw_smp_processor_id(),
+		readl(acd_base + aregs->auto_xfer_sts_reg),
+		readl(acd_base + aregs->write_sts_reg));
+	iounmap(acd_base);
+	return ret;
+}
+
+struct qcom_cpufreq_acd_work {
+	struct device *cpu_dev;
+	struct cpufreq_policy *policy;
+	int index;
+};
+
+static long qcom_cpufreq_hw_acd_init_fn(void *arg)
+{
+	struct qcom_cpufreq_acd_work *w = arg;
+
+	return qcom_cpufreq_hw_acd_init(w->cpu_dev, w->policy, w->index);
+}
+
+/*
+ * The ACD master registers are copied into a per-cluster local copy, and
+ * downstream notes that this copy is restored "on PC exit": it sits in the
+ * collapsible cluster domain.  LG's kernel ran this from clk_osm_enable()
+ * during early clock setup, before any cluster could power-collapse; here it
+ * runs from cpufreq probe, on whichever CPU the probe happens to be on, while
+ * cpuidle is already live.  If the target cluster is collapsed at that moment
+ * the local transfer never completes and the whole domain loses DVFS.  Run it
+ * on a CPU of the cluster being programmed, which keeps that cluster up.
+ */
+static int qcom_cpufreq_hw_acd_init_on_cluster(struct device *cpu_dev,
+					       struct cpufreq_policy *policy,
+					       int index)
+{
+	struct qcom_cpufreq_acd_work w = {
+		.cpu_dev = cpu_dev,
+		.policy = policy,
+		.index = index,
+	};
+	unsigned int cpu = cpumask_any_and(policy->cpus, cpu_online_mask);
+
+	if (cpu >= nr_cpu_ids)
+		return -ENODEV;
+
+	return work_on_cpu(cpu, qcom_cpufreq_hw_acd_init_fn, &w);
 }
 
 /**
@@ -1303,7 +1370,7 @@ static int qcom_cpufreq_hw_osm_setup(struct device *cpu_dev,
 	writel(val, drv_data->base + setup_regs->reg_pll_override);
 
 	/* Initialize the Adaptive Clock Distribution */
-	ret = qcom_cpufreq_hw_acd_init(cpu_dev, policy, index);
+	ret = qcom_cpufreq_hw_acd_init_on_cluster(cpu_dev, policy, index);
 	if (ret)
 		return ret;
 
