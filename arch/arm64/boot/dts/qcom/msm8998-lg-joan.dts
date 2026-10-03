@@ -2153,3 +2153,31 @@
 	temperature = <85000>;
 	hysteresis = <20000>;
 };
+
+/*
+ * Package-on-package DRAM: stock throttles the gold cluster when pop_mem
+ * reaches 85 C and lets go at 65 C (SS-POPMEM in LG's
+ * thermal-engine-8998.conf, US99830b/H93230d).  pop_mem is downstream tsens
+ * client 21, which its tsens1 client-to-hw map <0 1 3 4 5 6 7 2> puts on
+ * hardware channel 2 -- the sensor mem-thermal already reads.
+ */
+/ {
+	thermal-zones {
+		mem-thermal {
+			trips {
+				mem_alert1: trip-point1 {
+					temperature = <85000>;
+					hysteresis = <20000>;
+					type = "passive";
+				};
+			};
+
+			cooling-maps {
+				map0 {
+					trip = <&mem_alert1>;
+					cooling-device = <&cpu4 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+				};
+			};
+		};
+	};
+};
