@@ -432,6 +432,17 @@
 		drive-strength = <2>;
 		bias-pull-down;
 	};
+
+	/*
+	 * Front camera MCLK2 (downstream cam_sensor_mclk2_active,
+	 * msm8998-joan-common-pinctrl.dtsi: GPIO 15, cam_mclk).
+	 */
+	cam1_mclk_default: cam1-mclk-default-state {
+		pins = "gpio15";
+		function = "cam_mclk";
+		drive-strength = <2>;
+		bias-disable;
+	};
 };
 
 &ufshc {
@@ -478,6 +489,70 @@
 	vdd-1.8-xo-supply = <&vreg_l7a_1p8>;
 	vdd-1.3-rfa-supply = <&vreg_l17a_1p3>;
 	vdd-3.3-ch0-supply = <&vreg_l25a_3p3>;
+};
+
+/*
+ * Front (VT) camera: a fixed-focus Hynix HI553 with a BRCF016GWZ EEPROM
+ * beside it.  Downstream (msm8998-joan-camera_rev_0.dtsi) hangs both on
+ * the bus LG calls i2c_8, which is BLSP2 I2C2 (GPIOs 6/7), with the
+ * sensor at 0x28; the pixel data leaves on CSIPHY2 and the sensor is
+ * clocked from MCLK2 (GPIO 15).  VT_RESET is GPIO 9; the module rails
+ * are cam_vio = PM8998 L14 (1.88 V I/O) and cam_vana = PM8998 L22, and
+ * VT_VDIG is a module LDO switched by PM8998 GPIO 9 whose voltage
+ * downstream never sets, so the sensor-nominal 1.05 V is modelled here,
+ * like the CAM0_VDIG rail.
+ *
+ * LG counts the mount angle clockwise (qcom,mount-angle = <270>); the DT
+ * rotation counts the other way.
+ *
+ * The CSIPHY2 data link is deliberately not wired here: the MSM8998
+ * CAMSS (SoC node, driver and board enablement) is a separate
+ * workstream.  When its &camss lands, add to the sensor node:
+ *
+ *	port {
+ *		hi553_ep: endpoint {
+ *			data-lanes = <1 2>;
+ *			link-frequencies = /bits/ 64 <440000000>;
+ *			remote-endpoint = <&csiphy2_ep>;
+ *		};
+ *	};
+ *
+ * plus the matching &camss port@2 endpoint.  Without it the sensor probe
+ * ends with "no endpoint" and the driver stays unbound.
+ */
+&blsp2_i2c2 {
+	status = "okay";
+
+	camera@28 {
+		compatible = "hynix,hi553";
+		reg = <0x28>;
+
+		clocks = <&mmcc CAMSS_MCLK2_CLK>;
+		assigned-clocks = <&mmcc CAMSS_MCLK2_CLK>;
+		assigned-clock-rates = <24000000>;
+
+		reset-gpios = <&tlmm 9 GPIO_ACTIVE_LOW>;
+		pinctrl-0 = <&cam1_mclk_default>;
+		pinctrl-names = "default";
+
+		dovdd-supply = <&vreg_l14a_1p88>;
+		avdd-supply = <&vreg_l22a_2p85>;
+		dvdd-supply = <&cam1_dvdd_1p05>;
+
+		orientation = <0>;
+		rotation = <90>;
+	};
+};
+
+/ {
+	cam1_dvdd_1p05: regulator-cam1-dvdd {
+		compatible = "regulator-fixed";
+		regulator-name = "cam1_dvdd_1p05";
+		regulator-min-microvolt = <1050000>;
+		regulator-max-microvolt = <1050000>;
+		gpio = <&pm8998_gpios 9 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+	};
 };
 
 /*
