@@ -1279,10 +1279,18 @@
 	 * SAR sensor. The SX9320 has the SX9324's register map; the properties
 	 * below reproduce the corresponding registers of LG's reg-init for it
 	 * (msm8998-joan-sensor.dtsi).
+	 *
+	 * Disabled: no production joan described here has the part.  LG's
+	 * msm8998-joan-sensor.dtsi is not included by any build target, and
+	 * none of the twenty DTBs in LG's final US998 and H932 boot.imgs
+	 * (US99830b_00_0902, H93230d_00_0902) carries a SAR node.  On the
+	 * US998 the address NACKs ("Unable to initialize sensor", -ENXIO).
+	 * Kept for a variant that turns out to populate it.
 	 */
 	proximity@28 {
 		compatible = "semtech,sx9320", "semtech,sx9324";
 		reg = <0x28>;
+		status = "disabled";
 
 		interrupt-parent = <&tlmm>;
 		interrupts = <62 IRQ_TYPE_LEVEL_LOW>;
