@@ -385,9 +385,35 @@ static int tfa989x_trigger(struct snd_pcm_substream *substream, int cmd,
 	return 0;
 }
 
+static int tfa989x_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
+{
+	/*
+	 * The TFA98xx I2S port only works as a clock consumer and cannot be
+	 * reconfigured at runtime: format and edge are fixed by the register
+	 * init sequence.  Validate the machine's request against the one
+	 * configuration this hardware implements instead of leaving the op
+	 * unset, which makes snd_soc_dai_set_fmt() return -ENOTSUPP on
+	 * every stream start.
+	 */
+	switch (fmt & SND_SOC_DAIFMT_CLOCK_PROVIDER_MASK) {
+	case SND_SOC_DAIFMT_BC_FC:
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	if ((fmt & SND_SOC_DAIFMT_INV_MASK) != SND_SOC_DAIFMT_NB_NF)
+		return -EINVAL;
+	if ((fmt & SND_SOC_DAIFMT_FORMAT_MASK) != SND_SOC_DAIFMT_I2S)
+		return -EINVAL;
+
+	return 0;
+}
+
 static const struct snd_soc_dai_ops tfa989x_dai_ops = {
 	.hw_params = tfa989x_hw_params,
 	.trigger = tfa989x_trigger,
+	.set_fmt = tfa989x_set_fmt,
 };
 
 static struct snd_soc_dai_driver tfa989x_dai = {
