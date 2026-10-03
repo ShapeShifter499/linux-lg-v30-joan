@@ -1830,6 +1830,22 @@
 				sound-dai = <&wcd9340 1>;
 			};
 		};
+
+		fm-capture-dai-link {
+			link-name = "FM Capture";
+
+			cpu {
+				sound-dai = <&q6afedai SLIMBUS_8_TX>;
+			};
+
+			platform {
+				sound-dai = <&q6routing>;
+			};
+
+			codec {
+				sound-dai = <&wcn3990_btfm 0>;
+			};
+		};
 	};
 };
 
@@ -1848,6 +1864,40 @@
 	};
 };
 
+/*
+ * WCN3990 (Bluetooth/FM).  Downstream declares it under the second NGD
+ * engine (slim@17240000, cell-index 3) with the FM/BT slave on
+ * elemental address [00 01 20 02 17 02] -- manufacturer 0x217, product
+ * 0x220 -- which is the mainline form "slim217,220", and the interface
+ * device on [00 00 20 02 17 02] (device index 0).  The chip is powered
+ * by the Bluetooth stack, not by a DT regulator, like downstream.
+ */
+&slimbam2 {
+	status = "okay";
+};
+
+&slim2 {
+	status = "okay";
+
+	slim@3 {
+		reg = <3>;
+		#address-cells = <2>;
+		#size-cells = <0>;
+
+		wcn3990_ifd: ifd@0,0 {
+			compatible = "slim217,220";
+			reg = <0 0>;
+		};
+
+		wcn3990_btfm: codec@1,0 {
+			compatible = "slim217,220";
+			reg = <1 0>;
+			slim-ifc-dev = <&wcn3990_ifd>;
+			#sound-dai-cells = <1>;
+		};
+	};
+};
+
 /* Match the downstream WCD934x CDC SLIMbus slave configuration. */
 &q6afe {
 	qcom,cdc-slimbus-slave-config = <0x02500100 0x00000217 0 16>;
@@ -1860,6 +1910,10 @@
 
 	dai@3 {
 		reg = <SLIMBUS_0_TX>;
+	};
+
+	dai@152 {
+		reg = <SLIMBUS_8_TX>;
 	};
 
 	dai@20 {
