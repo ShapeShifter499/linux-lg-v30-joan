@@ -22,6 +22,21 @@
 #include "pm8998.dtsi"
 #include "pmi8998.dtsi"
 
+/*
+ * Firmware carve-outs that sit somewhere else on joan than in the generic
+ * msm8998.dtsi map; they are re-created at their joan addresses in
+ * /reserved-memory below.
+ */
+/delete-node/ &adsp_mem;
+/delete-node/ &gpu_mem;
+/delete-node/ &ipa_fw_mem;
+/delete-node/ &ipa_gsi_mem;
+/delete-node/ &mba_mem;
+/delete-node/ &mpss_mem;
+/delete-node/ &slpi_mem;
+/delete-node/ &venus_mem;
+/delete-node/ &wlan_msa_mem;
+
 / {
 	model = "LG V30 (US998)";
 	compatible = "lg,joan", "qcom,msm8998";
@@ -52,6 +67,86 @@
 	 */
 
 	reserved-memory {
+		/*
+		 * joan's memory map, transcribed from LG's last stock builds:
+		 * US99830b_00_0902 (US998) and H93230d_00_0902 (H932).  All
+		 * twenty DTBs those two boot.imgs carry (ten board revisions
+		 * each) declare the identical reserved-memory, so one map
+		 * serves every joan variant.  Regions that keep their generic
+		 * msm8998.dtsi address (hyp, xbl, smem, tz, rmtfs) are not
+		 * repeated here.
+		 *
+		 * LG declares 0x85800000-0x88f00000 as one removed region;
+		 * the SoC dtsi covers it except for this 1 MiB.
+		 */
+		memory@85f00000 {
+			reg = <0x0 0x85f00000 0x0 0x100000>;
+			no-map;
+		};
+
+		/*
+		 * The modem image and the MBA are signed for these physical
+		 * addresses, and the MBA authenticates the modem in place, so
+		 * this chain cannot move.  ADSP is 30 MiB on joan
+		 * (msm8998-joan-common-pm.dtsi), which shifts everything
+		 * after it relative to the generic layout.
+		 */
+		mpss_mem: memory@8b400000 {
+			reg = <0x0 0x8b400000 0x0 0x7700000>;
+			no-map;
+		};
+
+		adsp_mem: memory@92b00000 {
+			reg = <0x0 0x92b00000 0x0 0x1e00000>;
+			no-map;
+		};
+
+		venus_mem: memory@94900000 {
+			reg = <0x0 0x94900000 0x0 0x500000>;
+			no-map;
+		};
+
+		mba_mem: memory@94e00000 {
+			reg = <0x0 0x94e00000 0x0 0x200000>;
+			no-map;
+		};
+
+		/* slpi_v2.mdt spans exactly 0xf00000 */
+		slpi_mem: memory@95000000 {
+			reg = <0x0 0x95000000 0x0 0xf00000>;
+			no-map;
+		};
+
+		/*
+		 * LG reserves 0x95f00000-0x96000000 as pil_ipa_gpu and loads
+		 * the IPA firmware and the GPU zap shader there; the three
+		 * mainline consumers tile that block.
+		 */
+		ipa_fw_mem: memory@95f00000 {
+			reg = <0x0 0x95f00000 0x0 0x10000>;
+			no-map;
+		};
+
+		ipa_gsi_mem: memory@95f10000 {
+			reg = <0x0 0x95f10000 0x0 0x10000>;
+			no-map;
+		};
+
+		gpu_mem: memory@95f20000 {
+			reg = <0x0 0x95f20000 0x0 0xe0000>;
+			no-map;
+		};
+
+		/*
+		 * Downstream icnss allocates the 1 MiB WLAN MSA region at run
+		 * time; mainline needs it fixed.  Take the first RAM LG leaves
+		 * unreserved after the firmware carve-outs.
+		 */
+		wlan_msa_mem: memory@96000000 {
+			reg = <0x0 0x96000000 0x0 0x100000>;
+			no-map;
+		};
+
 		/* Bootloader display framebuffer region, same as downstream */
 		cont_splash_mem: memory@9d400000 {
 			reg = <0x0 0x9d400000 0x0 0x2400000>;
@@ -76,47 +171,13 @@
 		};
 
 		/* rest of downstream's 1 MiB ramoops carve-out */
-		reserved@b0080000 {
+		memory@b0080000 {
 			reg = <0x0 0xb0080000 0x0 0x80000>;
 			no-map;
 		};
 
-		/*
-		 * LG's firmware memory map (downstream msm8998.dtsi +
-		 * joan dtsi) protects more RAM than mainline msm8998.dtsi
-		 * reserves. These nodes plug exactly the holes where the
-		 * mainline allocator could hand out firmware-owned pages
-		 * (instant silent XPU reset). Deltas: tail of LG's
-		 * removed_regions, tail of pil_slpi (LG SLPI ends at
-		 * 0x95c00000, not 0x95200000) split around mainline's
-		 * gpu_mem/wlan_msa nodes, pil_ipa_gpu, and LG's crash_fb.
-		 * Note mainline gpu_mem/wlan_msa (0x95600000/0x95700000)
-		 * lie inside LG's SLPI range and must move before zap
-		 * shader / wifi bringup.
-		 */
-		reserved@85f00000 {
-			reg = <0x0 0x85f00000 0x0 0x100000>;
-			no-map;
-		};
-
-		reserved@95215000 {
-			/*
-			 * Extended to 0x95700000 so it also covers mainline's
-			 * default gpu_mem spot (0x95600000), which lies inside
-			 * LG's SLPI range; gpu_mem moves to LG's pil_ipa_gpu
-			 * address below.
-			 */
-			reg = <0x0 0x95215000 0x0 0x4eb000>;
-			no-map;
-		};
-
-		reserved@95800000 {
-			/* Ends at 0x95c00000: LG's pil_ipa_gpu starts there. */
-			reg = <0x0 0x95800000 0x0 0x400000>;
-			no-map;
-		};
-
-		crash_fb_mem: reserved@b0100000 {
+		/* LG's crash handler framebuffer (crash_fb_mem) */
+		crash_fb_mem: memory@b0100000 {
 			reg = <0x0 0xb0100000 0x0 0x1800000>;
 			no-map;
 		};
@@ -1307,16 +1368,16 @@
 	};
 };
 
+&spss_mem {
+	/* LG: spss_region 0x8ab00000 + 6 MiB (generic msm8998.dtsi: 7 MiB) */
+	reg = <0x0 0x8ab00000 0x0 0x600000>;
+};
+
 /*
  * GPU (Adreno 540).
  *
- * gpu_mem moves to 0x95c00000, matching LG's pil_ipa_gpu region. This is
- * required because mainline's default 0x95600000 lies inside LG's SLPI
- * carve-out (0x94d00000-0x95c00000): letting the allocator hand out
- * firmware-owned pages there causes an immediate silent XPU reset. The
- * a540 zap blob itself is RELOCATABLE (QCOM_MDT_RELOCATABLE), so it does
- * not require any particular address -- an earlier comment claiming it was
- * address-locked was wrong; the move is about LG's memory map, not the blob.
+ * The a540 zap blob is relocatable (QCOM_MDT_RELOCATABLE) and loads into
+ * gpu_mem, which sits in LG's pil_ipa_gpu block (see /reserved-memory).
  *
  * A540 reuses the redistributable A530 PM4/PFP command firmware supplied by
  * linux-firmware. The A540 GPMU and signed LG ZAP payload remain
@@ -1324,10 +1385,6 @@
  * available under qcom/ in the firmware search path (the initramfs for the
  * early-probe images used here).
  */
-&gpu_mem {
-	reg = <0x0 0x95c00000 0x0 0x100000>;
-};
-
 &adreno_gpu {
 	status = "okay";
 
@@ -1426,83 +1483,9 @@
 	};
 };
 
-/*
- * Modem (MSS) bring-up.
- *
- * LG's firmware is signed for its own physical addresses and the MBA
- * authenticates the modem image in place, so the regions the modem
- * chain touches are transcribed from the vendor kernel's
- * reserved-memory node rather than chosen. The generic msm8998.dtsi
- * layout is a different packing of the same DDR and does not match:
- *
- *   region      mainline generic        LG stock
- *   mpss_mem    0x8cc00000 + 0x7000000  0x8b400000 + 0x7700000
- *   adsp_mem    0x8b200000 + 0x1a00000  0x92b00000 + 0x1b00000
- *   mba_mem     0x94100000 + 0x200000   0x94b00000 + 0x200000
- *   venus_mem   0x93c00000 + 0x500000   0x94600000 + 0x500000
- *
- * Note the generic adsp_mem at 0x8b200000 lies inside the range LG
- * gives the modem (0x8b400000-0x92afffff), so the layout cannot be
- * changed one region at a time -- it moves as a chain.
- *
- * slpi_mem is the exception. LG gives SLPI 0x94d00000 + 0xf00000, but
- * that range covers ipa_fw_mem, ipa_gsi_mem and wlan_msa_mem, which sit
- * at their mainline addresses and are working: WiFi is up on those and
- * the GPU zap shader already uses LG's 0x95c00000 for gpu_mem. SLPI
- * itself is not enabled here, so it is given only the 5 MB it needs to
- * clear adsp_mem rather than LG's full extent. Revisit if SLPI is ever
- * brought up -- and note IPA will need its own look, since LG lumps IPA
- * and GPU firmware into one 1 MB pil_ipa_gpu_mem at 0x95c00000.
- */
-&mpss_mem {
-	reg = <0x0 0x8b400000 0x0 0x7700000>;
-};
 
-&adsp_mem {
-	/*
-	 * 30 MB, matching joan's own downstream override
-	 * (msm8998-joan-common-pm.dtsi), not the generic msm8998 27 MB that
-	 * was here before.
-	 *
-	 * joan's adsp.mdt needs exactly 0x1e00000 of relocatable PT_LOAD span
-	 * (0x91900000..0x93700000; the 0x93700000 QCOM_MDT_TYPE_HASH phdr is
-	 * excluded). mainline mdt_loader.c and downstream pil_setup_region()
-	 * compute the same figure, and mdt_loader rejects on
-	 * `offset + p_memsz > mem_size` regardless of relocation -- so at 27 MB
-	 * the ADSP dies with "segment outside memory range" / rproc start -22.
-	 *
-	 * LG moves the chain with it. adsp/video/mba below are LG's values
-	 * verbatim. slpi deliberately is NOT: LG gives it 0xf00000 running to
-	 * 0x95f00000, which would swallow mainline's ipa_fw_mem, ipa_gsi_mem
-	 * and wlan_msa_mem. Following the existing design note above, SLPI is
-	 * not enabled here, so it keeps only enough to clear adsp and stops at
-	 * 0x95200000 where ipa_fw_mem begins. Everything from 0x95200000 up --
-	 * ipa, wlan_msa, gpu_mem and the reserved@ plug nodes -- is therefore
-	 * untouched and keeps working.
-	 *
-	 * The ADSP boots from this layout and carries audio and voice.
-	 */
-	reg = <0x0 0x92b00000 0x0 0x1e00000>;
-};
 
-&venus_mem {
-	/* LG joan pil_video_mem */
-	reg = <0x0 0x94900000 0x0 0x500000>;
-};
 
-&mba_mem {
-	/* LG joan pil_mba_mem */
-	reg = <0x0 0x94e00000 0x0 0x200000>;
-};
-
-&slpi_mem {
-	/*
-	 * 2 MB, stopping at ipa_fw_mem. LG's own value is 0xf00000 to
-	 * 0x95f00000, but that range holds mainline's ipa/wlan_msa/gpu
-	 * nodes, which work and must not move. SLPI is not enabled.
-	 */
-	reg = <0x0 0x95000000 0x0 0x200000>;
-};
 
 /*
  * SLIMbus to the WCD9340. The NGD is managed by the ADSP, so the bus comes up
