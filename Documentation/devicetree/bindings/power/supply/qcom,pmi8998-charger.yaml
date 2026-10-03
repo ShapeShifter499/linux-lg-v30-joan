@@ -53,6 +53,19 @@ properties:
       CHGR FCC register at probe.
     $ref: /schemas/types.yaml#/definitions/uint32
 
+  qcom,fcc-thermal-limits-ua:
+    description: |
+      Fast-charge current limits in microamps, highest first, for the
+      charger's thermal cooling device.  Cooling state 0 is
+      qcom,fcc-max-ua; state N applies the Nth limit.  Requires
+      qcom,fcc-max-ua.
+    $ref: /schemas/types.yaml#/definitions/uint32-array
+    minItems: 1
+    maxItems: 8
+
+  "#cooling-cells":
+    const: 2
+
 required:
   - compatible
   - reg

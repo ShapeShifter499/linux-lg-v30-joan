@@ -20,6 +20,7 @@
 #include <linux/of.h>
 #include <linux/power_supply.h>
 #include <linux/regmap.h>
+#include <linux/thermal.h>
 #include <linux/types.h>
 #include <linux/workqueue.h>
 
@@ -396,6 +397,9 @@ struct smb_chip {
 	struct power_supply_battery_info *batt_info;
 	u32 usb_icl_ua;
 	u32 fcc_max_ua;
+	u32 *fcc_limits_ua;
+	unsigned int num_fcc_limits;
+	unsigned long fcc_state;
 
 	struct delayed_work status_change_work;
 	int cable_irq;
@@ -964,6 +968,91 @@ static int smb_init_irq(struct smb_chip *chip, int *irq, const char *name,
 	return 0;
 }
 
+/*
+ * Thermal mitigation of the battery charge current.  Cooling state 0 is the
+ * full fast-charge current (qcom,fcc-max-ua); state N applies the Nth entry
+ * of qcom,fcc-thermal-limits-ua.  This is the knob vendor thermal daemons
+ * turn as "battery charging mitigation".
+ */
+static int smb_fcc_cdev_get_max_state(struct thermal_cooling_device *cdev,
+				      unsigned long *state)
+{
+	struct smb_chip *chip = cdev->devdata;
+
+	*state = chip->num_fcc_limits;
+	return 0;
+}
+
+static int smb_fcc_cdev_get_cur_state(struct thermal_cooling_device *cdev,
+				      unsigned long *state)
+{
+	struct smb_chip *chip = cdev->devdata;
+
+	*state = chip->fcc_state;
+	return 0;
+}
+
+static int smb_fcc_cdev_set_cur_state(struct thermal_cooling_device *cdev,
+				      unsigned long state)
+{
+	struct smb_chip *chip = cdev->devdata;
+	u32 fcc_ua = chip->fcc_max_ua;
+	int rc;
+
+	if (state > chip->num_fcc_limits)
+		return -EINVAL;
+
+	if (state)
+		fcc_ua = min(fcc_ua, chip->fcc_limits_ua[state - 1]);
+
+	rc = regmap_write(chip->regmap, chip->base + CHGR_FCC_CFG,
+			  fcc_ua / CHGR_FCC_STEP_UA);
+	if (rc < 0)
+		return rc;
+
+	chip->fcc_state = state;
+	return 0;
+}
+
+static const struct thermal_cooling_device_ops smb_fcc_cdev_ops = {
+	.get_max_state = smb_fcc_cdev_get_max_state,
+	.get_cur_state = smb_fcc_cdev_get_cur_state,
+	.set_cur_state = smb_fcc_cdev_set_cur_state,
+};
+
+static int smb_register_fcc_cooling(struct smb_chip *chip)
+{
+	struct thermal_cooling_device *cdev;
+	int n;
+
+	n = device_property_count_u32(chip->dev, "qcom,fcc-thermal-limits-ua");
+	if (n <= 0)
+		return 0;
+
+	if (!chip->fcc_max_ua)
+		return dev_err_probe(chip->dev, -EINVAL,
+				     "qcom,fcc-thermal-limits-ua needs qcom,fcc-max-ua\n");
+
+	chip->fcc_limits_ua = devm_kcalloc(chip->dev, n,
+					   sizeof(*chip->fcc_limits_ua),
+					   GFP_KERNEL);
+	if (!chip->fcc_limits_ua)
+		return -ENOMEM;
+
+	device_property_read_u32_array(chip->dev, "qcom,fcc-thermal-limits-ua",
+				       chip->fcc_limits_ua, n);
+	chip->num_fcc_limits = n;
+
+	cdev = devm_thermal_of_cooling_device_register(chip->dev, 0,
+						       "pmi8998-charger-fcc",
+						       chip, &smb_fcc_cdev_ops);
+	if (IS_ERR(cdev))
+		return dev_err_probe(chip->dev, PTR_ERR(cdev),
+				     "Couldn't register FCC cooling device\n");
+
+	return 0;
+}
+
 static int smb_probe(struct platform_device *pdev)
 {
 	struct power_supply_config supply_config = {};
@@ -1055,6 +1144,10 @@ static int smb_probe(struct platform_device *pdev)
 			return dev_err_probe(chip->dev, rc,
 					     "Couldn't set fast charge current\n");
 	}
+
+	rc = smb_register_fcc_cooling(chip);
+	if (rc)
+		return rc;
 
 	rc = smb_init_irq(chip, &irq, "bat-ov", smb_handle_batt_overvoltage);
 	if (rc < 0)

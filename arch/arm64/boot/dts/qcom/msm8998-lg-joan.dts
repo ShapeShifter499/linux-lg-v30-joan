@@ -550,6 +550,9 @@
 &pmi8998_charger {
 	qcom,usb-icl-ua = <1800000>;
 	qcom,fcc-max-ua = <3300000>;
+	/* LG CHG_MONITOR steps, see the skin-thermal charge trips */
+	qcom,fcc-thermal-limits-ua = <2600000 1500000 800000 600000>;
+	#cooling-cells = <2>;
 	monitored-battery = <&battery>;
 	status = "okay";
 };
@@ -2173,6 +2176,69 @@
 &gpu2_alert1 {
 	temperature = <85000>;
 	hysteresis = <20000>;
+};
+
+/*
+ * Charging: stock caps the battery charge current by device-skin temperature
+ * (CHG_MONITOR in LG's thermal-engine-8998.conf): 2.6 A from 10 C, 1.5 A
+ * from 40 C, 0.8 A from 42 C, 0.6 A from 45 C, each clearing 1 C lower.
+ * LG's sensor there, "skin_pmic", is resolved by its thermal-engine to the
+ * vts virtual sensor (thermal_zone34) -- the one skin-thermal models -- plus
+ * a thermistor offset while a charger is attached, which is not carried
+ * over.
+ */
+/ {
+	thermal-zones {
+		skin-thermal {
+			trips {
+				skin_chg_2600: trip-point9 {
+					temperature = <10000>;
+					hysteresis = <1000>;
+					type = "passive";
+				};
+
+				skin_chg_1500: trip-point10 {
+					temperature = <40000>;
+					hysteresis = <1000>;
+					type = "passive";
+				};
+
+				skin_chg_800: trip-point11 {
+					temperature = <42000>;
+					hysteresis = <1000>;
+					type = "passive";
+				};
+
+				skin_chg_600: trip-point12 {
+					temperature = <45000>;
+					hysteresis = <1000>;
+					type = "passive";
+				};
+			};
+
+			cooling-maps {
+				map9 {
+					trip = <&skin_chg_2600>;
+					cooling-device = <&pmi8998_charger 1 1>;
+				};
+
+				map10 {
+					trip = <&skin_chg_1500>;
+					cooling-device = <&pmi8998_charger 2 2>;
+				};
+
+				map11 {
+					trip = <&skin_chg_800>;
+					cooling-device = <&pmi8998_charger 3 3>;
+				};
+
+				map12 {
+					trip = <&skin_chg_600>;
+					cooling-device = <&pmi8998_charger 4 4>;
+				};
+			};
+		};
+	};
 };
 
 /*
