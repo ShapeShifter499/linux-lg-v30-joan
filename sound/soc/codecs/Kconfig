@@ -2429,6 +2429,17 @@ config SND_SOC_WCD_CLASSH
 config SND_SOC_WCD_COMMON
 	tristate
 
+config SND_SOC_BTFM_SLIM
+	tristate "Qualcomm WCN399x Bluetooth/FM SLIMbus audio"
+	depends on SLIMBUS
+	help
+	  Enable the SLIMbus audio path of the Qualcomm WCN399x Bluetooth
+	  combination chip, as found on the LG V30 (joan).  The FM receiver
+	  digitises the analogue baseband at 48 kHz and streams it over the
+	  second msm8998 SLIMbus engine to the ADSP (SLIMBUS_8_TX backend);
+	  the same slave also carries SCO/A2DP audio ports.  Ported from the
+	  Qualcomm/LG downstream btfm_slim drivers.
+
 config SND_SOC_WCD9335
 	tristate "WCD9335 Codec"
 	depends on SLIMBUS
