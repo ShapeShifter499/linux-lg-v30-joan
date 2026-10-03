@@ -4697,6 +4697,37 @@
 			status = "disabled";
 		};
 
+		/*
+		 * Second NGD engine.  Downstream (msm8998.dtsi) declares it with
+		 * cell-index 3 and hooks the WCN399x Bluetooth/FM slave to it;
+		 * the QMI instance selection maps NGD id 3 to ADSP engine 1
+		 * (id >> 1), the engine the downstream controller selects.
+		 */
+		slimbam2: dma-controller@17204000 {
+			compatible = "qcom,bam-v1.7.4", "qcom,bam-v1.7.0";
+			qcom,controlled-remotely;
+			reg = <0x17204000 0x26000>;
+			num-channels = <23>;
+			interrupts = <GIC_SPI 292 IRQ_TYPE_LEVEL_HIGH>;
+			#dma-cells = <1>;
+			qcom,ee = <1>;
+			qcom,num-ees = <4>;
+			status = "disabled";
+		};
+
+		slim2: slim-ngd@17240000 {
+			compatible = "qcom,slim-ngd-v2.1.0";
+			reg = <0x17240000 0x2c000>;
+			interrupts = <GIC_SPI 291 IRQ_TYPE_LEVEL_HIGH>;
+
+			dmas = <&slimbam2 3>, <&slimbam2 4>;
+			dma-names = "rx", "tx";
+
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
 		remoteproc_adsp: remoteproc@17300000 {
 			compatible = "qcom,msm8998-adsp-pas";
 			reg = <0x17300000 0x4040>;
