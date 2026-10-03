@@ -271,6 +271,11 @@ static int es9218p_mode_put(struct snd_kcontrol *kcontrol,
 		msleep(100);
 		gpiod_set_value_cansleep(es9218p->reset_gpio,
 					 es9218p_mode_pins[mode][0]);
+		/*
+		 * RESET_N is asserted again from here, so the register
+		 * interface is gone until the part is woken the next time.
+		 */
+		regcache_cache_only(es9218p->regmap, true);
 	} else if (es9218p_mode_pins[mode][0] == 0) {
 		/* Powering the part back up: MODE2 first, then release RESET_N. */
 		gpiod_set_value_cansleep(es9218p->hph_sw_gpio,
@@ -278,6 +283,10 @@ static int es9218p_mode_put(struct snd_kcontrol *kcontrol,
 		gpiod_set_value_cansleep(es9218p->reset_gpio,
 					 es9218p_mode_pins[mode][0]);
 		usleep_range(1000, 2000);
+		/* Out of reset again: the init replay below, and the
+		 * power-up sequence in es9218p_amp_power_up(), must reach
+		 * hardware. */
+		regcache_cache_only(es9218p->regmap, false);
 	} else {
 		gpiod_set_value_cansleep(es9218p->reset_gpio,
 					 es9218p_mode_pins[mode][0]);
@@ -454,6 +463,13 @@ static int es9218p_amp_power_up(struct es9218p_priv *es9218p)
 	gpiod_set_value_cansleep(es9218p->hph_sw_gpio, 0);
 	gpiod_set_value_cansleep(es9218p->reset_gpio, 0);
 	usleep_range(1000, 2000);
+	/*
+	 * Out of reset: serve the register sequence below from hardware
+	 * again.  The cache stays coherent, so anything userspace wrote
+	 * while the part idled in bypass is still in there and is replayed
+	 * by the regcache_sync() at the end.
+	 */
+	regcache_cache_only(rm, false);
 
 	/* Minimum state-machine delay; HPAHiQ toggled as ESS specifies. */
 	ret = regmap_write(rm, ES9218P_HPA_CTRL,
@@ -516,6 +532,12 @@ static int es9218p_amp_power_up(struct es9218p_priv *es9218p)
 		ret = regmap_write(rm, ES9218P_DIGITAL_OVERRIDE,
 				   (r46 & ES9218P_SEL1V) | ES9218P_SHTINB |
 				   ES9218P_SHTOUTB);
+	if (!ret)
+		/*
+		 * Replay mixer values that landed in the cache while the
+		 * part was idled in Low Power Bypass (volume, mute).
+		 */
+		ret = regcache_sync(rm);
 	return ret;
 }
 
@@ -543,6 +565,13 @@ static int es9218p_amp_power_down(struct es9218p_priv *es9218p)
 	gpiod_set_value_cansleep(es9218p->hph_sw_gpio, 1);
 	msleep(100);
 	gpiod_set_value_cansleep(es9218p->reset_gpio, 1);
+	/*
+	 * RESET_N is low from here, so the register interface is dead.
+	 * Cache-only keeps any mixer access that arrives while idle from
+	 * NACKing on I2C; the values wait in the cache for the next
+	 * power-up.
+	 */
+	regcache_cache_only(rm, true);
 
 	return 0;
 }
@@ -682,6 +711,9 @@ static int es9218p_i2c_probe(struct i2c_client *i2c)
 	gpiod_set_value_cansleep(es9218p->hph_sw_gpio, 1);
 	msleep(100);
 	gpiod_set_value_cansleep(es9218p->reset_gpio, 1);
+	/* The part idles in Low Power Bypass (RESET_N asserted) from here
+	 * on; see es9218p_amp_power_down(). */
+	regcache_cache_only(es9218p->regmap, true);
 
 	return devm_snd_soc_register_component(dev, &es9218p_component_driver,
 					       &es9218p_dai, 1);
