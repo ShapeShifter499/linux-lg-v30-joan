@@ -307,7 +307,7 @@
  */
 &venus {
 	status = "okay";
-	firmware-name = "qcom/msm8998/joan/venus.mbn";
+	firmware-name = "qcom/msm8998/joan/venus.mdt";
 };
 
 &pm8005_regulators {
