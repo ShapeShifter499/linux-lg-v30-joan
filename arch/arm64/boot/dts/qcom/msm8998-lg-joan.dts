@@ -24,7 +24,7 @@
 
 / {
 	model = "LG V30 (US998)";
-	compatible = "lge,joan", "qcom,msm8998";
+	compatible = "lg,joan", "qcom,msm8998";
 	chassis-type = "handset";
 
 	/* Required for bootloader to select correct board */
