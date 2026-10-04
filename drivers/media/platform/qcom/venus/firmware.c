@@ -270,11 +270,13 @@ int venus_boot(struct venus_core *core)
 	core->fw.mem_size = mem_size;
 	core->fw.mem_phys = mem_phys;
 
+	dev_info(dev, "VENUSDBG: load ok, use_tz=%d, calling pas_auth/boot_no_tz\n", core->use_tz);
 	if (core->use_tz)
 		ret = qcom_scm_pas_auth_and_reset(VENUS_PAS_ID);
 	else
 		ret = venus_boot_no_tz(core, mem_phys, mem_size);
 
+	dev_info(dev, "VENUSDBG: pas_auth/boot_no_tz returned %d\n", ret);
 	if (ret)
 		return ret;
 
