@@ -53,14 +53,49 @@ static void venus_reset_cpu(struct venus_core *core)
 	}
 }
 
+/*
+ * Bring-up bisect, fifth stage. preset_limit put the msm8998 wedge on the first
+ * VBIF write, base+0x80124, in venus_set_registers(); with the preset table
+ * skipped nothing wedges and the probe instead fails -110 from
+ * venus_boot_core()'s poll. Both symptoms fall out of one thing: the venus CPU
+ * never actually leaving reset.
+ *
+ * On the TZ path that is qcom_scm_set_remote_state()'s job, and this function
+ * swallows -EINVAL from it -- so a TZ that does not implement the call reports
+ * success while venus stays held in reset, VBIF is unreachable, and the
+ * firmware never runs.
+ *
+ * hw_state_debug=1 prints what TZ actually returned. hw_state_fallback=1 then
+ * does what the no-TZ path does -- venus_reset_cpu() -- instead of swallowing
+ * it. Both default off, so this is inert unless asked for.
+ */
+static int hw_state_debug;
+module_param(hw_state_debug, int, 0644);
+MODULE_PARM_DESC(hw_state_debug, "log what qcom_scm_set_remote_state() returns");
+
+static int hw_state_fallback;
+module_param(hw_state_fallback, int, 0644);
+MODULE_PARM_DESC(hw_state_fallback,
+	"on TZ -EINVAL at resume, release the venus CPU directly instead of ignoring it");
+
 int venus_set_hw_state(struct venus_core *core, bool resume)
 {
 	int ret;
 
 	if (core->use_tz) {
 		ret = qcom_scm_set_remote_state(resume, 0);
-		if (resume && ret == -EINVAL)
+		if (hw_state_debug)
+			dev_info(core->dev,
+				 "venus: scm_set_remote_state(resume=%d) = %d\n",
+				 resume, ret);
+		if (resume && ret == -EINVAL) {
+			if (hw_state_fallback) {
+				dev_info(core->dev,
+					 "venus: TZ refused; releasing the CPU directly\n");
+				venus_reset_cpu(core);
+			}
 			ret = 0;
+		}
 		return ret;
 	}
 

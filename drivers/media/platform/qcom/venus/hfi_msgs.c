@@ -19,6 +19,8 @@
 #define VER_STR_SZ		128
 #define SMEM_IMG_OFFSET_VENUS	(14 * 128)
 
+extern int venus_hfi_trace;
+
 static void event_seq_changed(struct venus_core *core, struct venus_inst *inst,
 			      struct hfi_msg_event_notify_pkt *pkt)
 {
@@ -38,6 +40,10 @@ static void event_seq_changed(struct venus_core *core, struct venus_inst *inst,
 	u8 *data_ptr;
 
 	inst->error = HFI_ERR_NONE;
+
+	if (venus_hfi_trace)
+		dev_info(core->dev, "hfi rx: seq-changed data1 %#x data2 %#x\n",
+			 pkt->event_data1, pkt->event_data2);
 
 	switch (pkt->event_data1) {
 	case HFI_EVENT_DATA_SEQUENCE_CHANGED_SUFFICIENT_BUF_RESOURCES:
@@ -811,6 +817,10 @@ u32 hfi_process_msg_packet(struct venus_core *core, struct hfi_pkt_hdr *hdr)
 	struct venus_inst *inst;
 	bool found = false;
 	unsigned int i;
+
+	if (venus_hfi_trace)
+		dev_info(core->dev, "hfi rx: %#x size %u\n",
+			 hdr->pkt_type, hdr->size);
 
 	for (i = 0; i < ARRAY_SIZE(handlers); i++) {
 		handler = &handlers[i];
