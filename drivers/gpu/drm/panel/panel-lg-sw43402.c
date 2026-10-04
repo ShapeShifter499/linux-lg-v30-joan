@@ -260,6 +260,52 @@ static int sw43402_get_modes(struct drm_panel *panel,
 	return drm_connector_helper_get_modes_fixed(connector, &sw43402_mode);
 }
 
+
+/*
+ * Slider -> DBV curve, taken from LG's own joan lge,blmap table
+ * (downstream dsi-panel-sw43402-dsc-qhd-cmd-dv4_0.dtsi, 512 entries).
+ * LG ramps 27..239 over the bottom half of its slider (the top half is
+ * HBM) and its shape compensates the panel: gentle at the bottom, steepest
+ * in the upper middle. Resampled here onto a 256-step slider and rescaled
+ * from the stock [27..239] window to this port's wider [6..255] one, so the
+ * stock ramp feel survives our brighter max and dimmer min.
+ */
+#define SW43402_BLMAP_LEN	256
+static const u8 sw43402_blmap[SW43402_BLMAP_LEN] = {
+  3,	  6,	  7,	  7,	  8,	  9,	 10,	 11,
+ 13,	 14,	 14,	 15,	 15,	 17,	 17,	 19,
+ 21,	 22,	 24,	 24,	 25,	 26,	 27,	 28,
+ 30,	 31,	 32,	 32,	 34,	 35,	 35,	 36,
+ 37,	 38,	 40,	 40,	 41,	 41,	 42,	 42,
+ 44,	 44,	 45,	 45,	 46,	 47,	 47,	 48,
+ 49,	 51,	 52,	 53,	 55,	 56,	 58,	 58,
+ 60,	 60,	 61,	 62,	 64,	 66,	 67,	 69,
+ 70,	 73,	 73,	 74,	 76,	 78,	 81,	 83,
+ 84,	 86,	 87,	 89,	 90,	 91,	 93,	 94,
+ 96,	 98,	 98,	100,	101,	103,	103,	105,
+107,	109,	111,	111,	113,	113,	114,	115,
+117,	121,	121,	122,	122,	123,	124,	125,
+127,	130,	132,	132,	134,	134,	135,	136,
+138,	139,	140,	141,	143,	146,	146,	148,
+149,	151,	153,	156,	159,	161,	166,	167,
+168,	170,	170,	172,	172,	174,	174,	176,
+177,	179,	180,	181,	182,	184,	186,	186,
+188,	188,	189,	189,	192,	194,	196,	198,
+200,	201,	201,	203,	206,	207,	207,	208,
+211,	213,	214,	215,	216,	218,	219,	221,
+222,	223,	225,	227,	228,	230,	230,	233,
+233,	236,	236,	236,	236,	236,	236,	236,
+236,	236,	236,	236,	236,	236,	236,	236,
+236,	237,	237,	237,	237,	237,	237,	238,
+239,	239,	239,	240,	240,	240,	240,	240,
+241,	241,	241,	241,	241,	242,	242,	242,
+242,	243,	243,	243,	243,	243,	243,	243,
+244,	244,	244,	244,	246,	246,	246,	246,
+247,	247,	247,	247,	247,	247,	247,	248,
+249,	249,	249,	249,	250,	251,	251,	252,
+253,	253,	253,	253,	254,	254,	254,	255,
+};
+
 static int sw43402_backlight_update_status(struct backlight_device *bl)
 {
 	struct mipi_dsi_device *dsi = bl_get_data(bl);
@@ -270,10 +316,8 @@ static int sw43402_backlight_update_status(struct backlight_device *bl)
 	if (!brightness)
 		dbv = SW43402_DBV_OFF;
 	else
-		dbv = SW43402_DBV_MIN +
-		      DIV_ROUND_CLOSEST((brightness - 1) *
-					(SW43402_DBV_MAX - SW43402_DBV_MIN),
-					SW43402_DBV_MAX - 1);
+		dbv = sw43402_blmap[min_t(unsigned int, brightness,
+					  SW43402_BLMAP_LEN - 1)];
 
 	/* One low-power WRDISBV command per update, matching Android. */
 	ret = mipi_dsi_dcs_write(dsi, MIPI_DCS_SET_DISPLAY_BRIGHTNESS,
