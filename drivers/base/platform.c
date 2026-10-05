@@ -1432,6 +1432,7 @@ static int platform_probe(struct device *_dev)
 
 	ret = dev_pm_domain_attach(_dev, PD_FLAG_ATTACH_POWER_ON |
 					 PD_FLAG_DETACH_POWER_OFF);
+	dev_info(_dev, "PROBEDBG2: pm_domain_attach = %d\n", ret);
 	if (ret)
 		goto out;
 
