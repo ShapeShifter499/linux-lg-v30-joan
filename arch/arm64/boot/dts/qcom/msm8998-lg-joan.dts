@@ -372,6 +372,24 @@
  * boot (stop_at=5) survives; the failing stage is still being bisected.
  */
 &venus {
+	/*
+	 * Three PM domains, attached by the driver via devm_pm_domain_attach_list
+	 * ("venus", "vcodec0", "vcodec1" in the msm8998 resources). The single
+	 * VIDEO_TOP_GDSC from the dtsi made the driver core attach it first, and
+	 * the driver's own multi-domain attach then failed with -EEXIST before
+	 * venus_probe ever ran (2026-10-05 bench).
+	 */
+	power-domains = <&mmcc VIDEO_TOP_GDSC>,
+			<&mmcc VIDEO_SUBCORE0_GDSC>,
+			<&mmcc VIDEO_SUBCORE1_GDSC>;
+	power-domain-names = "venus", "vcodec0", "vcodec1";
+	clocks = <&mmcc VIDEO_CORE_CLK>,
+		 <&mmcc VIDEO_AHB_CLK>,
+		 <&mmcc VIDEO_AXI_CLK>,
+		 <&mmcc VIDEO_MAXI_CLK>,
+		 <&mmcc VIDEO_SUBCORE0_CLK>,
+		 <&mmcc VIDEO_SUBCORE1_CLK>;
+	clock-names = "core", "iface", "bus", "mbus", "vcodec0_core", "vcodec1_core";
 	firmware-name = "qcom/msm8998/joan/venus.mdt";
 	status = "okay";
 };
