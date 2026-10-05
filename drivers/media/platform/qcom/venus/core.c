@@ -459,13 +459,26 @@ static int venus_probe(struct platform_device *pdev)
 	if (IS_ERR(core->base))
 		return PTR_ERR(core->base);
 
+	/*
+	 * msm8998 has no mainline interconnect provider, so the DT carries no
+	 * interconnects property and of_icc_get() fails. Treat any non-deferred
+	 * error as "no bus to vote on": the paths stay NULL and every
+	 * icc_set_bw() site is guarded. A real -EPROBE_DEFER still defers.
+	 */
 	core->video_path = devm_of_icc_get(dev, "video-mem");
-	if (IS_ERR(core->video_path))
-		return PTR_ERR(core->video_path);
+	if (IS_ERR(core->video_path)) {
+		if (PTR_ERR(core->video_path) == -EPROBE_DEFER)
+			return PTR_ERR(core->video_path);
+		dev_info(dev, "no video-mem interconnect; bus votes disabled\n");
+		core->video_path = NULL;
+	}
 
 	core->cpucfg_path = devm_of_icc_get(dev, "cpu-cfg");
-	if (IS_ERR(core->cpucfg_path))
-		return PTR_ERR(core->cpucfg_path);
+	if (IS_ERR(core->cpucfg_path)) {
+		if (PTR_ERR(core->cpucfg_path) == -EPROBE_DEFER)
+			return PTR_ERR(core->cpucfg_path);
+		core->cpucfg_path = NULL;
+	}
 
 	core->irq = platform_get_irq(pdev, 0);
 	if (core->irq < 0)
@@ -693,13 +706,17 @@ static __maybe_unused int venus_runtime_suspend(struct device *dev)
 			return ret;
 	}
 
-	ret = icc_set_bw(core->cpucfg_path, 0, 0);
-	if (ret)
-		goto err_cpucfg_path;
+	if (core->cpucfg_path) {
+		ret = icc_set_bw(core->cpucfg_path, 0, 0);
+		if (ret)
+			goto err_cpucfg_path;
+	}
 
-	ret = icc_set_bw(core->video_path, 0, 0);
-	if (ret)
-		goto err_video_path;
+	if (core->video_path) {
+		ret = icc_set_bw(core->video_path, 0, 0);
+		if (ret)
+			goto err_video_path;
+	}
 
 	return ret;
 
