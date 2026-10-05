@@ -721,7 +721,8 @@ static __maybe_unused int venus_runtime_suspend(struct device *dev)
 	return ret;
 
 err_video_path:
-	icc_set_bw(core->cpucfg_path, kbps_to_icc(1000), 0);
+	if (core->cpucfg_path)
+		icc_set_bw(core->cpucfg_path, kbps_to_icc(1000), 0);
 err_cpucfg_path:
 	if (pm_ops->core_power)
 		pm_ops->core_power(core, POWER_ON);
@@ -758,13 +759,17 @@ static __maybe_unused int venus_runtime_resume(struct device *dev)
 	if (venus_stop_before(4))
 		return 0;
 
-	ret = icc_set_bw(core->video_path, kbps_to_icc(20000), 0);
-	if (ret)
-		return ret;
+	if (core->video_path) {
+		ret = icc_set_bw(core->video_path, kbps_to_icc(20000), 0);
+		if (ret)
+			return ret;
+	}
 
-	ret = icc_set_bw(core->cpucfg_path, kbps_to_icc(1000), 0);
-	if (ret)
-		return ret;
+	if (core->cpucfg_path) {
+		ret = icc_set_bw(core->cpucfg_path, kbps_to_icc(1000), 0);
+		if (ret)
+			return ret;
+	}
 
 	if (venus_stop_before(5))
 		return 0;
