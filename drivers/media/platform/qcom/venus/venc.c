@@ -548,7 +548,12 @@ venc_encoder_cmd(struct file *file, void *fh, struct v4l2_encoder_cmd *cmd)
 
 		fdata.buffer_type = HFI_BUFFER_INPUT;
 		fdata.flags |= HFI_BUFFERFLAG_EOS;
-		fdata.device_addr = 0xdeadb000;
+		if (inst->core->res->eos_real_buf) {
+			fdata.device_addr = inst->core->eos_da;
+			fdata.alloc_len = VENUS_EOS_BUF_SIZE;
+		} else {
+			fdata.device_addr = 0xdeadb000;
+		}
 
 		ret = hfi_session_process_buf(inst, &fdata);
 

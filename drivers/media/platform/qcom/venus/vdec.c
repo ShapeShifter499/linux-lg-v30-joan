@@ -605,10 +605,14 @@ vdec_decoder_cmd(struct file *file, void *fh, struct v4l2_decoder_cmd *cmd)
 		 * avoids misapplying this quirk and breaking VP9 decode on SC7280.
 		 */
 
-		if (IS_IRIS2(inst->core) && is_fw_rev_or_older(inst->core, 1, 0, 87))
+		if (inst->core->res->eos_real_buf) {
+			fdata.device_addr = inst->core->eos_da;
+			fdata.alloc_len = VENUS_EOS_BUF_SIZE;
+		} else if (IS_IRIS2(inst->core) && is_fw_rev_or_older(inst->core, 1, 0, 87)) {
 			fdata.device_addr = 0;
-		else
+		} else {
 			fdata.device_addr = 0xdeadb000;
+		}
 
 		ret = hfi_session_process_buf(inst, &fdata);
 

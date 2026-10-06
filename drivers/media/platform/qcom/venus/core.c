@@ -467,6 +467,15 @@ static int venus_probe(struct platform_device *pdev)
 
 	dma_set_max_seg_size(dev, UINT_MAX);
 
+	if (core->res->eos_real_buf) {
+		core->eos_va = dmam_alloc_coherent(dev, VENUS_EOS_BUF_SIZE,
+						   &core->eos_da, GFP_KERNEL);
+		if (!core->eos_va) {
+			ret = -ENOMEM;
+			goto err_core_put;
+		}
+	}
+
 	INIT_LIST_HEAD(&core->instances);
 	mutex_init(&core->lock);
 	INIT_DELAYED_WORK(&core->work, venus_sys_error_handler);
@@ -939,6 +948,13 @@ static const struct venus_resources msm8998_res = {
 	.vcodec_pmdomains_num = 3,
 	.max_load = 2563200,
 	.hfi_version = HFI_VERSION_3XX,
+	/*
+	 * VIDEO.VE.4.4 fails the session (HFI error 0x1001, data 0xdeadb000)
+	 * on the placeholder EOS address and asserts on NULL (vbuffer.c:1219),
+	 * so every drain ended in an error or a SoC reset. The vendor driver
+	 * sends EOS on a real, zero-length buffer; do the same.
+	 */
+	.eos_real_buf = true,
 	.vmem_id = VIDC_RESOURCE_NONE,
 	.vmem_size = 0,
 	.vmem_addr = 0,

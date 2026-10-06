@@ -9,6 +9,7 @@
 
 #include <linux/bitops.h>
 #include <linux/list.h>
+#include <linux/sizes.h>
 #include <media/videobuf2-v4l2.h>
 #include <media/v4l2-ctrls.h>
 #include <media/v4l2-device.h>
@@ -104,6 +105,8 @@ struct venus_resources {
 	u32 cp_nonpixel_start;
 	u32 cp_nonpixel_size;
 	const char *fwname;
+	/* EOS must be sent on a real, mapped input buffer (see msm8998_res) */
+	bool eos_real_buf;
 	const char *enc_nodename;
 	const char *dec_nodename;
 	const struct firmware_version *min_fw;
@@ -191,6 +194,9 @@ struct venus_format {
  * @ocs:	OF changeset pointer
  * @hwmode_dev:	a flag indicating that HW_CTRL_TRIGGER is used in clock driver
  */
+/* Zero-length input buffer that carries the EOS flag on some firmware */
+#define VENUS_EOS_BUF_SIZE	SZ_4K
+
 struct venus_core {
 	void __iomem *base;
 	void __iomem *vbif_base;
@@ -200,6 +206,8 @@ struct venus_core {
 	void __iomem *wrapper_base;
 	void __iomem *wrapper_tz_base;
 	void __iomem *aon_base;
+	void *eos_va;
+	dma_addr_t eos_da;
 	int irq;
 	struct clk *clks[VIDC_CLKS_NUM_MAX];
 	struct clk *vcodec_clks[VIDC_VCODEC_CLKS_NUM_MAX];
