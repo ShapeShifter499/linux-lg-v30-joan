@@ -1304,6 +1304,15 @@ static int vdec_stop_output(struct venus_inst *inst)
 	case VENUS_DEC_STATE_DRC:
 		ret = hfi_session_flush(inst, HFI_FLUSH_ALL, true);
 		inst->codec_state = VENUS_DEC_STATE_SEEK;
+		/*
+		 * A seek ends any drain: forget a drain in flight, and let the
+		 * CAPTURE queue dequeue again after it returned the LAST buffer.
+		 * Without this, a drained-then-seeked decoder (looped playback)
+		 * fails every CAPTURE dequeue with -EPIPE.
+		 */
+		inst->drain_active = false;
+		vb2_clear_last_buffer_dequeued(v4l2_m2m_get_vq(inst->fh.m2m_ctx,
+					V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE));
 		break;
 	case VENUS_DEC_STATE_INIT:
 	case VENUS_DEC_STATE_CAPTURE_SETUP:
