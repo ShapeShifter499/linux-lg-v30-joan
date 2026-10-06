@@ -555,13 +555,9 @@ static int venus_probe(struct platform_device *pdev)
 		return 0;
 
 	/* Vendor order: the VBIF presets go in before the firmware boots. */
-	dev_info(dev, "VENUSDBG: step 8 passed, calling presets_early
-");
 	venus_hfi_presets_early(core);
-	dev_info(dev, "VENUSDBG: presets_early done, calling venus_boot
-");
+
 	ret = venus_boot(core);
-	dev_info(dev, "VENUSDBG: venus_boot returned %d\n", ret);
 	if (ret)
 		goto err_firmware_deinit;
 

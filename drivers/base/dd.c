@@ -682,13 +682,11 @@ re_probe:
 
 	/* If using pinctrl, bind pins now before probing */
 	ret = pinctrl_bind_pins(dev);
-	dev_info(dev, "PROBEDBG: pinctrl_bind_pins = %d\n", ret);
 	if (ret)
 		goto pinctrl_bind_failed;
 
 	if (dev->bus->dma_configure) {
 		ret = dev->bus->dma_configure(dev);
-		dev_info(dev, "PROBEDBG: dma_configure = %d\n", ret);
 		if (ret)
 			goto pinctrl_bind_failed;
 	}
@@ -701,7 +699,6 @@ re_probe:
 
 	if (dev->pm_domain && dev->pm_domain->activate) {
 		ret = dev->pm_domain->activate(dev);
-		dev_info(dev, "PROBEDBG: pm_domain activate = %d\n", ret);
 		if (ret)
 			goto probe_failed;
 	}
