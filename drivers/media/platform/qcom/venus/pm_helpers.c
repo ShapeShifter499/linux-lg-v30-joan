@@ -31,6 +31,8 @@ static int core_clks_get(struct venus_core *core)
 
 	for (i = 0; i < res->clks_num; i++) {
 		core->clks[i] = devm_clk_get(dev, res->clks[i]);
+		dev_info(dev, "VENUSDBG3: clk[%u] %s = %ld\n", i, res->clks[i],
+			 PTR_ERR_OR_ZERO(core->clks[i]));
 		if (IS_ERR(core->clks[i]))
 			return PTR_ERR(core->clks[i]);
 	}
