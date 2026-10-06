@@ -180,6 +180,20 @@ find_format_by_index(struct venus_inst *inst, unsigned int index, u32 type)
 	return &fmt[i];
 }
 
+/*
+ * Smallest bitstream buffer handed to the firmware. Sized from the stream
+ * resolution alone, a client that sets no resolution gets an 8 KiB buffer, a
+ * real I-frame is truncated into it, and the msm8998 firmware then reads past
+ * its end: SMMU fault, firmware exception, failed recovery and a whole-SoC
+ * reset (LG V30 bench, 2026-10-06). The vendor driver never sizes it that
+ * way -- msm_vdec's get_frame_size_compressed() uses the codec's maximum
+ * macroblocks per frame -- so floor it at what this formula gives 1280x720.
+ */
+static u32 vdec_min_input_size(u32 pixfmt)
+{
+	return venus_helper_get_framesz(pixfmt, 1280, 720);
+}
+
 static const struct venus_format *
 vdec_try_fmt_common(struct venus_inst *inst, struct v4l2_format *f)
 {
@@ -230,7 +244,8 @@ vdec_try_fmt_common(struct venus_inst *inst, struct v4l2_format *f)
 		pfmt[0].bytesperline = ALIGN(stride, 128);
 	} else {
 		pfmt[0].sizeimage = clamp_t(u32, pfmt[0].sizeimage, 0, SZ_8M);
-		pfmt[0].sizeimage = max(pfmt[0].sizeimage, szimage);
+		pfmt[0].sizeimage = max3(pfmt[0].sizeimage, szimage,
+					 vdec_min_input_size(pixmp->pixelformat));
 		pfmt[0].bytesperline = 0;
 	}
 
@@ -995,7 +1010,8 @@ static int vdec_queue_setup(struct vb2_queue *q,
 		sizes[0] = venus_helper_get_framesz(inst->fmt_out->pixfmt,
 						    inst->out_width,
 						    inst->out_height);
-		sizes[0] = max(sizes[0], inst->input_buf_size);
+		sizes[0] = max3(sizes[0], inst->input_buf_size,
+				vdec_min_input_size(inst->fmt_out->pixfmt));
 		inst->input_buf_size = sizes[0];
 		*num_buffers = max(*num_buffers, in_num);
 		inst->num_input_bufs = *num_buffers;
