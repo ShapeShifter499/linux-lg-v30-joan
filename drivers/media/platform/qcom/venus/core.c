@@ -456,6 +456,7 @@ static int venus_probe(struct platform_device *pdev)
 	core->dev = dev;
 
 	core->base = devm_platform_ioremap_resource(pdev, 0);
+	dev_info(dev, "VENUSDBG3: ioremap done\n");
 	if (IS_ERR(core->base))
 		return PTR_ERR(core->base);
 
@@ -465,6 +466,7 @@ static int venus_probe(struct platform_device *pdev)
 	 * error as "no bus to vote on": the paths stay NULL and every
 	 * icc_set_bw() site is guarded. A real -EPROBE_DEFER still defers.
 	 */
+	dev_info(dev, "VENUSDBG3: starting icc\n");
 	core->video_path = devm_of_icc_get(dev, "video-mem");
 	if (IS_ERR(core->video_path)) {
 		if (PTR_ERR(core->video_path) == -EPROBE_DEFER)
@@ -480,10 +482,12 @@ static int venus_probe(struct platform_device *pdev)
 		core->cpucfg_path = NULL;
 	}
 
+	dev_info(dev, "VENUSDBG3: icc done\n");
 	core->irq = platform_get_irq(pdev, 0);
 	if (core->irq < 0)
 		return core->irq;
 
+	dev_info(dev, "VENUSDBG3: irq done\n");
 	core->res = of_device_get_match_data(dev);
 	if (!core->res)
 		return -ENODEV;
@@ -499,6 +503,7 @@ static int venus_probe(struct platform_device *pdev)
 
 	if (core->pm_ops->core_get) {
 		ret = core->pm_ops->core_get(core);
+		dev_info(dev, "VENUSDBG3: core_get = %d\n", ret);
 		if (ret)
 			return ret;
 	}

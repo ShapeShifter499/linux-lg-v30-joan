@@ -374,14 +374,17 @@ static int core_get_v1(struct venus_core *core)
 	int ret;
 
 	ret = vcodec_domains_get_v1(core);
+	dev_info(core->dev, "VENUSDBG3: vcodec_domains = %d\n", ret);
 	if (ret < 0)
 		return ret;
 
 	ret = core_clks_get(core);
+	dev_info(core->dev, "VENUSDBG3: core_clks = %d\n", ret);
 	if (ret)
 		return ret;
 
 	ret = devm_pm_opp_set_clkname(core->dev, "core");
+	dev_info(core->dev, "VENUSDBG3: opp_set_clkname = %d\n", ret);
 	if (ret)
 		return ret;
 
@@ -1150,6 +1153,7 @@ static int core_get_v4(struct venus_core *core)
 	int ret;
 
 	ret = core_clks_get(core);
+	dev_info(core->dev, "VENUSDBG3: core_clks = %d\n", ret);
 	if (ret)
 		return ret;
 
