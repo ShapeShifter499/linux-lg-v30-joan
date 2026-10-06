@@ -381,16 +381,26 @@ static void stmfts_parse_events(struct stmfts_data *sdata)
 
 		case STMFTS_EV_ERROR:
 			/*
-			 * Zero-pad each byte: without it the payload loses
-			 * leading zeroes and renders as a misleading value.
-			 * Rate-limit because some controllers emit an
-			 * unrecognised status byte on every wake, which is
-			 * harmless but would otherwise flood the log.
+			 * event[1] is the error type. The FTS firmware
+			 * defines 0x01..0x0b (M3, AFE, flash corruption,
+			 * ITO, OSC trim, RTOS, CX tune, lib, lockdown); the
+			 * LG V30's controller also reports other types, e.g.
+			 * 0xba on every wake, which LG's ftm4 driver routes
+			 * to its debug-message handler rather than treating
+			 * as an error. Do the same: warn on defined types,
+			 * debug-log the rest. Zero-pad each byte so the
+			 * payload keeps its leading zeroes.
 			 */
-			dev_warn_ratelimited(&sdata->client->dev,
-					     "error code: 0x%02x%02x%02x%02x%02x%02x",
-					     event[6], event[5], event[4],
-					     event[3], event[2], event[1]);
+			if (event[1] >= 0x01 && event[1] <= 0x0b)
+				dev_warn_ratelimited(&sdata->client->dev,
+						     "error type %#04x: %02x %02x %02x %02x %02x\n",
+						     event[1], event[2], event[3],
+						     event[4], event[5], event[6]);
+			else
+				dev_dbg(&sdata->client->dev,
+					"status %#04x: %02x %02x %02x %02x %02x\n",
+					event[1], event[2], event[3],
+					event[4], event[5], event[6]);
 			break;
 
 		default:
