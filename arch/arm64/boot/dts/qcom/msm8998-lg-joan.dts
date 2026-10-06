@@ -387,9 +387,11 @@
 		 <&mmcc VIDEO_AHB_CLK>,
 		 <&mmcc VIDEO_AXI_CLK>,
 		 <&mmcc VIDEO_MAXI_CLK>,
+		 <&mmcc MNOC_AHB_CLK>,
 		 <&mmcc VIDEO_SUBCORE0_CLK>,
 		 <&mmcc VIDEO_SUBCORE1_CLK>;
-	clock-names = "core", "iface", "bus", "mbus", "vcodec0_core", "vcodec1_core";
+	clock-names = "core", "iface", "bus", "mbus", "mnoc_ahb",
+		      "vcodec0_core", "vcodec1_core";
 	firmware-name = "qcom/msm8998/joan/venus.mdt";
 	status = "okay";
 };
