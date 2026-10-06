@@ -39,22 +39,8 @@ static int core_clks_get(struct venus_core *core)
 }
 
 /*
- * Bring-up bisect, second stage. stop_at proved the msm8998 wedge is inside
- * core_power(POWER_ON), and on this SoC that call reduces to this function:
- * vcodec_domains_enable() returns immediately because msm8998_res declares no
- * vcodec_pmdomains, and the clk_set_rate() above is V6/V4-lite only. The
- * device's own VIDEO_TOP_GDSC is already on by then -- genpd powers it during
- * the pm_runtime_get_sync() that got us here, which survives.
- *
- * So the bus dies on clk_prepare_enable() of one of "core", "iface", "bus",
- * "mbus". clk_limit=N enables only the first N of them, and the largest N that
- * still boots names the clock.
- */
-/*
- * Bring-up bisect, seventh stage. Power, all six clocks, both subcore domains
- * active in SW mode, the TZ handshake, the CP regions and the preset ordering
- * are each measured innocent, and the preset table matches the vendor byte for
- * byte. What is left is that the clocks are ENABLED but never RATED:
+ * On 3XX the core clocks are enabled but never rated: clk_set_rate() below is
+ * gated to V6 and V4-lite, so on msm8998 video_core_clk could stay on XO:
  * clk_set_rate() below is gated to V6 and V4-lite, so on 3XX video_core_clk
  * stays parked on XO --
  *
@@ -68,11 +54,6 @@ static int set_clk_rate;
 module_param(set_clk_rate, int, 0644);
 MODULE_PARM_DESC(set_clk_rate,
 	"rate the core clocks on 3XX as the vendor does, before any register access");
-
-static int clk_limit = -1;
-module_param(clk_limit, int, 0644);
-MODULE_PARM_DESC(clk_limit,
-	"venus bring-up bisect: enable only the first N core clocks (-1 = all)");
 
 static int core_clks_enable(struct venus_core *core)
 {
@@ -95,9 +76,6 @@ static int core_clks_enable(struct venus_core *core)
 	}
 
 	for (i = 0; i < res->clks_num; i++) {
-		if (clk_limit >= 0 && i >= clk_limit)
-			break;
-
 		if (set_clk_rate || IS_V6(core) || (IS_V4(core) && is_lite(core))) {
 			ret = clk_set_rate(core->clks[i], freq);
 			if (ret)

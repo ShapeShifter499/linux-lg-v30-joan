@@ -30,44 +30,6 @@
 #include "hfi_venus.h"
 #include "hfi_venus_io.h"
 
-/*
- * Bring-up bisect for the msm8998 fabric wedge.
- *
- * Enabling this node on msm8998 kills the SoC instantly: the probe never
- * returns, netconsole -- verified end to end seconds earlier -- carries the
- * marker printed one line before it and then nothing at all, and the phone
- * comes back on the hardware watchdog. No oops, no SMMU fault. The CPU never
- * got to report anything, which is a NoC timeout rather than something the
- * kernel could catch, so anything that PRINTS is the wrong instrument for the
- * last step of this bring-up.
- *
- * This is an instrument that survives an unresponsive fabric instead: it does
- * not print, it declines to execute. stop_at=N runs everything numbered below
- * N and stops at the first checkpoint numbered N or above, so the largest N
- * that still boots names the step that wedges the bus. The checkpoints are
- * monotonic across probe and runtime_resume, which nest.
- *
- *   1  acquire clocks and power domains        7  venus_firmware_init()
- *   2  request the interrupt                   8  venus_boot()  -- fw + PAS reset
- *   3  pm_runtime_get_sync()                   9  venus_firmware_cfg()
- *   4  icc_set_bw() bus votes                 10  hfi_core_resume()
- *   5  core_power(POWER_ON)  -- GDSC + clks
- *   6  hfi_core_resume() from resume
- *
- * -1 (default) runs the whole probe. Left in the tree deliberately: the wedge
- * is not closed, and re-deriving this costs a session.
- */
-static int stop_at = -1;
-module_param(stop_at, int, 0644);
-MODULE_PARM_DESC(stop_at,
-	"venus bring-up bisect: stop at the first checkpoint >= N (1..10); -1 = run everything");
-
-/* Stop at the first checkpoint numbered N or above. */
-static bool venus_stop_before(int n)
-{
-	return stop_at >= 0 && stop_at <= n;
-}
-
 static void venus_coredump(struct venus_core *core)
 {
 	struct device *dev;
@@ -493,9 +455,6 @@ static int venus_probe(struct platform_device *pdev)
 	if (!core->pm_ops)
 		return -ENODEV;
 
-	if (venus_stop_before(1))
-		return 0;
-
 	if (core->pm_ops->core_get) {
 		ret = core->pm_ops->core_get(core);
 		if (ret)
@@ -517,9 +476,6 @@ static int venus_probe(struct platform_device *pdev)
 	if (ret)
 		goto err_core_put;
 
-	if (venus_stop_before(2))
-		return 0;
-
 	ret = devm_request_threaded_irq(dev, core->irq, hfi_isr, venus_isr_thread,
 					IRQF_TRIGGER_HIGH | IRQF_ONESHOT,
 					"venus", core);
@@ -536,23 +492,14 @@ static int venus_probe(struct platform_device *pdev)
 
 	pm_runtime_enable(dev);
 
-	if (venus_stop_before(3))
-		return 0;
-
 	ret = pm_runtime_get_sync(dev);
 	if (ret < 0)
 		goto err_runtime_disable;
 
 	/* 4..6 live in venus_runtime_resume(), which the get_sync above ran. */
-	if (venus_stop_before(7))
-		return 0;
-
 	ret = venus_firmware_init(core);
 	if (ret)
 		goto err_runtime_disable;
-
-	if (venus_stop_before(8))
-		return 0;
 
 	/* Vendor order: the VBIF presets go in before the firmware boots. */
 	venus_hfi_presets_early(core);
@@ -561,15 +508,9 @@ static int venus_probe(struct platform_device *pdev)
 	if (ret)
 		goto err_firmware_deinit;
 
-	if (venus_stop_before(9))
-		return 0;
-
 	ret = venus_firmware_cfg(core);
 	if (ret)
 		goto err_venus_shutdown;
-
-	if (venus_stop_before(10))
-		return 0;
 
 	ret = hfi_core_resume(core, true);
 	if (ret)
@@ -753,9 +694,6 @@ static __maybe_unused int venus_runtime_resume(struct device *dev)
 	const struct venus_pm_ops *pm_ops = core->pm_ops;
 	int ret;
 
-	if (venus_stop_before(4))
-		return 0;
-
 	if (core->video_path) {
 		ret = icc_set_bw(core->video_path, kbps_to_icc(20000), 0);
 		if (ret)
@@ -768,17 +706,11 @@ static __maybe_unused int venus_runtime_resume(struct device *dev)
 			return ret;
 	}
 
-	if (venus_stop_before(5))
-		return 0;
-
 	if (pm_ops->core_power) {
 		ret = pm_ops->core_power(core, POWER_ON);
 		if (ret)
 			return ret;
 	}
-
-	if (venus_stop_before(6))
-		return 0;
 
 	return hfi_core_resume(core, false);
 }
@@ -996,12 +928,12 @@ static const struct venus_resources msm8998_res = {
 	 * gdsc_venus_core0 and gdsc_venus_core1, and __enable_regulators()
 	 * brings all three up before __set_registers().
 	 *
-	 * Only the DOMAINS are claimed here, not their clocks. The subcore
-	 * GDSCs are HW_CTRL, so software cannot force video_subcore0_clk on --
-	 * it reports "status stuck at 'off'" and core_power_v1() fails -EBUSY.
-	 * Leaving vcodec_clks unset makes vcodec_clks_enable() walk NULLs and
-	 * no-op, while vcodec_domains_enable() still powers the subcores. The
-	 * per-session clocks stay where they belong, on the child nodes.
+	 * The subcore clocks are claimed here as well, and the subcore GDSCs are
+	 * HW_CTRL_TRIGGER in mmcc-msm8998: core_power_v1() powers the domains in
+	 * software mode, enables these clocks, and only then hands the domains
+	 * to hardware with vcodec_domains_set_hw(), the order the vendor's
+	 * qcom,support-hw-trigger GDSCs follow. With plain HW_CTRL the domains
+	 * collapse on enable and video_subcore0_clk is "stuck at 'off'".
 	 */
 	.vcodec_pmdomains = (const char *[]) { "venus", "vcodec0", "vcodec1" },
 	.vcodec_pmdomains_num = 3,

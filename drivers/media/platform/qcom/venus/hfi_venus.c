@@ -365,16 +365,11 @@ static void venus_free(struct venus_hfi_device *hdev, struct mem_desc *mem)
 	dma_free_attrs(dev, mem->size, mem->kva, mem->da, mem->attrs);
 }
 
-static int preset_limit = -1;
-module_param(preset_limit, int, 0644);
-MODULE_PARM_DESC(preset_limit,
-	"venus bring-up bisect: write only the first N register presets (-1 = all)");
-
 /*
  * Bring-up bisect, sixth stage -- and the first one taken from the vendor
  * rather than from bisection.
  *
- * preset_limit proved the wedge is the first VBIF write in
+ * Bisection put the msm8998 wedge on the first VBIF write in
  * venus_set_registers(). The vendor writes the very same table, but on the
  * other side of the firmware boot. downstream __load_fw() is:
  *
@@ -403,20 +398,6 @@ static void venus_set_registers(struct venus_hfi_device *hdev)
 	unsigned int i;
 
 	for (i = 0; i < count; i++) {
-		/*
-		 * Bring-up bisect, fourth stage. boot_stage put the msm8998 wedge
-		 * exactly here: stage 2 (this function not yet called) survives,
-		 * stage 3 (called) wedges the bus. msm8998's table is also the odd
-		 * one out -- seven VBIF writes plus one at 0xe2010, which is
-		 * WRAPPER_BASE + 0x2010 and not VBIF at all, where sdm660 and the
-		 * other 3XX parts preset three VBIF registers and nothing else.
-		 *
-		 * preset_limit=N writes only the first N entries, so the largest N
-		 * that still boots names the register whose write never returns.
-		 */
-		if (preset_limit >= 0 && i >= preset_limit)
-			break;
-
 		writel(tbl[i].value, hdev->core->base + tbl[i].reg);
 	}
 }
@@ -434,11 +415,6 @@ static void venus_soft_int(struct venus_hfi_device *hdev)
 	writel(clear_bit, cpu_ic_base + CPU_IC_SOFTINT);
 }
 
-/* ponytail: HFI bring-up trace, shared with hfi_msgs.c. Delete when done. */
-int venus_hfi_trace;
-module_param_named(hfi_trace, venus_hfi_trace, int, 0644);
-MODULE_PARM_DESC(hfi_trace, "log every HFI packet in both directions");
-
 static int venus_iface_cmdq_write_nolock(struct venus_hfi_device *hdev,
 					 void *pkt, bool sync)
 {
@@ -453,10 +429,6 @@ static int venus_iface_cmdq_write_nolock(struct venus_hfi_device *hdev,
 
 	cmd_packet = (struct hfi_pkt_hdr *)pkt;
 	hdev->last_packet_type = cmd_packet->pkt_type;
-
-	if (venus_hfi_trace)
-		dev_info(dev, "hfi tx: %#x size %u\n",
-			 cmd_packet->pkt_type, cmd_packet->size);
 
 	queue = &hdev->queues[IFACEQ_CMD_IDX];
 
@@ -518,39 +490,6 @@ static int venus_hfi_core_set_resource(struct venus_core *core, u32 id,
 	return 0;
 }
 
-/*
- * Bring-up bisect, third stage. stop_at proved the msm8998 wedge is in
- * hfi_core_resume(core, true) and nowhere earlier: power, all four clocks, the
- * trustzone PAS reset in venus_boot() and venus_firmware_cfg() all survive a
- * clean boot. That call is the FIRST CPU access to the venus register block,
- * and it is also what starts the firmware, so "the CPU cannot reach venus" and
- * "the firmware wedges the bus once started" both fit the evidence and need
- * completely different fixes.
- *
- * boot_stage=N stops before step N, so the largest N that boots separates them:
- *
- *   1  venus_set_hw_state_resume()   -- before ANY venus MMIO
- *   2  venus_set_registers()         -- the reg_tbl presets
- *   3  the UC_REGION / SCIACMDARG writes
- *   4  venus_boot_core() itself
- *   5  the WRAPPER_INTR_MASK write   -- first write inside boot_core
- *   6  VIDC_CTRL_INIT                -- THIS is what starts the firmware
- *   7  the CPU_CS_SCIACMDARG0 poll   -- first read after the firmware runs
- *
- * A stop at 6 that survives while -1 wedges means the CPU can reach venus fine
- * and the firmware is what kills the bus. A stop at 5 that wedges means the
- * access path itself is broken and the firmware never mattered.
- */
-static int boot_stage = -1;
-module_param(boot_stage, int, 0644);
-MODULE_PARM_DESC(boot_stage,
-	"venus bring-up bisect: stop before venus MMIO step N (1..7); -1 = all");
-
-static bool venus_stop_boot(int n)
-{
-	return boot_stage >= 0 && boot_stage <= n;
-}
-
 static int venus_boot_core(struct venus_hfi_device *hdev)
 {
 	struct device *dev = hdev->core->dev;
@@ -569,20 +508,11 @@ static int venus_boot_core(struct venus_hfi_device *hdev)
 		mask_val = WRAPPER_INTR_MASK_A2HVCODEC_MASK;
 	}
 
-	if (venus_stop_boot(5))
-		return 0;
-
 	writel(mask_val, wrapper_base + WRAPPER_INTR_MASK);
 	if (IS_V1(hdev->core))
 		writel(1, cpu_cs_base + CPU_CS_SCIACMDARG3);
 
-	if (venus_stop_boot(6))
-		return 0;
-
 	writel(BIT(VIDC_CTRL_INIT_CTRL_SHIFT), cpu_cs_base + VIDC_CTRL_INIT);
-
-	if (venus_stop_boot(7))
-		return 0;
 
 	while (!ctrl_status && count < max_tries) {
 		ctrl_status = readl(cpu_cs_base + CPU_CS_SCIACMDARG0);
@@ -638,9 +568,6 @@ static int venus_run(struct venus_hfi_device *hdev)
 	 * Re-program all of the registers that get reset as a result of
 	 * regulator_disable() and _enable()
 	 */
-	if (venus_stop_boot(2))
-		return 0;
-
 	/*
 	 * msm8998's wrapper powers on with internal clock auto-gating
 	 * (WRAPPER_CLOCK_CONFIG = 0x007f001f) that leaves the VBIF page and
@@ -663,18 +590,12 @@ static int venus_run(struct venus_hfi_device *hdev)
 	if (!presets_early)
 		venus_set_registers(hdev);
 
-	if (venus_stop_boot(3))
-		return 0;
-
 	writel(hdev->ifaceq_table.da, cpu_cs_base + UC_REGION_ADDR);
 	writel(SHARED_QSIZE, cpu_cs_base + UC_REGION_SIZE);
 	writel(hdev->ifaceq_table.da, cpu_cs_base + CPU_CS_SCIACMDARG2);
 	writel(0x01, cpu_cs_base + CPU_CS_SCIACMDARG1);
 	if (hdev->sfr.da)
 		writel(hdev->sfr.da, cpu_cs_base + SFR_ADDR);
-
-	if (venus_stop_boot(4))
-		return 0;
 
 	ret = venus_boot_core(hdev);
 	if (ret) {
@@ -807,9 +728,6 @@ static int venus_power_on(struct venus_hfi_device *hdev)
 	int ret;
 
 	if (hdev->power_enabled)
-		return 0;
-
-	if (venus_stop_boot(1))
 		return 0;
 
 	ret = venus_set_hw_state_resume(hdev->core);
