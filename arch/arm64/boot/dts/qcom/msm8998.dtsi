@@ -707,6 +707,10 @@
 			required-opps = <&cprh_opp26>;
 			qcom,pll-override = <0x0a5c005c>;
 			qcom,spare-data = <0x3>;
+			/* 1-core boost row at this corner */
+			qcom,boost-hz = /bits/ 64 <2265600000>;
+			qcom,boost-pll-override = <0x0a5e005e>;
+			qcom,boost-spare-data = <0x3>;
 		};
 
 		opp-2265600000 {
@@ -714,6 +718,10 @@
 			required-opps = <&cprh_opp27>;
 			qcom,pll-override = <0x0a5e005e>;
 			qcom,spare-data = <0x3>;
+			/* 1-core boost row at this corner */
+			qcom,boost-hz = /bits/ 64 <2342400000>;
+			qcom,boost-pll-override = <0x0a620062>;
+			qcom,boost-spare-data = <0x3>;
 		};
 
 		opp-2323200000 {
@@ -721,6 +729,10 @@
 			required-opps = <&cprh_opp28>;
 			qcom,pll-override = <0x0a610061>;
 			qcom,spare-data = <0x3>;
+			/* 1-core boost row at this corner */
+			qcom,boost-hz = /bits/ 64 <2419200000>;
+			qcom,boost-pll-override = <0x0a650065>;
+			qcom,boost-spare-data = <0x3>;
 		};
 
 		opp-2342400000 {
@@ -728,6 +740,10 @@
 			required-opps = <&cprh_opp29>;
 			qcom,pll-override = <0x0a620062>;
 			qcom,spare-data = <0x3>;
+			/* 1-core boost row at this corner */
+			qcom,boost-hz = /bits/ 64 <2438400000>;
+			qcom,boost-pll-override = <0x0a660066>;
+			qcom,boost-spare-data = <0x3>;
 		};
 
 		opp-2361600000 {
@@ -735,6 +751,21 @@
 			required-opps = <&cprh_opp30>;
 			qcom,pll-override = <0x0a620062>;
 			qcom,spare-data = <0x3>;
+			/* 1-core boost row at this corner */
+			qcom,boost-hz = /bits/ 64 <2457600000>;
+			qcom,boost-pll-override = <0x0a660066>;
+			qcom,boost-spare-data = <0x3>;
+		};
+
+		/*
+		 * The 1-core boost row itself is emitted from opp-2361600000's
+		 * qcom,boost-hz; this OPP only lets cpufreq offer it. It stays
+		 * after its twin so that CPR maps corner 30 to 2361.6 MHz.
+		 */
+		opp-2457600000 {
+			opp-hz = /bits/ 64 <2457600000>;
+			required-opps = <&cprh_opp30>;
+			turbo-mode;
 		};
 	};
 	cpus {

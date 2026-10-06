@@ -448,7 +448,7 @@ static int qcom_cpufreq_gen_params(struct device *cpu_dev,
 				   struct qcom_cpufreq_data *data,
 				   struct qcom_cpufreq_hw_params **hw_tbl,
 				   int *apm_vc, int *acc_vc, int cpu_count,
-				   u8 *num_entries)
+				   u8 *num_entries, u8 *num_corners)
 {
 	struct dev_pm_domain_list *pd_list = NULL;
 	struct platform_device *pdev = cpufreq_get_driver_data();
@@ -456,7 +456,7 @@ static int qcom_cpufreq_gen_params(struct device *cpu_dev,
 	struct cpr_ext_data *cpr_data;
 	struct dev_pm_opp *genpd_opp;
 	unsigned long rate;
-	int apm_uV, acc_uV, i, gpd_opp_cnt, ret = 0;
+	int apm_uV, acc_uV, i, r, turbo = 0, gpd_opp_cnt, ret = 0;
 
 	ret = devm_pm_domain_attach_list(cpu_dev, &cprh_pd_data, &pd_list);
 	if (ret < 0) {
@@ -517,17 +517,19 @@ static int qcom_cpufreq_gen_params(struct device *cpu_dev,
 		*acc_vc = -1;
 	}
 
-	*hw_tbl = devm_kmalloc_array(&pdev->dev, gpd_opp_cnt,
+	*hw_tbl = devm_kmalloc_array(&pdev->dev, 2 * gpd_opp_cnt,
 				     sizeof(**hw_tbl), GFP_KERNEL);
-	if (!hw_tbl) {
+	if (!*hw_tbl) {
 		ret = -ENOMEM;
 		goto detach_gpd;
 	}
 
-	for (i = 0, rate = 1000; i <= gpd_opp_cnt ; rate++, i++) {
-		struct qcom_cpufreq_hw_params *entry = *hw_tbl + i;
+	for (i = 0, r = 0, rate = 1000; i <= gpd_opp_cnt ; rate++, i++) {
+		struct qcom_cpufreq_hw_params *entry = *hw_tbl + r;
 		struct device_node *np;
 		u32 pll_div, millivolts, f_src;
+		u32 boost_override = 0, boost_spare = 0;
+		u64 boost_rate = 0;
 
 		/*
 		 * Find the next enabled OPP's frequency (ignores APM/ACC).
@@ -539,6 +541,18 @@ static int qcom_cpufreq_gen_params(struct device *cpu_dev,
 		genpd_opp = dev_pm_opp_find_freq_ceil(cpu_dev, &rate);
 		if (IS_ERR(genpd_opp))
 			break;
+
+		/*
+		 * Turbo OPPs only name a 1-core boost row for cpufreq; the row
+		 * comes from its twin's qcom,boost-hz and has no corner of its own.
+		 */
+		if (dev_pm_opp_is_turbo(genpd_opp)) {
+			dev_pm_opp_put(genpd_opp);
+			genpd_opp = NULL;
+			turbo++;
+			i--;
+			continue;
+		}
 
 		/* Get mandatory and optional properties from the OPP DT */
 		np = dev_pm_opp_get_of_node(genpd_opp);
@@ -560,6 +574,19 @@ static int qcom_cpufreq_gen_params(struct device *cpu_dev,
 
 		if (of_property_read_u32(np, "qcom,pll-div", &pll_div))
 			pll_div = 0;
+
+		/*
+		 * Optional single-core boost row at this OPP's corner, emitted
+		 * below. All three properties or none.
+		 */
+		if (!of_property_read_u64(np, "qcom,boost-hz", &boost_rate) &&
+		    (of_property_read_u32(np, "qcom,boost-pll-override", &boost_override) ||
+		     of_property_read_u32(np, "qcom,boost-spare-data", &boost_spare))) {
+			dev_err(&pdev->dev, "incomplete boost row at %lu Hz\n", rate);
+			of_node_put(np);
+			ret = -EINVAL;
+			goto detach_gpd;
+		}
 
 		of_node_put(np);
 
@@ -606,10 +633,42 @@ static int qcom_cpufreq_gen_params(struct device *cpu_dev,
 
 		dev_dbg(&pdev->dev,
 			"[%d] freq=0x%x volt=0x%x override=0x%x spare=0x%x\n",
-			i, entry->freq_lut_val, entry->volt_lut_val,
+			r, entry->freq_lut_val, entry->volt_lut_val,
 			entry->override_val, entry->spare_val);
 		dev_pm_opp_put(genpd_opp);
 		genpd_opp = NULL;
+		r++;
+
+		/*
+		 * The OSM's core-count DCVS runs a row only while no more CPUs
+		 * than its core count are active, and otherwise falls back to
+		 * the last row allowing them. A 1-core row right after its
+		 * 4-core twin, at the same virtual corner and voltage, is the
+		 * single-core boost: this is how the vendor tables are laid out
+		 * (msm8998-v2.dtsi qcom,perfcl-speedbin2-v0: 2457.6 MHz at
+		 * corner 30 after 2361.6 MHz).
+		 */
+		if (boost_rate) {
+			struct qcom_cpufreq_hw_params *boost = *hw_tbl + r;
+
+			boost->volt_lut_val = entry->volt_lut_val;
+			boost->freq_lut_val = (1 << (ffs(soc_data->reg_freq_lut_src_mask) - 1)) |
+					      div_u64(boost_rate, xo_rate) |
+					      FIELD_PREP(LUT_CORE_COUNT, 1) |
+					      FIELD_PREP(LUT_PLL_DIV, pll_div);
+			boost->override_val = boost_override;
+			boost->spare_val = boost_spare;
+			dev_dbg(&pdev->dev, "[%d] boost freq=0x%x volt=0x%x override=0x%x\n",
+				r, boost->freq_lut_val, boost->volt_lut_val,
+				boost->override_val);
+			r++;
+		}
+	}
+
+	if (r > LUT_MAX_ENTRIES) {
+		dev_err(&pdev->dev, "%d LUT rows exceed the OSM table\n", r);
+		ret = -EINVAL;
+		goto detach_gpd;
 	}
 
 	/*
@@ -630,12 +689,13 @@ static int qcom_cpufreq_gen_params(struct device *cpu_dev,
 	 * OPP table that we got from the genpd is malformed for some
 	 * reason: in this case, do not apply the table to the HW.
 	 */
-	if (i < gpd_opp_cnt) {
+	if (i + turbo < gpd_opp_cnt) {
 		dev_err(&pdev->dev, "Got bad OPP table from power domain.\n");
 		ret = -EINVAL;
 		goto detach_gpd;
 	}
-	*num_entries = i;
+	*num_entries = r;
+	*num_corners = i;
 
 detach_gpd:
 	return ret;
@@ -864,7 +924,7 @@ static int qcom_cpufreq_hw_write_lut(struct device *cpu_dev,
 	struct resource *osm_rsrc;
 	char osm_resname[] = "osm-domainX";
 	u32 sreg, seq_addr, acc_lval = 0, last_spare = 1;
-	u8 num_entries = 0;
+	u8 num_entries = 0, num_corners = 0;
 	int apm_vc = INT_MAX, acc_vc = U8_MAX, acc_idx = 0;
 	int acc_val[SEQ_MEM_ACC_MAX_LEVELS], i, ret;
 
@@ -886,7 +946,7 @@ static int qcom_cpufreq_hw_write_lut(struct device *cpu_dev,
 	seq_addr = osm_rsrc->start + sregs->reg_osm_sequencer;
 
 	ret = qcom_cpufreq_gen_params(cpu_dev, ddata, &hw_tbl, &apm_vc,
-				      &acc_vc, cpu_count, &num_entries);
+				      &acc_vc, cpu_count, &num_entries, &num_corners);
 	if (ret)
 		return ret;
 
@@ -937,10 +997,11 @@ static int qcom_cpufreq_hw_write_lut(struct device *cpu_dev,
 			continue;
 
 		/* Standard mem-acc pairs using spare_val LUT crossovers */
+		/* Pairs are virtual corners, not LUT rows (boost rows share one) */
 		last_spare = entry->spare_val;
-		acc_val[acc_idx] = i - 1;
+		acc_val[acc_idx] = FIELD_GET(LUT_VOLT_VC, entry->volt_lut_val) - 1;
 		acc_idx++;
-		acc_val[acc_idx] = i;
+		acc_val[acc_idx] = FIELD_GET(LUT_VOLT_VC, entry->volt_lut_val);
 		acc_idx++;
 	}
 
@@ -954,7 +1015,7 @@ static int qcom_cpufreq_hw_write_lut(struct device *cpu_dev,
 	 */
 	if (acc_vc > 0 && acc_vc != U8_MAX) {
 		sreg = SEQUENCER_REG(seq_addr, SEQ_MEM_ACC_CROSSOVER_VC);
-		ret = qcom_scm_io_writel(sreg, num_entries + 1);
+		ret = qcom_scm_io_writel(sreg, num_corners + 1);
 		if (ret)
 			return ret;
 
@@ -991,7 +1052,13 @@ static int qcom_cpufreq_hw_write_lut(struct device *cpu_dev,
 	 * Program the L_VAL of the first corner requesting MEM-ACC
 	 * voltage level 3 to the right sequencer register
 	 */
-	acc_lval = FIELD_GET(LUT_L_VAL, hw_tbl[acc_val[3]].freq_lut_val);
+	/* L_VAL of the first (4-core) row at the corner acc_val[3] */
+	for (i = 0; i < num_entries; i++)
+		if (FIELD_GET(LUT_VOLT_VC, hw_tbl[i].volt_lut_val) == acc_val[3])
+			break;
+	if (i == num_entries)
+		return -EINVAL;
+	acc_lval = FIELD_GET(LUT_L_VAL, hw_tbl[i].freq_lut_val);
 	ret = qcom_scm_io_writel(SEQUENCER_REG(seq_addr, SEQ_MEM_ACC_LVAL), acc_lval);
 	if (ret) {
 		dev_dbg(cpu_dev, "Cannot send memacc l_val\n");
@@ -1009,10 +1076,12 @@ static int qcom_cpufreq_hw_write_lut(struct device *cpu_dev,
 	/*
 	 * APM crossover virtual corner refers to CPRh: there, the APM corner
 	 * is always appended to the table (so, at the end of it, right after
-	 * the cluster dvfs entries).
+	 * the cluster dvfs entries). That is a corner count, not a row count:
+	 * the vendor (clock-osm.c) uses the CPRh corner count here, and the
+	 * 1-core boost rows share their twin's corner.
 	 */
-	writel(num_entries, ddata->base + sregs->reg_seq1);
-	ret = qcom_scm_io_writel(SEQUENCER_REG(seq_addr, SEQ_APM_CROSSOVER_VC), num_entries);
+	writel(num_corners, ddata->base + sregs->reg_seq1);
+	ret = qcom_scm_io_writel(SEQUENCER_REG(seq_addr, SEQ_APM_CROSSOVER_VC), num_corners);
 	if (ret)
 		return ret;
 
@@ -1056,8 +1125,9 @@ static int qcom_cpufreq_hw_write_lut(struct device *cpu_dev,
 static int qcom_cpufreq_hw_read_lut(struct device *cpu_dev,
 				    struct cpufreq_policy *policy)
 {
-	u32 data, src, lval, i, core_count, prev_freq = 0, freq;
+	u32 data, src, lval, i, core_count, prev_freq = 0, prev_cc = 0, freq;
 	u32 volt;
+	bool same;
 	struct cpufreq_frequency_table	*table;
 	struct dev_pm_opp *opp;
 	unsigned long rate;
@@ -1107,7 +1177,15 @@ static int qcom_cpufreq_hw_read_lut(struct device *cpu_dev,
 		else
 			freq = cpu_hw_rate / 1000;
 
-		if (freq != prev_freq && core_count != LUT_TURBO_IND) {
+		/*
+		 * Padding rows repeat the last entry, frequency and core count
+		 * alike. A 1-core boost row followed by a 4-core row at the same
+		 * frequency (vendor tables do this at 2265.6 and 2342.4 MHz) is
+		 * not the end of the table.
+		 */
+		same = i > 0 && freq == prev_freq && core_count == prev_cc;
+
+		if (!same && core_count != LUT_TURBO_IND) {
 			if (!qcom_cpufreq_update_opp(cpu_dev, freq, volt)) {
 				table[i].frequency = freq;
 				dev_dbg(cpu_dev, "index=%d freq=%d, core_count %d\n", i,
@@ -1125,17 +1203,21 @@ static int qcom_cpufreq_hw_read_lut(struct device *cpu_dev,
 		 * Two of the same frequencies with the same core counts means
 		 * end of table
 		 */
-		if (i > 0 && prev_freq == freq) {
+		if (same) {
 			struct cpufreq_frequency_table *prev = &table[i - 1];
 
 			/*
-			 * Only treat the last frequency that might be a boost
-			 * as the boost frequency
+			 * The trailing 1-core row is offered as the top regular
+			 * frequency, as the vendor kernel does (its table ends
+			 * "2361600 2457600"), not as CPUFREQ_BOOST_FREQ: this
+			 * driver programs the LUT itself, the OSM enforces the
+			 * core count in hardware, and schedutil never targets
+			 * above capacity_freq_ref, which the topology code takes
+			 * from cpuinfo.max_freq before any boost state is applied.
 			 */
 			if (prev->frequency == CPUFREQ_ENTRY_INVALID) {
 				if (!qcom_cpufreq_update_opp(cpu_dev, prev_freq, volt)) {
 					prev->frequency = prev_freq;
-					prev->flags = CPUFREQ_BOOST_FREQ;
 				} else {
 					dev_warn(cpu_dev, "can't update OPP for freq=%u\n", freq);
 				}
@@ -1145,6 +1227,7 @@ static int qcom_cpufreq_hw_read_lut(struct device *cpu_dev,
 		}
 
 		prev_freq = freq;
+		prev_cc = core_count;
 	}
 
 	table[i].frequency = CPUFREQ_TABLE_END;
