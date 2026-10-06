@@ -448,7 +448,6 @@ static int venus_probe(struct platform_device *pdev)
 	struct venus_core *core;
 	int ret;
 
-	dev_info(dev, "VENUSDBG2: venus_probe entered\n");
 	core = devm_kzalloc(dev, sizeof(*core), GFP_KERNEL);
 	if (!core)
 		return -ENOMEM;
