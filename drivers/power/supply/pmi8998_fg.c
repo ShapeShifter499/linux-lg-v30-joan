@@ -16,6 +16,7 @@
 #include <linux/workqueue.h>
 
 /* SOC */
+#define BATT_SOC_INT_EN_CLR		0x016	/* QPNPINT_REG_EN_CLR */
 #define BATT_MONOTONIC_SOC		0x009
 
 /* BATT */
@@ -622,6 +623,19 @@ static int pmi8998_fg_probe(struct platform_device *pdev)
 	}
 
 	platform_set_drvdata(pdev, chip);
+
+	/*
+	 * The bootloader leaves other BATT_SOC interrupts enabled (msoc-full,
+	 * bit 7, fires when the battery reaches 100%). With no handler mapped,
+	 * spmi-pmic-arb can only clear the latch, and logs cleanup_irq plus a
+	 * bad_chained_irq dump every time. Disable all of them here; requesting
+	 * soc-delta below enables its own bit again.
+	 */
+	ret = regmap_write(chip->regmap, chip->base + BATT_SOC_INT_EN_CLR, 0xff);
+	if (ret) {
+		dev_err(chip->dev, "Failed to mask BATT_SOC interrupts: %d\n", ret);
+		return ret;
+	}
 
 	/* Get soc-delta IRQ */
 	irq = of_irq_get_byname(pdev->dev.of_node, "soc-delta");
