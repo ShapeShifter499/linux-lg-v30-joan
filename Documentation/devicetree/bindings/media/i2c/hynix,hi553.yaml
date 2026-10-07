@@ -56,6 +56,8 @@ properties:
             items:
               - const: 1
               - const: 2
+              - const: 3
+              - const: 4
 
           link-frequencies: true
 
@@ -82,9 +84,9 @@ examples:
         #address-cells = <1>;
         #size-cells = <0>;
 
-        camera@28 {
+        camera@20 {
             compatible = "hynix,hi553";
-            reg = <0x28>;
+            reg = <0x20>;
 
             clocks = <&mmcc_mclk2>;
             assigned-clocks = <&mmcc_mclk2>;
@@ -101,8 +103,8 @@ examples:
 
             port {
                 endpoint {
-                    data-lanes = <1 2>;
-                    link-frequencies = /bits/ 64 <440000000>;
+                    data-lanes = <1 2 3 4>;
+                    link-frequencies = /bits/ 64 <220000000>;
                     remote-endpoint = <&csiphy2_ep>;
                 };
             };

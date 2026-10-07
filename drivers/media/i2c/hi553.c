@@ -13,7 +13,10 @@
  * registers for 2560x1920, 2560x1440 and 1280x720 (the mode list LG applies
  * after its init; only the registers that differ from the 2560x1920 list
  * are carried in the two smaller modes).  All modes share line length 2816
- * and frame length 2083 at a 440 MHz CSI-2 link (2 lanes, RAW10, 30 fps).
+ * and frame length 2083 at a 220 MHz CSI-2 link (4 lanes, RAW10, 30 fps):
+ * LG's camera_config.xml gives the front camera LaneMask 0x1F (four data
+ * lanes plus clock), and the library's op_pixel_clk of 176 MHz over four
+ * RAW10 lanes is 440 Mb/s per lane.
  *
  * The part follows the HI556/HI846 register map: 16-bit register data,
  * chip ID 0x0553 readable at 0x0f16, streaming controlled by 0x0a00.  LG's
@@ -68,11 +71,11 @@
 #define HI553_NATIVE_HEIGHT		1920
 
 enum hi553_link_freq {
-	HI553_LINK_FREQ_440MHZ,
+	HI553_LINK_FREQ_220MHZ,
 };
 
 static const s64 hi553_link_freqs[] = {
-	[HI553_LINK_FREQ_440MHZ] = 440000000,
+	[HI553_LINK_FREQ_220MHZ] = 220000000,
 };
 
 static const char * const hi553_supply_names[] = {
@@ -3382,7 +3385,7 @@ static const struct hi553_mode hi553_modes[] = {
 		.frame_length = 2083,
 		/* 2816 * 2083 * 30 fps; all modes share the PLL block */
 		.pixel_rate = 175971840,
-		.link_freq = HI553_LINK_FREQ_440MHZ,
+		.link_freq = HI553_LINK_FREQ_220MHZ,
 		.regs = hi553_mode_2560x1920,
 		.num_regs = ARRAY_SIZE(hi553_mode_2560x1920),
 	},
@@ -3393,7 +3396,7 @@ static const struct hi553_mode hi553_modes[] = {
 		.line_length = 2816,
 		.frame_length = 2083,
 		.pixel_rate = 175971840,
-		.link_freq = HI553_LINK_FREQ_440MHZ,
+		.link_freq = HI553_LINK_FREQ_220MHZ,
 		.regs = hi553_mode_2560x1440,
 		.num_regs = ARRAY_SIZE(hi553_mode_2560x1440),
 	},
@@ -3404,7 +3407,7 @@ static const struct hi553_mode hi553_modes[] = {
 		.line_length = 2816,
 		.frame_length = 2083,
 		.pixel_rate = 175971840,
-		.link_freq = HI553_LINK_FREQ_440MHZ,
+		.link_freq = HI553_LINK_FREQ_220MHZ,
 		.regs = hi553_mode_1280x720,
 		.num_regs = ARRAY_SIZE(hi553_mode_1280x720),
 	},
@@ -3856,9 +3859,9 @@ static int hi553_parse_endpoint(struct hi553 *hi553)
 		return dev_err_probe(hi553->dev, ret,
 				     "failed to parse endpoint\n");
 
-	if (bus_cfg.bus.mipi_csi2.num_data_lanes != 2) {
+	if (bus_cfg.bus.mipi_csi2.num_data_lanes != 4) {
 		ret = dev_err_probe(hi553->dev, -EINVAL,
-				    "only 2 data lanes are supported\n");
+				    "only 4 data lanes are supported\n");
 		goto out;
 	}
 
