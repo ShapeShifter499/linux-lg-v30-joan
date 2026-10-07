@@ -1852,6 +1852,14 @@ void ipa_endpoint_disable_one(struct ipa_endpoint *endpoint)
 	if (!endpoint->toward_ipa) {
 		ipa_endpoint_replenish_disable(endpoint);
 		ipa_interrupt_suspend_disable(ipa->interrupt, endpoint_id);
+		/*
+		 * An open aggregation frame keeps a receive buffer in use,
+		 * and the channel cannot stop until the frame closes.
+		 * Close it now, as ipa_endpoint_suspend_aggr() does.
+		 */
+		if (endpoint->config.aggregation &&
+		    ipa_endpoint_aggr_active(endpoint))
+			ipa_endpoint_force_close(endpoint);
 	}
 
 	/* Note that if stop fails, the channel's state is not well-defined */
