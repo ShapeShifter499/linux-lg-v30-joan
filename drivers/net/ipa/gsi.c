@@ -922,6 +922,21 @@ static void gsi_channel_program(struct gsi_channel *channel, bool doorbell)
 	/* All done! */
 }
 
+static int gsi_channel_stop_retry(struct gsi_channel *channel)
+{
+	u32 retries = GSI_CHANNEL_STOP_RETRIES;
+	int ret;
+
+	do {
+		ret = gsi_channel_stop_command(channel);
+		if (ret != -EAGAIN)
+			break;
+		usleep_range(3 * USEC_PER_MSEC, 5 * USEC_PER_MSEC);
+	} while (retries--);
+
+	return ret;
+}
+
 static int __gsi_channel_start(struct gsi_channel *channel, bool resume)
 {
 	struct gsi *gsi = channel->gsi;
@@ -932,6 +947,15 @@ static int __gsi_channel_start(struct gsi_channel *channel, bool resume)
 		return 0;
 
 	mutex_lock(&gsi->mutex);
+
+	/*
+	 * A stop that timed out leaves the channel in STOP_IN_PROC, which
+	 * the START command refuses. The stop can complete later, once
+	 * whatever held it has gone (an aggregation frame closing, the
+	 * modem coming back after a restart), so finish it first.
+	 */
+	if (gsi_channel_state(channel) == GSI_CHANNEL_STATE_STOP_IN_PROC)
+		(void)gsi_channel_stop_retry(channel);
 
 	ret = gsi_channel_start_command(channel);
 
@@ -959,20 +983,6 @@ int gsi_channel_start(struct gsi *gsi, u32 channel_id)
 	return ret;
 }
 
-static int gsi_channel_stop_retry(struct gsi_channel *channel)
-{
-	u32 retries = GSI_CHANNEL_STOP_RETRIES;
-	int ret;
-
-	do {
-		ret = gsi_channel_stop_command(channel);
-		if (ret != -EAGAIN)
-			break;
-		usleep_range(3 * USEC_PER_MSEC, 5 * USEC_PER_MSEC);
-	} while (retries--);
-
-	return ret;
-}
 
 static int __gsi_channel_stop(struct gsi_channel *channel, bool suspend)
 {
