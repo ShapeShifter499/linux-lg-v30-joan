@@ -703,6 +703,19 @@ int msm_csiphy_subdev_init(struct camss *camss,
 				continue;
 		}
 
+		/*
+		 * The MSM8998 PHYs also drive their CSI core clock, which
+		 * otherwise only gets a rate when the CSID with the same index
+		 * is in use (downstream rates csiN_clk_src from the CSIPHY).
+		 */
+		if (camss->res->version == CAMSS_8998) {
+			csiphy->rate_set[i] = csiphy_match_clock_name(clock->name,
+								      "csi%d",
+								      csiphy->id);
+			if (csiphy->rate_set[i])
+				continue;
+		}
+
 		csiphy->rate_set[i] = csiphy_match_clock_name(clock->name, "csiphy%d", csiphy->id);
 	}
 
