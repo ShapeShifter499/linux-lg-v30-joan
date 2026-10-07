@@ -282,6 +282,7 @@ void rmnet_vnd_setup(struct net_device *rmnet_dev)
 	rmnet_dev->type = ARPHRD_RAWIP;
 	rmnet_dev->hard_header_len = 0;
 	rmnet_dev->flags &= ~(IFF_BROADCAST | IFF_MULTICAST);
+	rmnet_dev->flags |= IFF_NOARP;
 
 	rmnet_dev->needs_free_netdev = true;
 	rmnet_dev->ethtool_ops = &rmnet_ethtool_ops;
