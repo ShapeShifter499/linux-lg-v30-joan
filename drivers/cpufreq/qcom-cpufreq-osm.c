@@ -1652,8 +1652,6 @@ static int qcom_cpufreq_hw_cpu_init(struct cpufreq_policy *policy)
 
 	policy->cpuinfo.transition_latency = transition_latency;
 
-	dev_pm_opp_of_register_em(cpu_dev, policy->cpus);
-
 	if (qcom_osm_has_boost_freq(policy))
 		policy->boost_supported = true;
 
@@ -1723,6 +1721,7 @@ static struct cpufreq_driver cpufreq_qcom_hw_driver = {
 	.offline	= qcom_cpufreq_hw_cpu_offline,
 	.set_boost	= cpufreq_boost_set_sw,
 	.fast_switch    = qcom_cpufreq_hw_fast_switch,
+	.register_em	= cpufreq_register_em_with_opp,
 	.name		= "qcom-cpufreq-osm",
 };
 
