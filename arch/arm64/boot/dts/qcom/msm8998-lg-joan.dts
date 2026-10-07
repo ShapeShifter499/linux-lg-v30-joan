@@ -1243,13 +1243,19 @@
 /*
  * Front (VT) camera: a fixed-focus Hynix HI553 with a BRCF016GWZ EEPROM
  * beside it.  Downstream (msm8998-joan-camera_rev_0.dtsi) hangs both on
- * the bus LG calls i2c_8, which is BLSP2 I2C2 (GPIOs 6/7), with the
- * sensor at 0x28; the pixel data leaves on CSIPHY2 and the sensor is
+ * the bus LG calls i2c_8, which is BLSP2 I2C2 (GPIOs 6/7); the pixel
+ * data leaves on CSIPHY2 and the sensor is
  * clocked from MCLK2 (GPIO 15).  VT_RESET is GPIO 9; the module rails
  * are cam_vio = PM8998 L14 (1.88 V I/O) and cam_vana = PM8998 L22, and
  * VT_VDIG is a module LDO switched by PM8998 GPIO 9 whose voltage
  * downstream never sets, so the sensor-nominal 1.05 V is modelled here,
  * like the CAM0_VDIG rail.
+ *
+ * The sensor answers at 0x20.  Downstream's reg = <0x28> is never used:
+ * LG's camera stack takes the address from libmmcamera_hi553.so, whose
+ * sensor_slave_info gives the 8-bit slave address 0x40 (chip ID 0x0553
+ * at 0x0f16); the same table gives 0x20 for the IMX351, i.e. the 0x10
+ * that node already uses.
  *
  * LG counts the mount angle clockwise (qcom,mount-angle = <270>); the DT
  * rotation counts the other way.
@@ -1257,9 +1263,9 @@
 &blsp2_i2c2 {
 	status = "okay";
 
-	camera@28 {
+	camera@20 {
 		compatible = "hynix,hi553";
-		reg = <0x28>;
+		reg = <0x20>;
 
 		clocks = <&mmcc CAMSS_MCLK2_CLK>;
 		assigned-clocks = <&mmcc CAMSS_MCLK2_CLK>;
