@@ -1010,14 +1010,19 @@ int gsi_channel_stop(struct gsi *gsi, u32 channel_id)
 	int ret;
 
 	ret = __gsi_channel_stop(channel, false);
-	if (ret)
-		return ret;
 
-	/* Disable the completion interrupt and NAPI if successful */
+	/*
+	 * Disable the completion interrupt and NAPI even if the stop failed.
+	 * The caller treats the channel as stopped either way (the endpoint
+	 * is no longer marked enabled), so the next gsi_channel_start() calls
+	 * napi_enable() again, which BUGs on a NAPI that is still enabled.
+	 * A stop does fail after a modem crash: the GSI STOP command times
+	 * out on the modem-facing channels.
+	 */
 	gsi_irq_ieob_disable_one(gsi, channel->evt_ring_id);
 	napi_disable(&channel->napi);
 
-	return 0;
+	return ret;
 }
 
 /* Reset and reconfigure a channel, (possibly) enabling the doorbell engine */
