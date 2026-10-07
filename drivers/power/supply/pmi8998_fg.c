@@ -503,6 +503,17 @@ static irqreturn_t pmi8998_fg_handle_soc_delta(int irq, void *data)
 	return IRQ_HANDLED;
 }
 
+static irqreturn_t pmi8998_fg_handle_msoc_full(int irq, void *data)
+{
+	struct pmi8998_fg_chip *chip = data;
+
+	/* Entering or leaving full charge */
+	power_supply_changed(chip->batt_psy);
+	dev_dbg(chip->dev, "msoc-full");
+
+	return IRQ_HANDLED;
+}
+
 static void pmi8998_fg_status_changed_worker(struct work_struct *work)
 {
 	struct pmi8998_fg_chip *chip = container_of(work, struct pmi8998_fg_chip,
@@ -629,12 +640,30 @@ static int pmi8998_fg_probe(struct platform_device *pdev)
 	 * bit 7, fires when the battery reaches 100%). With no handler mapped,
 	 * spmi-pmic-arb can only clear the latch, and logs cleanup_irq plus a
 	 * bad_chained_irq dump every time. Disable all of them here; requesting
-	 * soc-delta below enables its own bit again.
+	 * an interrupt below enables its own bit again.
 	 */
 	ret = regmap_write(chip->regmap, chip->base + BATT_SOC_INT_EN_CLR, 0xff);
 	if (ret) {
 		dev_err(chip->dev, "Failed to mask BATT_SOC interrupts: %d\n", ret);
 		return ret;
+	}
+
+	/*
+	 * msoc-full is optional. Request it first: an event latched before
+	 * boot is still pending in the arbiter, and is delivered as soon as
+	 * the first BATT_SOC interrupt is unmasked, so it needs a mapping by
+	 * then.
+	 */
+	irq = of_irq_get_byname(pdev->dev.of_node, "msoc-full");
+	if (irq > 0) {
+		ret = devm_request_threaded_irq(chip->dev, irq, NULL,
+						pmi8998_fg_handle_msoc_full,
+						IRQF_ONESHOT, "msoc-full", chip);
+		if (ret < 0)
+			return dev_err_probe(&pdev->dev, ret,
+					     "Failed to request msoc-full IRQ\n");
+	} else if (irq == -EPROBE_DEFER) {
+		return irq;
 	}
 
 	/* Get soc-delta IRQ */
