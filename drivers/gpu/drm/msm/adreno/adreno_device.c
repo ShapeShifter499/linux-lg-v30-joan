@@ -126,10 +126,9 @@ struct msm_gpu *adreno_load_gpu(struct drm_device *dev)
 	pm_runtime_put_autosuspend(&pdev->dev);
 
 #ifdef CONFIG_DEBUG_FS
-	if (gpu->funcs->debugfs_init) {
-		gpu->funcs->debugfs_init(gpu, dev->primary);
-		gpu->funcs->debugfs_init(gpu, dev->render);
-	}
+	/* All minors of a device share one debugfs directory */
+	if (gpu->funcs->debugfs_init)
+		gpu->funcs->debugfs_init(gpu, dev->primary ?: dev->render);
 #endif
 
 	return gpu;
