@@ -38,6 +38,12 @@
 #define LUT_VOLT			GENMASK(11, 0)
 #define LUT_TURBO_IND			1
 #define OSM_BOOT_TIME_US		5
+/*
+ * Budget for one ACD master-to-local transfer. The vendor allows 500 ns per
+ * register, but busy-waits for it; a sleeping poll can come back after the
+ * deadline with the transfer done, and this is far from any hot path.
+ */
+#define ACD_XFER_TIMEOUT_US		100
 
 #define CYCLE_COUNTER_CLK_RATIO		GENMASK(5, 1)
 #define OSM_XO_RATIO_VAL		(10 - 1)
@@ -719,9 +725,14 @@ static int qcom_cpufreq_hw_acd_write_autoxfer(struct qcom_cpufreq_data *data,
 	writel(0, acd_base + aregs->auto_xfer_reg);
 	writel(1, acd_base + aregs->auto_xfer_reg);
 
-	/* Poll for status: if the first bit is set the transfer is done. */
-	return readl_poll_timeout(acd_base + aregs->auto_xfer_sts_reg, regval,
-				  regval & BIT(0), 1, 3);
+	/*
+	 * Poll for status: if the first bit is set the transfer is done.
+	 * Busy-wait, as the vendor does: a sleep here can let this cluster
+	 * idle in the middle of the transfer.
+	 */
+	return readl_poll_timeout_atomic(acd_base + aregs->auto_xfer_sts_reg,
+					 regval, regval & BIT(0), 1,
+					 ACD_XFER_TIMEOUT_US);
 }
 
 static int qcom_cpufreq_hw_acd_write_xfer(struct qcom_cpufreq_data *data,
@@ -743,8 +754,10 @@ static int qcom_cpufreq_hw_acd_write_xfer(struct qcom_cpufreq_data *data,
 	writel(regval, acd_base + aregs->write_ctl_reg);
 
 	/* Wait until ACD Local Transfer is done */
-	return readl_poll_timeout(acd_base + aregs->write_sts_reg, regval,
-				  regval & qcom_cpufreq_acd_regbit(reg), 1, 3);
+	return readl_poll_timeout_atomic(acd_base + aregs->write_sts_reg,
+					 regval,
+					 regval & qcom_cpufreq_acd_regbit(reg),
+					 1, ACD_XFER_TIMEOUT_US);
 }
 
 /**
@@ -1367,6 +1380,18 @@ static int qcom_cpufreq_hw_osm_setup(struct device *cpu_dev,
 	u32 val;
 	int ret;
 
+	/*
+	 * Initialize the Adaptive Clock Distribution first. The vendor runs
+	 * it from clk_osm_enable(), after the LUT, but it does not depend on
+	 * the OSM registers. Done here, a failure leaves nothing behind:
+	 * programming the LUT attaches the CPRh power domain and fills the
+	 * OPP table that the whole cluster shares, and the next CPU of the
+	 * cluster retrying this setup would then fail with -EBUSY.
+	 */
+	ret = qcom_cpufreq_hw_acd_init_on_cluster(cpu_dev, policy, index);
+	if (ret)
+		return ret;
+
 	ret = qcom_cpufreq_hw_write_lut(cpu_dev, policy, cpu_count, index);
 	if (ret)
 		return ret;
@@ -1451,11 +1476,6 @@ static int qcom_cpufreq_hw_osm_setup(struct device *cpu_dev,
 	/* Enable PLL Droop Override */
 	val = PLL_OVERRIDE_DROOP_EN;
 	writel(val, drv_data->base + setup_regs->reg_pll_override);
-
-	/* Initialize the Adaptive Clock Distribution */
-	ret = qcom_cpufreq_hw_acd_init_on_cluster(cpu_dev, policy, index);
-	if (ret)
-		return ret;
 
 	/* We're ready: enable the OSM and give it time to boot (5uS) */
 	writel(1, drv_data->base + drv_data->soc_data->reg_enable);
@@ -1672,6 +1692,24 @@ static void qcom_cpufreq_hw_cpu_exit(struct cpufreq_policy *policy)
 	release_mem_region(res->start, resource_size(res));
 }
 
+/*
+ * The OSM is programmed once, at init, and keeps its state while a cluster
+ * is power collapsed, which is also what CPU hotplug does to it. Without
+ * these, the cpufreq core tears the policy down with ->exit() when the last
+ * CPU of a cluster goes offline and re-runs ->init() when one comes back,
+ * which would re-program a running OSM and attach the CPRh power domain a
+ * second time.
+ */
+static int qcom_cpufreq_hw_cpu_online(struct cpufreq_policy *policy)
+{
+	return 0;
+}
+
+static int qcom_cpufreq_hw_cpu_offline(struct cpufreq_policy *policy)
+{
+	return 0;
+}
+
 static struct cpufreq_driver cpufreq_qcom_hw_driver = {
 	.flags		= CPUFREQ_NEED_INITIAL_FREQ_CHECK |
 			  CPUFREQ_HAVE_GOVERNOR_PER_POLICY |
@@ -1681,6 +1719,8 @@ static struct cpufreq_driver cpufreq_qcom_hw_driver = {
 	.get		= qcom_cpufreq_hw_get,
 	.init		= qcom_cpufreq_hw_cpu_init,
 	.exit		= qcom_cpufreq_hw_cpu_exit,
+	.online		= qcom_cpufreq_hw_cpu_online,
+	.offline	= qcom_cpufreq_hw_cpu_offline,
 	.set_boost	= cpufreq_boost_set_sw,
 	.fast_switch    = qcom_cpufreq_hw_fast_switch,
 	.name		= "qcom-cpufreq-osm",
