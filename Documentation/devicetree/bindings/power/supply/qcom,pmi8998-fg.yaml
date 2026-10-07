@@ -31,12 +31,16 @@ properties:
        See Documentation/devicetree/bindings/power/supply/battery.yaml
 
   interrupts:
+    minItems: 1
     items:
       - description: State of charge change interrupt
+      - description: Battery full (monotonic SOC reached 100%) interrupt
 
   interrupt-names:
+    minItems: 1
     items:
       - const: soc-delta
+      - const: msoc-full
 
   power-supplies: true
 
@@ -69,8 +73,9 @@ examples:
         compatible = "qcom,pmi8998-fg";
         reg = <0x4000>;
 
-        interrupts = <0x2 0x40 0x4 IRQ_TYPE_EDGE_RISING>;
-        interrupt-names = "soc-delta";
+        interrupts = <0x2 0x40 0x3 IRQ_TYPE_EDGE_RISING>,
+                     <0x2 0x40 0x7 IRQ_TYPE_EDGE_BOTH>;
+        interrupt-names = "soc-delta", "msoc-full";
 
         monitored-battery = <&battery>;
       };
