@@ -226,6 +226,34 @@
 		pinctrl-names = "default";
 	};
 
+	/*
+	 * Wide camera rails: external LDOs switched by TLMM GPIOs, LG's
+	 * CAM1_VANA (GPIO 39) and CAM1_DVDD (GPIO 21).  As for the main
+	 * camera, the voltages are the sensor's nominal ones; nothing sets
+	 * them.
+	 */
+	cam1_avdd_2p8: cam1-avdd-regulator {
+		compatible = "regulator-fixed";
+		regulator-name = "cam1_avdd_2p8";
+		regulator-min-microvolt = <2800000>;
+		regulator-max-microvolt = <2800000>;
+		gpio = <&tlmm 39 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		pinctrl-0 = <&cam1_avdd_en>;
+		pinctrl-names = "default";
+	};
+
+	cam1_dvdd_1p05: cam1-dvdd-regulator {
+		compatible = "regulator-fixed";
+		regulator-name = "cam1_dvdd_1p05";
+		regulator-min-microvolt = <1050000>;
+		regulator-max-microvolt = <1050000>;
+		gpio = <&tlmm 21 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		pinctrl-0 = <&cam1_dvdd_en>;
+		pinctrl-names = "default";
+	};
+
 	vph_pwr: vph-pwr-regulator {
 		compatible = "regulator-fixed";
 		regulator-name = "vph_pwr";
@@ -267,10 +295,10 @@
 };
 
 /*
- * Camera.  The main IMX351 is wired to CSIPHY0; the other two sensors
- * (S5K3M3 at the back, HI553 at the front) have no mainline drivers yet,
- * so their nodes, rails and MCLK pins come with those drivers.  The CSID
- * supplies are LG's: mipi-csi-vdd is L2 at 1.2 V and vdd_sec is L1.
+ * Camera.  The main IMX351 is wired to CSIPHY0 and the wide S5K3M3 to
+ * CSIPHY1; the front HI553 (CSIPHY2) has no driver here yet, so its node,
+ * rails and MCLK pin come with that driver.  The CSID supplies are LG's:
+ * mipi-csi-vdd is L2 at 1.2 V and vdd_sec is L1.
  */
 &camss {
 	vdda-supply = <&vreg_l2a_1p2>;
@@ -285,6 +313,15 @@
 			csiphy0_ep: endpoint {
 				data-lanes = <0 1 2 3>;
 				remote-endpoint = <&imx351_ep>;
+			};
+		};
+
+		port@1 {
+			reg = <1>;
+
+			csiphy1_ep: endpoint {
+				data-lanes = <0 1 2 3>;
+				remote-endpoint = <&s5k3m3_ep>;
 			};
 		};
 	};
@@ -357,6 +394,43 @@
 	bu24235: lens@3e {
 		compatible = "rohm,bu24235";
 		reg = <0x3e>;
+	};
+};
+
+&cci_i2c1 {
+	/*
+	 * Wide camera: LG's camera@2 on CSIPHY1, fixed focus, no actuator.
+	 * LG gives qcom,mount-angle = <90> like the main camera, but its
+	 * S5K3M3 library streams with both flips set (0x0100 = 0x0103) and
+	 * the driver does not, so the unflipped image needs another 180
+	 * degrees: Android's 270 clockwise is 90 here.
+	 */
+	camera@2d {
+		compatible = "samsung,s5k3m3";
+		reg = <0x2d>;
+
+		clocks = <&mmcc CAMSS_MCLK1_CLK>;
+		assigned-clocks = <&mmcc CAMSS_MCLK1_CLK>;
+		assigned-clock-rates = <24000000>;
+
+		reset-gpios = <&tlmm 28 GPIO_ACTIVE_LOW>;
+		pinctrl-0 = <&cam1_mclk_default &cam1_reset_default>;
+		pinctrl-names = "default";
+
+		vdda-supply = <&cam1_avdd_2p8>;
+		vddd-supply = <&cam1_dvdd_1p05>;
+		vddio-supply = <&vreg_l6a_1p8>;
+
+		orientation = <1>;
+		rotation = <90>;
+
+		port {
+			s5k3m3_ep: endpoint {
+				data-lanes = <1 2 3 4>;
+				link-frequencies = /bits/ 64 <594000000 306000000>;
+				remote-endpoint = <&csiphy1_ep>;
+			};
+		};
 	};
 };
 
@@ -903,6 +977,35 @@
 	cam0_mclk_default: cam0-mclk-default-state {
 		pins = "gpio13";
 		function = "cam_mclk";
+		drive-strength = <2>;
+		bias-disable;
+	};
+
+	/* Wide camera: MCLK1 on GPIO 14 and LG's CAM1 GPIOs (rear2 states) */
+	cam1_mclk_default: cam1-mclk-default-state {
+		pins = "gpio14";
+		function = "cam_mclk";
+		drive-strength = <2>;
+		bias-disable;
+	};
+
+	cam1_reset_default: cam1-reset-default-state {
+		pins = "gpio28";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-disable;
+	};
+
+	cam1_avdd_en: cam1-avdd-en-state {
+		pins = "gpio39";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-disable;
+	};
+
+	cam1_dvdd_en: cam1-dvdd-en-state {
+		pins = "gpio21";
+		function = "gpio";
 		drive-strength = <2>;
 		bias-disable;
 	};
