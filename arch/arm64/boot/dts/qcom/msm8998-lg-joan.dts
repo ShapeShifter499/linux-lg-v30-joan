@@ -1951,7 +1951,8 @@
  * 0.37 * xo_therm + 0.48 * bd_therm_2 + 3.83 C (LG kernel lge,vts). The caps
  * and clear points below are the stock SKIN-*-FLOOR and GPU_MONITOR entries.
  * Cooling states index each policy's frequency table from the top: gold
- * 2361.6 MHz is state 0, 1958.4 is 7, 1728 is 10, 1056 is 19, 729.6 is 23;
+ * 2457.6 MHz (the one-core boost row) is state 0, 2361.6 is 1, 1958.4 is 8,
+ * 1728 is 11, 1056 is 20, 729.6 is 24;
  * silver 1555.2 is state 4; GPU 670 MHz is 1, 515 is 3, 414 is 4, 342 is 5.
  * The stock SKIN-MID-FLOOR reads "skin_ap", which has no mainline
  * counterpart, so it uses vts here.
@@ -2061,7 +2062,7 @@
 			cooling-maps {
 				map0 {	/* gold 1958.4 MHz */
 					trip = <&skin_gold_1958>;
-					cooling-device = <&cpu4 7 7>,
+					cooling-device = <&cpu4 8 8>,
 						 <&cpu5 7 7>,
 						 <&cpu6 7 7>,
 						 <&cpu7 7 7>;
@@ -2074,7 +2075,7 @@
 
 				map2 {	/* gold 1728 MHz */
 					trip = <&skin_gold_1728>;
-					cooling-device = <&cpu4 10 10>,
+					cooling-device = <&cpu4 11 11>,
 						 <&cpu5 10 10>,
 						 <&cpu6 10 10>,
 						 <&cpu7 10 10>;
@@ -2087,7 +2088,7 @@
 
 				map4 {	/* gold 1056 MHz */
 					trip = <&skin_gold_1056>;
-					cooling-device = <&cpu4 19 19>,
+					cooling-device = <&cpu4 20 20>,
 						 <&cpu5 19 19>,
 						 <&cpu6 19 19>,
 						 <&cpu7 19 19>;
@@ -2105,7 +2106,7 @@
 
 				map7 {	/* gold 729.6 MHz */
 					trip = <&skin_gold_729>;
-					cooling-device = <&cpu4 23 23>,
+					cooling-device = <&cpu4 24 24>,
 						 <&cpu5 23 23>,
 						 <&cpu6 23 23>,
 						 <&cpu7 23 23>;
