@@ -228,28 +228,28 @@
 			opp-level = <13>;
 			qcom,opp-fuse-level = <3 3>;
 			qcom,opp-cloop-vadj = <(-11000) (-10000)>;
-			qcom,opp-oloop-vadj = <(-16000) (-16000)>;
+			qcom,opp-oloop-vadj = <(-12000) (-12000)>;
 		};
 
 		cprh_opp14: opp-14 {
 			opp-level = <14>;
 			qcom,opp-fuse-level = <3 3>;
 			qcom,opp-cloop-vadj = <(-12000) (-11000)>;
-			qcom,opp-oloop-vadj = <(-16000) (-12000)>;
+			qcom,opp-oloop-vadj = <(-12000) (-12000)>;
 		};
 
 		cprh_opp15: opp-15 {
 			opp-level = <15>;
 			qcom,opp-fuse-level = <3 3>;
 			qcom,opp-cloop-vadj = <(-13000) (-12000)>;
-			qcom,opp-oloop-vadj = <(-12000) (-16000)>;
+			qcom,opp-oloop-vadj = <(-12000) (-12000)>;
 		};
 
 		cprh_opp16: opp-16 {
 			opp-level = <16>;
 			qcom,opp-fuse-level = <3 3>;
 			qcom,opp-cloop-vadj = <(-14000) (-12000)>;
-			qcom,opp-oloop-vadj = <(-12000) (-16000)>;
+			qcom,opp-oloop-vadj = <(-12000) (-12000)>;
 		};
 
 		cprh_opp17: opp-17 {
@@ -263,7 +263,7 @@
 			opp-level = <18>;
 			qcom,opp-fuse-level = <3 3>;
 			qcom,opp-cloop-vadj = <(-15000) (-14000)>;
-			qcom,opp-oloop-vadj = <(-16000) (-16000)>;
+			qcom,opp-oloop-vadj = <(-16000) (-12000)>;
 		};
 
 		cprh_opp19: opp-19 {
@@ -284,7 +284,7 @@
 			opp-level = <21>;
 			qcom,opp-fuse-level = <4 4>;
 			qcom,opp-cloop-vadj = <(-26000) (-16000)>;
-			qcom,opp-oloop-vadj = <(-28000) (-24000)>;
+			qcom,opp-oloop-vadj = <(-28000) (-20000)>;
 		};
 
 		cprh_opp22: opp-22 {
@@ -298,7 +298,7 @@
 			opp-level = <23>;
 			qcom,opp-fuse-level = <4 4>;
 			qcom,opp-cloop-vadj = <0 (-17000)>;
-			qcom,opp-oloop-vadj = <0 (-20000)>;
+			qcom,opp-oloop-vadj = <0 (-16000)>;
 		};
 
 		cprh_opp24: opp-24 {
