@@ -4,7 +4,7 @@
 $id: http://devicetree.org/schemas/media/i2c/samsung,s5k3m5.yaml#
 $schema: http://devicetree.org/meta-schemas/core.yaml#
 
-title: Samsung S5K3M5 Image Sensor
+title: Samsung S5K3M3 and S5K3M5 Image Sensors
 
 description:
   Samsung S5K3M5 (ISOCELL 3M5) image sensor is a 13MP image sensor.
@@ -12,6 +12,9 @@ description:
   the widest supported output image frame size is 4208x3120 at 30 frames
   per second, data output format is RAW10 transferred over 4-lane
   MIPI D-PHY interface.
+
+  Samsung S5K3M3 is a 13MP sibling of the S5K3M5 with the same control
+  bus, power supplies, reset and 4-lane MIPI D-PHY RAW10 output.
 
 maintainers:
   - Vladimir Zapolskiy <vladimir.zapolskiy@linaro.org>
@@ -21,7 +24,9 @@ allOf:
 
 properties:
   compatible:
-    const: samsung,s5k3m5
+    enum:
+      - samsung,s5k3m3
+      - samsung,s5k3m5
 
   reg:
     maxItems: 1
