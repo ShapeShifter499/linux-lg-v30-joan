@@ -1105,7 +1105,7 @@
 	 * Front camera MCLK2 (downstream cam_sensor_mclk2_active,
 	 * msm8998-joan-common-pinctrl.dtsi: GPIO 15, cam_mclk).
 	 */
-	cam1_mclk_default: cam1-mclk-default-state {
+	cam2_mclk_default: cam2-mclk-default-state {
 		pins = "gpio15";
 		function = "cam_mclk";
 		drive-strength = <2>;
@@ -1272,12 +1272,12 @@
 		assigned-clock-rates = <24000000>;
 
 		reset-gpios = <&tlmm 9 GPIO_ACTIVE_LOW>;
-		pinctrl-0 = <&cam1_mclk_default>;
+		pinctrl-0 = <&cam2_mclk_default>;
 		pinctrl-names = "default";
 
 		dovdd-supply = <&vreg_l14a_1p88>;
 		avdd-supply = <&vreg_l22a_2p85>;
-		dvdd-supply = <&cam1_dvdd_1p05>;
+		dvdd-supply = <&cam2_dvdd_1p05>;
 
 		orientation = <0>;
 		rotation = <90>;
@@ -1293,9 +1293,9 @@
 };
 
 / {
-	cam1_dvdd_1p05: regulator-cam1-dvdd {
+	cam2_dvdd_1p05: regulator-cam2-dvdd {
 		compatible = "regulator-fixed";
-		regulator-name = "cam1_dvdd_1p05";
+		regulator-name = "cam2_dvdd_1p05";
 		regulator-min-microvolt = <1050000>;
 		regulator-max-microvolt = <1050000>;
 		gpio = <&pm8998_gpios 9 GPIO_ACTIVE_HIGH>;
