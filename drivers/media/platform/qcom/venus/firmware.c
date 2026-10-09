@@ -12,6 +12,7 @@
 #include <linux/of_reserved_mem.h>
 #include <linux/platform_device.h>
 #include <linux/of_device.h>
+#include <linux/firmware/qcom/qcom_pas.h>
 #include <linux/firmware/qcom/qcom_scm.h>
 #include <linux/sizes.h>
 #include <linux/soc/qcom/mdt_loader.h>
@@ -60,7 +61,7 @@ static void venus_reset_cpu(struct venus_core *core)
  * venus_boot_core()'s poll. Both symptoms fall out of one thing: the venus CPU
  * never actually leaving reset.
  *
- * On the TZ path that is qcom_scm_set_remote_state()'s job, and this function
+ * On the TZ path that is qcom_pas_set_remote_state()'s job, and this function
  * swallows -EINVAL from it -- so a TZ that does not implement the call reports
  * success while venus stays held in reset, VBIF is unreachable, and the
  * firmware never runs.
@@ -71,7 +72,7 @@ static void venus_reset_cpu(struct venus_core *core)
  */
 static int hw_state_debug;
 module_param(hw_state_debug, int, 0644);
-MODULE_PARM_DESC(hw_state_debug, "log what qcom_scm_set_remote_state() returns");
+MODULE_PARM_DESC(hw_state_debug, "log what qcom_pas_set_remote_state() returns");
 
 static int hw_state_fallback;
 module_param(hw_state_fallback, int, 0644);
@@ -83,10 +84,10 @@ int venus_set_hw_state(struct venus_core *core, bool resume)
 	int ret;
 
 	if (core->use_tz) {
-		ret = qcom_scm_set_remote_state(resume, 0);
+		ret = qcom_pas_set_remote_state(resume, 0);
 		if (hw_state_debug)
 			dev_info(core->dev,
-				 "venus: scm_set_remote_state(resume=%d) = %d\n",
+				 "venus: pas_set_remote_state(resume=%d) = %d\n",
 				 resume, ret);
 		if (resume && ret == -EINVAL) {
 			if (hw_state_fallback) {
@@ -253,7 +254,7 @@ int venus_boot(struct venus_core *core)
 	int ret;
 
 	if (!IS_ENABLED(CONFIG_QCOM_MDT_LOADER) ||
-	    (core->use_tz && !qcom_scm_is_available()))
+	    (core->use_tz && !qcom_pas_is_available()))
 		return -EPROBE_DEFER;
 
 	ret = of_property_read_string_index(dev->of_node, "firmware-name", 0,
@@ -271,7 +272,7 @@ int venus_boot(struct venus_core *core)
 	core->fw.mem_phys = mem_phys;
 
 	if (core->use_tz)
-		ret = qcom_scm_pas_auth_and_reset(VENUS_PAS_ID);
+		ret = qcom_pas_auth_and_reset(VENUS_PAS_ID);
 	else
 		ret = venus_boot_no_tz(core, mem_phys, mem_size);
 
@@ -294,7 +295,7 @@ int venus_boot(struct venus_core *core)
 						     res->cp_nonpixel_start,
 						     res->cp_nonpixel_size);
 		if (ret) {
-			qcom_scm_pas_shutdown(VENUS_PAS_ID);
+			qcom_pas_shutdown(VENUS_PAS_ID);
 			dev_err(dev, "set virtual address ranges fail (%d)\n",
 				ret);
 			return ret;
@@ -309,7 +310,7 @@ int venus_shutdown(struct venus_core *core)
 	int ret;
 
 	if (core->use_tz)
-		ret = qcom_scm_pas_shutdown(VENUS_PAS_ID);
+		ret = qcom_pas_shutdown(VENUS_PAS_ID);
 	else
 		ret = venus_shutdown_no_tz(core);
 

@@ -122,3 +122,4 @@ module_platform_driver(wadc_thermal_driver);
 
 MODULE_DESCRIPTION("Weighted-sum ADC thermal sensor");
 MODULE_LICENSE("GPL");
+MODULE_IMPORT_NS("IIO_CONSUMER");

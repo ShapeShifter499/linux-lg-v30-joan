@@ -144,10 +144,8 @@ static int vl53l0x_configure_irq(struct i2c_client *client,
 	ret = devm_request_threaded_irq(&client->dev, client->irq,
 			NULL, vl53l0x_threaded_irq,
 			irq_flags | IRQF_ONESHOT, indio_dev->name, indio_dev);
-	if (ret) {
-		dev_err(&client->dev, "devm_request_irq error: %d\n", ret);
+	if (ret)
 		return ret;
-	}
 
 	return vl53l0x_enable_irq_output(data);
 }
@@ -232,12 +230,18 @@ static int vl53l0x_read_raw(struct iio_dev *indio_dev,
 
 	switch (mask) {
 	case IIO_CHAN_INFO_RAW:
+		if (!iio_device_claim_direct(indio_dev))
+			return -EBUSY;
+
 		ret = pm_runtime_resume_and_get(&data->client->dev);
-		if (ret)
+		if (ret) {
+			iio_device_release_direct(indio_dev);
 			return ret;
+		}
 
 		ret = vl53l0x_read_proximity(data, chan, val);
 		pm_runtime_put_autosuspend(&data->client->dev);
+		iio_device_release_direct(indio_dev);
 		if (ret < 0)
 			return ret;
 
