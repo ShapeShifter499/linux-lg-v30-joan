@@ -401,7 +401,7 @@
 	/* VDD_GFX supply; managed by the OPP framework + msm_gpu (vdd) */
 	pm8005_s1: s1 {
 		regulator-min-microvolt = <524000>;
-		regulator-max-microvolt = <1100000>;
+		regulator-max-microvolt = <1088000>;
 		regulator-enable-ramp-delay = <500>;
 		/*
 		 * No always-on: the GPU_GX GDSC now owns this rail via
