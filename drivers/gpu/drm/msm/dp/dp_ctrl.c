@@ -1660,6 +1660,12 @@ static int msm_dp_ctrl_link_train(struct msm_dp_ctrl_private *ctrl,
 	u8 assr;
 	struct msm_dp_link_info link_info = {0};
 
+	/*
+	 * The training patterns already go through the logical-to-physical
+	 * map, so a board whose map is not the identity has to program it
+	 * before training rather than only when the stream starts.
+	 */
+	msm_dp_ctrl_lane_mapping(ctrl);
 	msm_dp_ctrl_config_ctrl_link(ctrl, panel);
 	msm_dp_ctrl_config_ctrl_streams(ctrl, panel);
 
@@ -1834,6 +1840,13 @@ static int msm_dp_ctrl_enable_mainlink_clocks(struct msm_dp_ctrl_private *ctrl,
 	ctrl->phy_opts.dp.lanes = ctrl->link->link_params.num_lanes;
 	ctrl->phy_opts.dp.link_rate = ctrl->link->link_params.rate / 100;
 	ctrl->phy_opts.dp.ssc = drm_dp_max_downspread(dpcd);
+
+	/*
+	 * A PHY that leaves a flipped Type-C plug to the controller says
+	 * so here; the others do not implement validate.
+	 */
+	ctrl->phy_opts.dp.lanes_reversed = 0;
+	phy_validate(phy, PHY_MODE_DP, 0, &ctrl->phy_opts);
 
 	phy_configure(phy, &ctrl->phy_opts);
 	msm_dp_link_apply_orientation(ctrl->link, ctrl->phy_opts.dp.lanes_reversed);
