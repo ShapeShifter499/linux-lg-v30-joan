@@ -44,6 +44,11 @@ properties:
 
   vdda-pll-supply: true
 
+  clock-output-names:
+    maxItems: 1
+    description:
+      Name of the USB3 pipe clock source, as on the USB-only MSM8998 PHY.
+
   "#clock-cells":
     const: 1
     description:
@@ -79,6 +84,10 @@ properties:
         $ref: /schemas/graph.yaml#/properties/port
         description: Incoming endpoint from the USB controller
 
+      port@2:
+        $ref: /schemas/graph.yaml#/properties/port
+        description: Incoming endpoint from the DisplayPort controller
+
 required:
   - compatible
   - reg
@@ -97,7 +106,6 @@ additionalProperties: false
 examples:
   - |
     #include <dt-bindings/clock/qcom,gcc-msm8998.h>
-    #include <dt-bindings/clock/qcom,rpmh.h>
 
     phy@c010000 {
       compatible = "qcom,msm8998-qmp-usb3-dp-phy";
@@ -111,6 +119,7 @@ examples:
                     "ref",
                     "cfg_ahb",
                     "pipe";
+      clock-output-names = "usb3_phy_pipe_clk_src";
       #clock-cells = <1>;
       #phy-cells = <1>;
 
