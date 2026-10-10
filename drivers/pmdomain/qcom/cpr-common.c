@@ -228,6 +228,29 @@ unsigned int cpr_get_fuse_corner(struct dev_pm_opp *opp, u32 tid)
 }
 EXPORT_SYMBOL_GPL(cpr_get_fuse_corner);
 
+/*
+ * Whether the OPP described by @np, at @rate, was added to @dev's OPP table.
+ * Nodes with opp-supported-hw are only added on the hardware they name.
+ */
+static bool cpr_opp_node_in_table(struct device *dev, struct device_node *np,
+				  u64 rate)
+{
+	struct device_node *opp_np;
+	struct dev_pm_opp *opp;
+
+	opp = dev_pm_opp_find_freq_exact(dev, rate, true);
+	if (IS_ERR(opp))
+		opp = dev_pm_opp_find_freq_exact(dev, rate, false);
+	if (IS_ERR(opp))
+		return false;
+
+	opp_np = dev_pm_opp_get_of_node(opp);
+	dev_pm_opp_put(opp);
+	of_node_put(opp_np);
+
+	return opp_np == np;
+}
+
 u64 cpr_get_opp_hz_for_req(struct dev_pm_opp *ref,
 			    struct device *cpu_dev)
 {
@@ -245,13 +268,24 @@ u64 cpr_get_opp_hz_for_req(struct dev_pm_opp *ref,
 	for_each_available_child_of_node_scoped(desc_np, child_np) {
 		struct device_node *child_req_np __free(device_node) =
 			of_parse_phandle(child_np, "required-opps", 0);
+		u64 rate = 0;
 
-		if (child_req_np == ref_np) {
-			u64 rate = 0;
+		if (child_req_np != ref_np)
+			continue;
 
-			of_property_read_u64(child_np, "opp-hz", &rate);
-			return rate;
-		}
+		of_property_read_u64(child_np, "opp-hz", &rate);
+
+		/*
+		 * A table can hold one node per hardware version for the same
+		 * level (opp-supported-hw); use the one this part runs. Nodes
+		 * without opp-supported-hw are taken as before, as the CPU
+		 * OPP table may not be populated yet when this is called.
+		 */
+		if (of_property_present(child_np, "opp-supported-hw") &&
+		    !cpr_opp_node_in_table(cpu_dev, child_np, rate))
+			continue;
+
+		return rate;
 	}
 
 	return 0;
