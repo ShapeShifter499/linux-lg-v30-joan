@@ -178,6 +178,9 @@ enum cpr_type {
  * @step_quot_init_max: Maximum achievable step quotient for this corner
  * @num_fuse_corners:   Number of valid entries in fuse_corner_data
  * @fuse_corner_data:   Parameters for calculation of each fuse corner
+ * @corner_ceiling_uV:  Optional per-corner voltage ceiling, by corner; caps
+ *                      the corner below its fuse corner's max_uV
+ * @num_corner_ceilings: Number of entries in corner_ceiling_uV
  */
 struct cpr_thread_desc {
 	u8		controller_id;
@@ -192,6 +195,8 @@ struct cpr_thread_desc {
 	u8		step_quot_init_max;
 	unsigned int	num_fuse_corners;
 	struct fuse_corner_data *fuse_corner_data;
+	const int	*corner_ceiling_uV;
+	unsigned int	num_corner_ceilings;
 };
 
 /*
@@ -1423,6 +1428,9 @@ static int cpr3_corner_init(struct cpr_thread *thread)
 			corner->uV, cdata[i].oloop_vadj);
 
 		corner->max_uV = fuse->max_uV;
+		if (i < tdesc->num_corner_ceilings)
+			corner->max_uV = min(corner->max_uV,
+					     tdesc->corner_ceiling_uV[i]);
 		corner->min_uV = fuse->min_uV;
 		corner->uV = clamp(corner->uV, corner->min_uV, corner->max_uV);
 		dev_vdbg(drv->dev, "Clamped after interpolation: [%d %d %d]\n",
@@ -1801,6 +1809,24 @@ static const int msm8998_silver_scaling_factor[][CPR3_RO_COUNT] = {
 };
 
 /*
+ * Per-corner ceilings of msm8998-v2.dtsi qcom,cpr-voltage-ceiling (gold
+ * :690-720, silver :471-476). They are the same for every speed bin up to
+ * that bin's last corner; gold bin 0 has the most corners (32).
+ */
+static const int msm8998_gold_corner_ceiling_uV[] = {
+	828000, 828000, 828000, 828000, 828000, 828000, 828000, 828000,
+	828000, 828000, 828000, 828000, 900000, 900000, 900000, 900000,
+	900000, 900000, 900000, 900000, 952000, 952000, 952000, 1136000,
+	1136000, 1136000, 1136000, 1136000, 1136000, 1136000, 1136000, 1136000,
+};
+
+static const int msm8998_silver_corner_ceiling_uV[] = {
+	828000, 828000, 828000, 828000, 828000, 828000, 828000, 828000,
+	828000, 828000, 828000, 900000, 900000, 900000, 900000, 900000,
+	900000, 900000, 952000, 952000, 1056000, 1056000,
+};
+
+/*
  * The volt_{o,c}loop_adjust values are the MSM8998 v2 fuse adjustments from
  * msm-4.4 (msm8998-v2.dtsi), which are the same for every speed bin and CPR
  * revision. Retail parts are v2.1; the older v1 values left their NOM and
@@ -1817,6 +1843,8 @@ static const struct cpr_thread_desc msm8998_thread_gold = {
 	.step_quot_init_min = 9,
 	.step_quot_init_max = 14,
 	.num_fuse_corners = 4,
+	.corner_ceiling_uV = msm8998_gold_corner_ceiling_uV,
+	.num_corner_ceilings = ARRAY_SIZE(msm8998_gold_corner_ceiling_uV),
 	.fuse_corner_data = (struct fuse_corner_data[]){
 		[0] = {
 			.ref_uV = 756000,
@@ -1892,6 +1920,8 @@ static const struct cpr_thread_desc msm8998_thread_silver = {
 	.step_quot_init_min = 11,
 	.step_quot_init_max = 12,
 	.num_fuse_corners = 4,
+	.corner_ceiling_uV = msm8998_silver_corner_ceiling_uV,
+	.num_corner_ceilings = ARRAY_SIZE(msm8998_silver_corner_ceiling_uV),
 	.fuse_corner_data = (struct fuse_corner_data[]){
 		[0] = {
 			.ref_uV = 688000,
