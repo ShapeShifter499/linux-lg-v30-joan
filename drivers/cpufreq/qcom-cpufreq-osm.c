@@ -442,6 +442,8 @@ static void qcom_cpufreq_hw_boost_setup(void __iomem *timer0_addr, u32 len)
  * @cpu_count:   Number of CPUs in the frequency domain
  * @num_entries: Number of allocated (and filled) elements in the table,
  *               returned to the caller
+ * @num_corners: Number of power-domain (CPR) corners the table uses, returned
+ *               to the caller
  *
  * This function allocates a 'qcom_cpufreq_hw_params' parameters table,
  * fills it and returns it to the consumer, ready to get sent to the HW.
@@ -1841,6 +1843,7 @@ static int qcom_osm_set_speed_bin(struct platform_device *pdev)
 		.supported_hw = &supported_hw,
 		.supported_hw_count = 1,
 	};
+	struct device_node *last_np __free(device_node) = NULL;
 	bool binned = false;
 	int cpu, ret;
 
@@ -1856,12 +1859,27 @@ static int qcom_osm_set_speed_bin(struct platform_device *pdev)
 
 	for_each_possible_cpu(cpu) {
 		struct device *cpu_dev = get_cpu_device(cpu);
+		struct device_node *np __free(device_node) = NULL;
 
 		if (!cpu_dev)
 			return -EPROBE_DEFER;
 
 		if (!qcom_osm_opp_table_is_binned(cpu_dev))
 			continue;
+
+		/*
+		 * The config belongs to the OPP table, which the CPUs of a
+		 * cluster share.  Set it through the first CPU of each table
+		 * only: the others join the table through
+		 * dev_pm_opp_set_sharing_cpus() when their policy is set up,
+		 * and adding them here as well registers their OPP debugfs
+		 * directories twice.
+		 */
+		np = dev_pm_opp_of_get_opp_desc_node(cpu_dev);
+		if (np && np == last_np)
+			continue;
+		of_node_put(last_np);
+		last_np = of_node_get(np);
 
 		ret = dev_pm_opp_set_config(cpu_dev, &config);
 		if (ret < 0)
