@@ -329,7 +329,7 @@
 			reg = <2>;
 
 			csiphy2_ep: endpoint {
-				data-lanes = <0 1 2 3>;
+				data-lanes = <0 1>;
 				remote-endpoint = <&hi553_ep>;
 			};
 		};
@@ -1284,8 +1284,8 @@
 
 		port {
 			hi553_ep: endpoint {
-				data-lanes = <1 2 3 4>;
-				link-frequencies = /bits/ 64 <220000000>;
+				data-lanes = <1 2>;
+				link-frequencies = /bits/ 64 <440000000 220000000>;
 				remote-endpoint = <&csiphy2_ep>;
 			};
 		};

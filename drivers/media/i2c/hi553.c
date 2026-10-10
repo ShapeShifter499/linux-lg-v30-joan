@@ -70,11 +70,19 @@
 #define HI553_NATIVE_WIDTH		2560
 #define HI553_NATIVE_HEIGHT		1920
 
+/*
+ * LG runs the sensor on two CSI-2 lanes (lane_cnt 2, settle 0x11 in
+ * libmmcamera_hi553.so at 0xb1af8).  op_pixel_clk is 176 MHz for the
+ * 2560-wide modes and 88 MHz for the binned 1280x720 mode, so RAW10 over
+ * two DDR lanes needs a 440 MHz and a 220 MHz link respectively.
+ */
 enum hi553_link_freq {
+	HI553_LINK_FREQ_440MHZ,
 	HI553_LINK_FREQ_220MHZ,
 };
 
 static const s64 hi553_link_freqs[] = {
+	[HI553_LINK_FREQ_440MHZ] = 440000000,
 	[HI553_LINK_FREQ_220MHZ] = 220000000,
 };
 
@@ -3194,7 +3202,34 @@ static const struct cci_reg_sequence hi553_init_ram_c[] = {
 	{ CCI_REG8(0x2bef), 0x30 },
 };
 
-static const struct cci_reg_sequence hi553_init_pll[] = {
+/* LG's pre-init block (libmmcamera_hi553.so 0xd278), written before the SRAM loads */
+static const struct cci_reg_sequence hi553_init_pre[] = {
+	{ CCI_REG16(0x0e00), 0x0102 },
+	{ CCI_REG16(0x0e02), 0x0102 },
+	{ CCI_REG16(0x0e0c), 0x0100 },
+};
+
+/* LG's init list (libmmcamera_hi553.so 0x249b8, 110 entries), written after the SRAM loads */
+static const struct cci_reg_sequence hi553_init[] = {
+	{ CCI_REG16(0x2ffe), 0xf14c },
+	{ CCI_REG16(0x3000), 0x01fc },
+	{ CCI_REG16(0x3002), 0x320f },
+	{ CCI_REG16(0x3004), 0x0001 },
+	{ CCI_REG16(0x3006), 0x01fc },
+	{ CCI_REG16(0x3008), 0x320f },
+	{ CCI_REG16(0x300a), 0x0001 },
+	{ CCI_REG16(0x300c), 0x01fc },
+	{ CCI_REG16(0x300e), 0x320f },
+	{ CCI_REG16(0x3010), 0x0001 },
+	{ CCI_REG16(0x4000), 0x2500 },
+	{ CCI_REG16(0x4002), 0xfc2c },
+	{ CCI_REG16(0x4004), 0xc004 },
+	{ CCI_REG16(0x4006), 0x2500 },
+	{ CCI_REG16(0x4008), 0xfc2c },
+	{ CCI_REG16(0x400a), 0xc004 },
+	{ CCI_REG16(0x400c), 0x2500 },
+	{ CCI_REG16(0x400e), 0xfc2c },
+	{ CCI_REG16(0x4010), 0xc004 },
 	{ CCI_REG16(0x0a00), 0x0000 },
 	{ CCI_REG16(0x0b00), 0x0000 },
 	{ CCI_REG16(0x0b02), 0x9887 },
@@ -3231,9 +3266,6 @@ static const struct cci_reg_sequence hi553_init_pll[] = {
 	{ CCI_REG16(0x0000), 0x0100 },
 	{ CCI_REG16(0x0f0a), 0x0000 },
 	{ CCI_REG16(0x0e0a), 0x0001 },
-};
-
-static const struct cci_reg_sequence hi553_mode_2560x1920[] = {
 	{ CCI_REG16(0x004a), 0x0100 },
 	{ CCI_REG16(0x000c), 0x0022 },
 	{ CCI_REG16(0x0008), 0x0b00 },
@@ -3291,7 +3323,53 @@ static const struct cci_reg_sequence hi553_mode_2560x1920[] = {
 	{ CCI_REG16(0x091e), 0x0a00 },
 };
 
+/* LG's 2560x1920 mode list (0x5f3dc) */
+static const struct cci_reg_sequence hi553_mode_2560x1920[] = {
+	{ CCI_REG16(0x0b14), 0x402c },
+	{ CCI_REG16(0x0b16), 0x6e0b },
+	{ CCI_REG16(0x0b18), 0xf20b },
+	{ CCI_REG16(0x004a), 0x0100 },
+	{ CCI_REG16(0x000c), 0x0022 },
+	{ CCI_REG16(0x0008), 0x0b00 },
+	{ CCI_REG16(0x005a), 0x0202 },
+	{ CCI_REG16(0x0012), 0x001e },
+	{ CCI_REG16(0x0018), 0x0a21 },
+	{ CCI_REG16(0x0024), 0x0044 },
+	{ CCI_REG16(0x002a), 0x0049 },
+	{ CCI_REG16(0x0026), 0x004c },
+	{ CCI_REG16(0x002c), 0x07cb },
+	{ CCI_REG16(0x002e), 0x1111 },
+	{ CCI_REG16(0x0030), 0x1111 },
+	{ CCI_REG16(0x0032), 0x1111 },
+	{ CCI_REG16(0x001a), 0x1111 },
+	{ CCI_REG16(0x001c), 0x1111 },
+	{ CCI_REG16(0x001e), 0x1111 },
+	{ CCI_REG16(0x0006), 0x0823 },
+	{ CCI_REG16(0x0a22), 0x0000 },
+	{ CCI_REG16(0x0a12), 0x0a00 },
+	{ CCI_REG16(0x0a14), 0x0780 },
+	{ CCI_REG16(0x003e), 0x0000 },
+	{ CCI_REG16(0x0004), 0x081d },
+	{ CCI_REG16(0x0a04), 0x014a },
+	{ CCI_REG16(0x0a1a), 0x0800 },
+	{ CCI_REG16(0x090c), 0x0fdc },
+	{ CCI_REG16(0x090e), 0x0041 },
+	{ CCI_REG16(0x0902), 0x431a },
+	{ CCI_REG16(0x0914), 0xc10c },
+	{ CCI_REG16(0x0916), 0x061d },
+	{ CCI_REG16(0x091c), 0x0e09 },
+	{ CCI_REG16(0x0918), 0x0307 },
+	{ CCI_REG16(0x091a), 0x0c0c },
+	{ CCI_REG16(0x091e), 0x0a00 },
+};
+
+/* LG's 2560x1440 mode list (0x651ac) */
 static const struct cci_reg_sequence hi553_mode_2560x1440[] = {
+	{ CCI_REG16(0x0b14), 0x402c },
+	{ CCI_REG16(0x0b16), 0x6e0b },
+	{ CCI_REG16(0x0b18), 0xf20b },
+	{ CCI_REG16(0x004a), 0x0100 },
+	{ CCI_REG16(0x000c), 0x0022 },
 	{ CCI_REG16(0x0008), 0x0b00 },
 	{ CCI_REG16(0x005a), 0x0202 },
 	{ CCI_REG16(0x0012), 0x001e },
@@ -3325,7 +3403,13 @@ static const struct cci_reg_sequence hi553_mode_2560x1440[] = {
 	{ CCI_REG16(0x091e), 0x0a00 },
 };
 
+/* LG's 1280x720 binned mode list (0x6af7c) */
 static const struct cci_reg_sequence hi553_mode_1280x720[] = {
+	{ CCI_REG16(0x0b14), 0x402c },
+	{ CCI_REG16(0x0b16), 0x6e0b },
+	{ CCI_REG16(0x0b18), 0xf24b },
+	{ CCI_REG16(0x004a), 0x0100 },
+	{ CCI_REG16(0x000c), 0x0022 },
 	{ CCI_REG16(0x0008), 0x0b00 },
 	{ CCI_REG16(0x005a), 0x0204 },
 	{ CCI_REG16(0x0012), 0x001e },
@@ -3358,24 +3442,7 @@ static const struct cci_reg_sequence hi553_mode_1280x720[] = {
 	{ CCI_REG16(0x091a), 0x0609 },
 	{ CCI_REG16(0x091e), 0x0300 },
 };
-static const struct cci_reg_sequence hi553_init_mipi[] = {
-	{ CCI_REG16(0x0a1a), 0x0800 },
-	{ CCI_REG16(0x0126), 0x0100 },
-	{ CCI_REG16(0x0128), 0x0100 },
-	{ CCI_REG16(0x012a), 0x0100 },
-	{ CCI_REG16(0x012c), 0x0100 },
-	{ CCI_REG16(0x012e), 0x0203 },
-	{ CCI_REG16(0x0130), 0x0600 },
-	{ CCI_REG16(0x090c), 0x0a38 },
-	{ CCI_REG16(0x090e), 0x002a },
-	{ CCI_REG16(0x0902), 0x431a },
-	{ CCI_REG16(0x0914), 0xc10b },
-	{ CCI_REG16(0x0916), 0x071f },
-	{ CCI_REG16(0x091c), 0x0e09 },
-	{ CCI_REG16(0x0918), 0x0307 },
-	{ CCI_REG16(0x091a), 0x0c0c },
-	{ CCI_REG16(0x091e), 0x0a00 },
-};
+
 static const struct hi553_mode hi553_modes[] = {
 	{
 		.width = 2560,
@@ -3385,7 +3452,7 @@ static const struct hi553_mode hi553_modes[] = {
 		.frame_length = 2083,
 		/* 2816 * 2083 * 30 fps; all modes share the PLL block */
 		.pixel_rate = 175971840,
-		.link_freq = HI553_LINK_FREQ_220MHZ,
+		.link_freq = HI553_LINK_FREQ_440MHZ,
 		.regs = hi553_mode_2560x1920,
 		.num_regs = ARRAY_SIZE(hi553_mode_2560x1920),
 	},
@@ -3396,7 +3463,7 @@ static const struct hi553_mode hi553_modes[] = {
 		.line_length = 2816,
 		.frame_length = 2083,
 		.pixel_rate = 175971840,
-		.link_freq = HI553_LINK_FREQ_220MHZ,
+		.link_freq = HI553_LINK_FREQ_440MHZ,
 		.regs = hi553_mode_2560x1440,
 		.num_regs = ARRAY_SIZE(hi553_mode_2560x1440),
 	},
@@ -3609,21 +3676,28 @@ static int hi553_enable_streams(struct v4l2_subdev *sd,
 	if (ret)
 		return ret;
 
-	/* LG's mm-camera order: SRAM loads, init, then the mode registers */
-	ret = cci_multi_reg_write(hi553->regmap, hi553_init_ram_a,
-				  ARRAY_SIZE(hi553_init_ram_a), NULL);
+	/*
+	 * LG's mm-camera order: the pre-init block, the three SRAM loads, the
+	 * init list, then the mode list.  LG's arrays carry a 1 ms delay after
+	 * each list, kept here.
+	 */
+	ret = cci_multi_reg_write(hi553->regmap, hi553_init_pre,
+				  ARRAY_SIZE(hi553_init_pre), NULL);
+	usleep_range(1000, 1100);
+	if (!ret)
+		ret = cci_multi_reg_write(hi553->regmap, hi553_init_ram_a,
+					  ARRAY_SIZE(hi553_init_ram_a), NULL);
 	if (!ret)
 		ret = cci_multi_reg_write(hi553->regmap, hi553_init_ram_b,
 					  ARRAY_SIZE(hi553_init_ram_b), NULL);
 	if (!ret)
 		ret = cci_multi_reg_write(hi553->regmap, hi553_init_ram_c,
 					  ARRAY_SIZE(hi553_init_ram_c), NULL);
+	usleep_range(1000, 1100);
 	if (!ret)
-		ret = cci_multi_reg_write(hi553->regmap, hi553_init_pll,
-					  ARRAY_SIZE(hi553_init_pll), NULL);
-	if (!ret)
-		ret = cci_multi_reg_write(hi553->regmap, hi553_init_mipi,
-					  ARRAY_SIZE(hi553_init_mipi), NULL);
+		ret = cci_multi_reg_write(hi553->regmap, hi553_init,
+					  ARRAY_SIZE(hi553_init), NULL);
+	usleep_range(1000, 1100);
 	if (!ret)
 		ret = cci_multi_reg_write(hi553->regmap, mode->regs,
 					  mode->num_regs, NULL);
@@ -3859,9 +3933,9 @@ static int hi553_parse_endpoint(struct hi553 *hi553)
 		return dev_err_probe(hi553->dev, ret,
 				     "failed to parse endpoint\n");
 
-	if (bus_cfg.bus.mipi_csi2.num_data_lanes != 4) {
+	if (bus_cfg.bus.mipi_csi2.num_data_lanes != 2) {
 		ret = dev_err_probe(hi553->dev, -EINVAL,
-				    "only 4 data lanes are supported\n");
+				    "only 2 data lanes are supported\n");
 		goto out;
 	}
 
