@@ -136,6 +136,13 @@
 		};
 	};
 
+	/*
+	 * CPRh levels, <silver gold>. The plain vadj properties are the
+	 * msm8998-v2.dtsi values of gold speed bins 2 and 3; -speed<N> ones
+	 * replace them on speed bin N parts. Silver is the same on every bin
+	 * and uses levels 1-22; gold bin 1 uses 1-26, bins 2/3 1-30, bin 0
+	 * 1-32.
+	 */
 	cprh_opp_table: opp-table-cprh {
 		compatible = "operating-points-v2-qcom-level";
 		opp-shared;
@@ -306,6 +313,7 @@
 			qcom,opp-fuse-level = <4 4>;
 			qcom,opp-cloop-vadj = <0 (-15000)>;
 			qcom,opp-oloop-vadj = <0 (-16000)>;
+			qcom,opp-cloop-vadj-speed1 = <0 (-16000)>;
 		};
 
 		cprh_opp25: opp-25 {
@@ -313,6 +321,9 @@
 			qcom,opp-fuse-level = <4 4>;
 			qcom,opp-cloop-vadj = <0 (-14000)>;
 			qcom,opp-oloop-vadj = <0 (-12000)>;
+			qcom,opp-cloop-vadj-speed0 = <0 (-13000)>;
+			qcom,opp-cloop-vadj-speed1 = <0 (-15000)>;
+			qcom,opp-oloop-vadj-speed1 = <0 (-16000)>;
 		};
 
 		cprh_opp26: opp-26 {
@@ -320,6 +331,8 @@
 			qcom,opp-fuse-level = <4 4>;
 			qcom,opp-cloop-vadj = <0 (-27000)>;
 			qcom,opp-oloop-vadj = <0 (-28000)>;
+			qcom,opp-cloop-vadj-speed0 = <0 (-26000)>;
+			qcom,opp-cloop-vadj-speed1 = <0 (-28000)>;
 		};
 
 		cprh_opp27: opp-27 {
@@ -327,6 +340,7 @@
 			qcom,opp-fuse-level = <4 4>;
 			qcom,opp-cloop-vadj = <0 (-27000)>;
 			qcom,opp-oloop-vadj = <0 (-28000)>;
+			qcom,opp-cloop-vadj-speed0 = <0 (-26000)>;
 		};
 
 		cprh_opp28: opp-28 {
@@ -334,6 +348,7 @@
 			qcom,opp-fuse-level = <4 4>;
 			qcom,opp-cloop-vadj = <0 (-28000)>;
 			qcom,opp-oloop-vadj = <0 (-28000)>;
+			qcom,opp-cloop-vadj-speed0 = <0 (-27000)>;
 		};
 
 		cprh_opp29: opp-29 {
@@ -341,10 +356,26 @@
 			qcom,opp-fuse-level = <4 4>;
 			qcom,opp-cloop-vadj = <0 (-28000)>;
 			qcom,opp-oloop-vadj = <0 (-28000)>;
+			qcom,opp-cloop-vadj-speed0 = <0 (-27000)>;
 		};
 
 		cprh_opp30: opp-30 {
 			opp-level = <30>;
+			qcom,opp-fuse-level = <4 4>;
+			qcom,opp-cloop-vadj = <0 (-28000)>;
+			qcom,opp-oloop-vadj = <0 (-28000)>;
+		};
+
+		/* Gold speed bin 0 only */
+		cprh_opp31: opp-31 {
+			opp-level = <31>;
+			qcom,opp-fuse-level = <4 4>;
+			qcom,opp-cloop-vadj = <0 (-28000)>;
+			qcom,opp-oloop-vadj = <0 (-28000)>;
+		};
+
+		cprh_opp32: opp-32 {
+			opp-level = <32>;
 			qcom,opp-fuse-level = <4 4>;
 			qcom,opp-cloop-vadj = <0 (-28000)>;
 			qcom,opp-oloop-vadj = <0 (-28000)>;
@@ -538,12 +569,18 @@
 		};
 	};
 
+	/*
+	 * Gold OPPs by speed bin, from msm8998-v2.dtsi
+	 * qcom,perfcl-speedbin{0,1,2,3}-v0: opp-supported-hw bit N is bin N.
+	 * Up to 2112 MHz every bin has the same rows; above it they differ.
+	 */
 	cpu4_opp_table: opp-table-cpu4 {
 		compatible = "operating-points-v2";
 		opp-shared;
 
 		opp-300000000 {
 			opp-hz = /bits/ 64 <300000000>;
+			opp-supported-hw = <0xf>;
 			opp-microwatt = <57138>;
 			required-opps = <&cprh_opp1>;
 			qcom,pll-override = <0x01200020>;
@@ -552,6 +589,7 @@
 
 		opp-345600000 {
 			opp-hz = /bits/ 64 <345600000>;
+			opp-supported-hw = <0xf>;
 			opp-microwatt = <76818>;
 			required-opps = <&cprh_opp2>;
 			qcom,pll-override = <0x01200020>;
@@ -561,6 +599,7 @@
 
 		opp-422400000 {
 			opp-hz = /bits/ 64 <422400000>;
+			opp-supported-hw = <0xf>;
 			opp-microwatt = <91475>;
 			required-opps = <&cprh_opp3>;
 			qcom,pll-override = <0x02200020>;
@@ -570,6 +609,7 @@
 
 		opp-499200000 {
 			opp-hz = /bits/ 64 <499200000>;
+			opp-supported-hw = <0xf>;
 			opp-microwatt = <105191>;
 			required-opps = <&cprh_opp4>;
 			qcom,pll-override = <0x02200020>;
@@ -579,6 +619,7 @@
 
 		opp-576000000 {
 			opp-hz = /bits/ 64 <576000000>;
+			opp-supported-hw = <0xf>;
 			opp-microwatt = <119511>;
 			required-opps = <&cprh_opp5>;
 			qcom,pll-override = <0x02200020>;
@@ -588,6 +629,7 @@
 
 		opp-652800000 {
 			opp-hz = /bits/ 64 <652800000>;
+			opp-supported-hw = <0xf>;
 			opp-microwatt = <137231>;
 			required-opps = <&cprh_opp6>;
 			qcom,pll-override = <0x03200020>;
@@ -597,6 +639,7 @@
 
 		opp-729600000 {
 			opp-hz = /bits/ 64 <729600000>;
+			opp-supported-hw = <0xf>;
 			opp-microwatt = <151634>;
 			required-opps = <&cprh_opp7>;
 			qcom,pll-override = <0x03200020>;
@@ -606,6 +649,7 @@
 
 		opp-806400000 {
 			opp-hz = /bits/ 64 <806400000>;
+			opp-supported-hw = <0xf>;
 			opp-microwatt = <164287>;
 			required-opps = <&cprh_opp8>;
 			qcom,pll-override = <0x03220022>;
@@ -615,6 +659,7 @@
 
 		opp-902400000 {
 			opp-hz = /bits/ 64 <902400000>;
+			opp-supported-hw = <0xf>;
 			opp-microwatt = <181152>;
 			required-opps = <&cprh_opp9>;
 			qcom,pll-override = <0x04260026>;
@@ -623,6 +668,7 @@
 
 		opp-979200000 {
 			opp-hz = /bits/ 64 <979200000>;
+			opp-supported-hw = <0xf>;
 			opp-microwatt = <198957>;
 			required-opps = <&cprh_opp10>;
 			qcom,pll-override = <0x04290029>;
@@ -631,6 +677,7 @@
 
 		opp-1056000000 {
 			opp-hz = /bits/ 64 <1056000000>;
+			opp-supported-hw = <0xf>;
 			opp-microwatt = <216156>;
 			required-opps = <&cprh_opp11>;
 			qcom,pll-override = <0x052c002c>;
@@ -639,6 +686,7 @@
 
 		opp-1132800000 {
 			opp-hz = /bits/ 64 <1132800000>;
+			opp-supported-hw = <0xf>;
 			opp-microwatt = <232616>;
 			required-opps = <&cprh_opp12>;
 			qcom,pll-override = <0x052f002f>;
@@ -647,6 +695,7 @@
 
 		opp-1190400000 {
 			opp-hz = /bits/ 64 <1190400000>;
+			opp-supported-hw = <0xf>;
 			opp-microwatt = <254195>;
 			required-opps = <&cprh_opp13>;
 			qcom,pll-override = <0x05320032>;
@@ -655,6 +704,7 @@
 
 		opp-1267200000 {
 			opp-hz = /bits/ 64 <1267200000>;
+			opp-supported-hw = <0xf>;
 			opp-microwatt = <283562>;
 			required-opps = <&cprh_opp14>;
 			qcom,pll-override = <0x06350035>;
@@ -663,6 +713,7 @@
 
 		opp-1344000000 {
 			opp-hz = /bits/ 64 <1344000000>;
+			opp-supported-hw = <0xf>;
 			opp-microwatt = <317972>;
 			required-opps = <&cprh_opp15>;
 			qcom,pll-override = <0x06380038>;
@@ -671,6 +722,7 @@
 
 		opp-1420800000 {
 			opp-hz = /bits/ 64 <1420800000>;
+			opp-supported-hw = <0xf>;
 			opp-microwatt = <355156>;
 			required-opps = <&cprh_opp16>;
 			qcom,pll-override = <0x063b003b>;
@@ -679,6 +731,7 @@
 
 		opp-1497600000 {
 			opp-hz = /bits/ 64 <1497600000>;
+			opp-supported-hw = <0xf>;
 			opp-microwatt = <391311>;
 			required-opps = <&cprh_opp17>;
 			qcom,pll-override = <0x073e003e>;
@@ -687,6 +740,7 @@
 
 		opp-1574400000 {
 			opp-hz = /bits/ 64 <1574400000>;
+			opp-supported-hw = <0xf>;
 			opp-microwatt = <449370>;
 			required-opps = <&cprh_opp18>;
 			qcom,pll-override = <0x07420042>;
@@ -695,6 +749,7 @@
 
 		opp-1651200000 {
 			opp-hz = /bits/ 64 <1651200000>;
+			opp-supported-hw = <0xf>;
 			opp-microwatt = <505286>;
 			required-opps = <&cprh_opp19>;
 			qcom,pll-override = <0x07450045>;
@@ -703,6 +758,7 @@
 
 		opp-1728000000 {
 			opp-hz = /bits/ 64 <1728000000>;
+			opp-supported-hw = <0xf>;
 			opp-microwatt = <580819>;
 			required-opps = <&cprh_opp20>;
 			qcom,pll-override = <0x08480048>;
@@ -711,6 +767,7 @@
 
 		opp-1804800000 {
 			opp-hz = /bits/ 64 <1804800000>;
+			opp-supported-hw = <0xf>;
 			opp-microwatt = <638788>;
 			required-opps = <&cprh_opp21>;
 			qcom,pll-override = <0x084b004b>;
@@ -719,6 +776,7 @@
 
 		opp-1881600000 {
 			opp-hz = /bits/ 64 <1881600000>;
+			opp-supported-hw = <0xf>;
 			opp-microwatt = <732931>;
 			required-opps = <&cprh_opp22>;
 			qcom,pll-override = <0x094e004e>;
@@ -727,6 +785,7 @@
 
 		opp-1958400000 {
 			opp-hz = /bits/ 64 <1958400000>;
+			opp-supported-hw = <0xf>;
 			opp-microwatt = <823310>;
 			required-opps = <&cprh_opp23>;
 			qcom,pll-override = <0x09520052>;
@@ -735,6 +794,7 @@
 
 		opp-2035200000 {
 			opp-hz = /bits/ 64 <2035200000>;
+			opp-supported-hw = <0xf>;
 			opp-microwatt = <896581>;
 			required-opps = <&cprh_opp24>;
 			qcom,pll-override = <0x09550055>;
@@ -743,14 +803,17 @@
 
 		opp-2112000000 {
 			opp-hz = /bits/ 64 <2112000000>;
+			opp-supported-hw = <0xf>;
 			opp-microwatt = <1066625>;
 			required-opps = <&cprh_opp25>;
 			qcom,pll-override = <0x0a580058>;
 			qcom,spare-data = <0x3>;
 		};
 
+		/* Speed bins 0, 2 and 3 */
 		opp-2208000000 {
 			opp-hz = /bits/ 64 <2208000000>;
+			opp-supported-hw = <0xd>;
 			opp-microwatt = <1246899>;
 			required-opps = <&cprh_opp26>;
 			qcom,pll-override = <0x0a5c005c>;
@@ -761,8 +824,24 @@
 			qcom,boost-spare-data = <0x3>;
 		};
 
+		/* Speed bin 1: its top corner, with a 2304 MHz 1-core row */
+		opp-2208000000-1 {
+			opp-hz = /bits/ 64 <2208000000>;
+			opp-supported-hw = <0x2>;
+			opp-microwatt = <1246899>;
+			required-opps = <&cprh_opp26>;
+			qcom,pll-override = <0x0a5c005c>;
+			qcom,spare-data = <0x3>;
+			/* 1-core boost row at this corner */
+			qcom,boost-hz = /bits/ 64 <2304000000>;
+			qcom,boost-pll-override = <0x0a600060>;
+			qcom,boost-spare-data = <0x3>;
+		};
+
+		/* Speed bins 0, 2 and 3 */
 		opp-2265600000 {
 			opp-hz = /bits/ 64 <2265600000>;
+			opp-supported-hw = <0xd>;
 			opp-microwatt = <1436099>;
 			required-opps = <&cprh_opp27>;
 			qcom,pll-override = <0x0a5e005e>;
@@ -773,8 +852,10 @@
 			qcom,boost-spare-data = <0x3>;
 		};
 
+		/* Speed bins 2 and 3 */
 		opp-2323200000 {
 			opp-hz = /bits/ 64 <2323200000>;
+			opp-supported-hw = <0xc>;
 			opp-microwatt = <1587589>;
 			required-opps = <&cprh_opp28>;
 			qcom,pll-override = <0x0a610061>;
@@ -785,8 +866,24 @@
 			qcom,boost-spare-data = <0x3>;
 		};
 
+		/* Speed bin 0 */
+		opp-2342400000-0 {
+			opp-hz = /bits/ 64 <2342400000>;
+			opp-supported-hw = <0x1>;
+			opp-microwatt = <1615894>;
+			required-opps = <&cprh_opp28>;
+			qcom,pll-override = <0x0a620062>;
+			qcom,spare-data = <0x3>;
+			/* 1-core boost row at this corner */
+			qcom,boost-hz = /bits/ 64 <2419200000>;
+			qcom,boost-pll-override = <0x0a650065>;
+			qcom,boost-spare-data = <0x3>;
+		};
+
+		/* Speed bins 2 and 3 */
 		opp-2342400000 {
 			opp-hz = /bits/ 64 <2342400000>;
+			opp-supported-hw = <0xc>;
 			opp-microwatt = <1615894>;
 			required-opps = <&cprh_opp29>;
 			qcom,pll-override = <0x0a620062>;
@@ -797,8 +894,10 @@
 			qcom,boost-spare-data = <0x3>;
 		};
 
+		/* Speed bins 2 and 3 */
 		opp-2361600000 {
 			opp-hz = /bits/ 64 <2361600000>;
+			opp-supported-hw = <0xc>;
 			opp-microwatt = <1683000>;
 			required-opps = <&cprh_opp30>;
 			qcom,pll-override = <0x0a620062>;
@@ -816,8 +915,83 @@
 		 */
 		opp-2457600000 {
 			opp-hz = /bits/ 64 <2457600000>;
+			opp-supported-hw = <0xc>;
 			opp-microwatt = <1751415>;
 			required-opps = <&cprh_opp30>;
+			turbo-mode;
+		};
+
+		/* Speed bin 0 */
+		opp-2419200000 {
+			opp-hz = /bits/ 64 <2419200000>;
+			opp-supported-hw = <0x1>;
+			opp-microwatt = <1724049>;
+			required-opps = <&cprh_opp29>;
+			qcom,pll-override = <0x0a650065>;
+			qcom,spare-data = <0x3>;
+			/* 1-core boost row at this corner */
+			qcom,boost-hz = /bits/ 64 <2496000000>;
+			qcom,boost-pll-override = <0x0a680068>;
+			qcom,boost-spare-data = <0x3>;
+		};
+
+		/* Speed bin 0 */
+		opp-2457600000-0 {
+			opp-hz = /bits/ 64 <2457600000>;
+			opp-supported-hw = <0x1>;
+			opp-microwatt = <1751415>;
+			required-opps = <&cprh_opp30>;
+			qcom,pll-override = <0x0a660066>;
+			qcom,spare-data = <0x3>;
+			/* 1-core boost row at this corner */
+			qcom,boost-hz = /bits/ 64 <2553600000>;
+			qcom,boost-pll-override = <0x0a6a006a>;
+			qcom,boost-spare-data = <0x3>;
+		};
+
+		/* Speed bin 0 */
+		opp-2476800000 {
+			opp-hz = /bits/ 64 <2476800000>;
+			opp-supported-hw = <0x1>;
+			opp-microwatt = <1765098>;
+			required-opps = <&cprh_opp31>;
+			qcom,pll-override = <0x0a670067>;
+			qcom,spare-data = <0x3>;
+			/* 1-core boost row at this corner */
+			qcom,boost-hz = /bits/ 64 <2572800000>;
+			qcom,boost-pll-override = <0x0a6b006b>;
+			qcom,boost-spare-data = <0x3>;
+		};
+
+		/* Speed bin 0 */
+		opp-2496000000 {
+			opp-hz = /bits/ 64 <2496000000>;
+			opp-supported-hw = <0x1>;
+			opp-microwatt = <1778780>;
+			required-opps = <&cprh_opp32>;
+			qcom,pll-override = <0x0a680068>;
+			qcom,spare-data = <0x3>;
+			/* 1-core boost row at this corner */
+			qcom,boost-hz = /bits/ 64 <2592000000>;
+			qcom,boost-pll-override = <0x0a6c006c>;
+			qcom,boost-spare-data = <0x3>;
+		};
+
+		/* Speed bin 0: 1-core row of opp-2496000000, after its twin */
+		opp-2592000000 {
+			opp-hz = /bits/ 64 <2592000000>;
+			opp-supported-hw = <0x1>;
+			opp-microwatt = <1847195>;
+			required-opps = <&cprh_opp32>;
+			turbo-mode;
+		};
+
+		/* Speed bin 1: 1-core row of opp-2208000000-1, after its twin */
+		opp-2304000000 {
+			opp-hz = /bits/ 64 <2304000000>;
+			opp-supported-hw = <0x2>;
+			opp-microwatt = <1301112>;
+			required-opps = <&cprh_opp26>;
 			turbo-mode;
 		};
 	};
@@ -5049,7 +5223,7 @@
 			assigned-clocks = <&gcc HMSS_GPLL0_CLK_SRC>;
 			assigned-clock-rates = <300000000>;
 
-			/* The CPU OPPs below are the speed-bin 2/3 table */
+			/* Selects the gold CPU OPPs (opp-supported-hw) */
 			nvmem-cells = <&cpr_efuse_speedbin>;
 			nvmem-cell-names = "speedbin";
 
