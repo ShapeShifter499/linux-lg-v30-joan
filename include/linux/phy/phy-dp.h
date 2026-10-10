@@ -97,9 +97,10 @@ struct phy_configure_opts_dp {
 	/**
 	 * @lanes_reversed:
 	 *
-	 * The Type-C plug is flipped, so the logical lane map must be
-	 * mirrored. Set by the PHY during configure. Consumers that do
-	 * not understand it leave it clear.
+	 * The Type-C plug is flipped and the PHY leaves the lane swap to
+	 * the controller, which must mirror its logical lane map. Output
+	 * of phy_validate(); PHYs that swap lanes themselves leave it
+	 * clear.
 	 */
 	u8 lanes_reversed : 1;
 };

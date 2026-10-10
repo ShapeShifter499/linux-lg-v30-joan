@@ -508,6 +508,8 @@ struct qmp_phy_cfg {
 	u16 dp_phy_vco_div;
 	/* the link clock leaves the PHY at twice the link rate */
 	bool dp_link_clk_x2;
+	/* a flipped plug is handled by mirroring the controller's lane map */
+	bool dp_flip_in_controller;
 
 	const char * const *reset_list;
 	int num_resets;
@@ -886,6 +888,7 @@ static const struct qmp_phy_cfg msm8998_usb3dp_phy_cfg = {
 	.dp_phy_pd_ctl		= QSERDES_V3_8998_DP_PHY_PD_CTL,
 	.dp_phy_vco_div		= QSERDES_V3_8998_DP_PHY_VCO_DIV,
 	.dp_link_clk_x2		= true,
+	.dp_flip_in_controller	= true,
 
 	.reset_list		= msm8998_usb3dpphy_reset_l,
 	.num_resets		= ARRAY_SIZE(msm8998_usb3dpphy_reset_l),
@@ -1794,12 +1797,33 @@ static int qmp_usbc_dp_configure(struct phy *phy, union phy_configure_opts *opts
 	}
 
 	memcpy(&qmp->dp_opts, dp_opts, sizeof(*dp_opts));
-	opts->dp.lanes_reversed = qmp->orientation == TYPEC_ORIENTATION_REVERSE;
 	if (qmp->dp_opts.set_voltages) {
 		cfg->configure_dp_tx(qmp);
 		qmp->dp_opts.set_voltages = 0;
 	}
 
+	mutex_unlock(&qmp->phy_mutex);
+
+	return 0;
+}
+
+/*
+ * LG's msm8998 driver keeps the PHY's lane order for a flipped plug and
+ * mirrors DP_LOGICAL2PHYSICAL_LANE_MAPPING instead (mdss_dp.c,
+ * mdss_dp_get_lane_mapping()); the PHY only picks which TX block a
+ * two-lane link uses. Tell the controller when to mirror.
+ */
+static int qmp_usbc_dp_validate(struct phy *phy, enum phy_mode mode,
+				int submode, union phy_configure_opts *opts)
+{
+	struct qmp_usbc *qmp = phy_get_drvdata(phy);
+
+	if (mode != PHY_MODE_DP)
+		return -EINVAL;
+
+	mutex_lock(&qmp->phy_mutex);
+	opts->dp.lanes_reversed = qmp->cfg->dp_flip_in_controller &&
+				  qmp->orientation == TYPEC_ORIENTATION_REVERSE;
 	mutex_unlock(&qmp->phy_mutex);
 
 	return 0;
@@ -1932,6 +1956,7 @@ static const struct phy_ops qmp_usbc_dp_phy_ops = {
 	.init		= qmp_usbc_dp_enable,
 	.exit		= qmp_usbc_dp_disable,
 	.configure	= qmp_usbc_dp_configure,
+	.validate	= qmp_usbc_dp_validate,
 	.calibrate	= qmp_usbc_dp_calibrate,
 	.power_on	= qmp_usbc_dp_power_on,
 	.power_off	= qmp_usbc_dp_power_off,
