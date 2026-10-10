@@ -320,34 +320,63 @@ struct cpr_drv {
 };
 
 /**
+ * cpr_read_corner_vadj() - Read one corner voltage adjustment for a speed bin
+ * @np:        OPP node
+ * @prop:      Property name, without speed bin suffix
+ * @speed_bin: Speed bin of this part
+ * @tid:       CPR thread ID
+ * @vadj:      Returned adjustment value
+ *
+ * "<prop>-speed<N>", when present, replaces "<prop>" on speed bin N parts,
+ * as opp-microvolt-<name> does for opp-microvolt.
+ *
+ * Return: 0 on success, negative errno on failure
+ */
+static int cpr_read_corner_vadj(struct device_node *np, const char *prop,
+				u32 speed_bin, u32 tid, s32 *vadj)
+{
+	char name[40];
+	u32 val;
+	int ret;
+
+	snprintf(name, sizeof(name), "%s-speed%u", prop, speed_bin);
+	if (!of_property_present(np, name))
+		strscpy(name, prop);
+
+	/* There is no of_property_read_s32_index() */
+	ret = of_property_read_u32_index(np, name, tid, &val);
+	if (!ret)
+		*vadj = (s32)val;
+
+	return ret;
+}
+
+/**
  * cpr_get_corner_post_vadj() - Get corner post-voltage adjustment values
  * @opp:         Pointer to the corresponding OPP struct
  * @tid:         CPR thread ID
- * @open_loop:   Pointer to the closed-loop adjustment value
- * @closed_loop: Pointer to the open-loop adjustment value
+ * @speed_bin:   Speed bin of this part
+ * @open_loop:   Pointer to the open-loop adjustment value
+ * @closed_loop: Pointer to the closed-loop adjustment value
  *
  * Return: 0 on success, negative errno on failure
  */
 static int cpr_get_corner_post_vadj(struct dev_pm_opp *opp, u32 tid,
-			      s32 *open_loop, s32 *closed_loop)
+				    u32 speed_bin, s32 *open_loop,
+				    s32 *closed_loop)
 {
 	struct device_node *np;
 	int ret;
 
-	/*
-	 * There is no of_property_read_s32_index, so we just store the
-	 * result into a s32 variable. After all, the OF API is doing
-	 * the exact same for of_property_read_s32...
-	 */
 	np = dev_pm_opp_get_of_node(opp);
 
-	ret = of_property_read_u32_index(np, "qcom,opp-oloop-vadj",
-					 tid, open_loop);
+	ret = cpr_read_corner_vadj(np, "qcom,opp-oloop-vadj", speed_bin,
+				   tid, open_loop);
 	if (ret)
 		goto out;
 
-	ret = of_property_read_u32_index(np, "qcom,opp-cloop-vadj",
-					 tid, closed_loop);
+	ret = cpr_read_corner_vadj(np, "qcom,opp-cloop-vadj", speed_bin,
+				   tid, closed_loop);
 
 out:
 	of_node_put(np);
@@ -1250,7 +1279,7 @@ static int cpr3_corner_init(struct cpr_thread *thread)
 			break;
 		}
 
-		ret = cpr_get_corner_post_vadj(opp, thread->id,
+		ret = cpr_get_corner_post_vadj(opp, thread->id, drv->speed_bin,
 					       &cdata[level - 1].oloop_vadj,
 					       &cdata[level - 1].cloop_vadj);
 		if (ret) {
