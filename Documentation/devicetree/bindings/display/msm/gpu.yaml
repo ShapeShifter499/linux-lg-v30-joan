@@ -102,7 +102,12 @@ properties:
     type: object
 
   power-domains:
-    maxItems: 1
+    minItems: 1
+    maxItems: 2
+
+  power-domain-names:
+    minItems: 1
+    maxItems: 2
 
   zap-shader:
     type: object
@@ -328,6 +333,30 @@ allOf:
               description: GPU RB Core Power Reduction clock
             - const: core
               description: GPU Core clock
+        power-domains:
+          minItems: 1
+          items:
+            - description: GPU GX power domain, which gates the GPU core
+            - description:
+                VDD_MX power domain. The GPU votes a performance level on it
+                through the required-opps of its OPP table while it is active.
+        power-domain-names:
+          minItems: 1
+          items:
+            - const: gx
+            - const: mx
+
+  - if:
+      not:
+        properties:
+          compatible:
+            contains:
+              pattern: '^qcom,adreno-540\.[0-9]+$'
+    then:
+      properties:
+        power-domains:
+          maxItems: 1
+        power-domain-names: false
 
   - if:
       properties:
