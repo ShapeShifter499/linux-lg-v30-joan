@@ -373,7 +373,8 @@ static const struct qmp_phy_init_tbl qcs615_dp_tx_tbl[] = {
 /*
  * MSM8998 DP PLL, from LG's dp_config_vco_rate() in
  * drivers/clk/msm/mdss/mdss-dp-pll-8998-util.c. The COM block is QMP v3,
- * not the QCS615 v2 map, and the per-rate values differ.
+ * not the QCS615 v2 map, and the per-rate values differ. LG writes
+ * BG_TIMER twice, 0x00 and then 0x0a.
  */
 static const struct qmp_phy_init_tbl msm8998_dp_serdes_tbl[] = {
 	QMP_PHY_INIT_CFG(QSERDES_V3_COM_SVS_MODE_CLK_SEL, 0x01),
@@ -384,6 +385,7 @@ static const struct qmp_phy_init_tbl msm8998_dp_serdes_tbl[] = {
 	QMP_PHY_INIT_CFG(QSERDES_V3_COM_INTEGLOOP_GAIN0_MODE0, 0x3f),
 	QMP_PHY_INIT_CFG(QSERDES_V3_COM_INTEGLOOP_GAIN1_MODE0, 0x00),
 	QMP_PHY_INIT_CFG(QSERDES_V3_COM_VCO_TUNE_MAP, 0x00),
+	QMP_PHY_INIT_CFG(QSERDES_V3_COM_BG_TIMER, 0x00),
 	QMP_PHY_INIT_CFG(QSERDES_V3_COM_BG_TIMER, 0x0a),
 	QMP_PHY_INIT_CFG(QSERDES_V3_COM_CORECLK_DIV_MODE0, 0x05),
 	QMP_PHY_INIT_CFG(QSERDES_V3_COM_VCO_TUNE_CTRL, 0x00),
@@ -500,6 +502,12 @@ struct qmp_phy_cfg {
 	void (*configure_dp_tx)(struct qmp_usbc *qmp);
 	int (*configure_dp_phy)(struct qmp_usbc *qmp);
 	int (*calibrate_dp_phy)(struct qmp_usbc *qmp);
+
+	/* DP_PHY offsets used by the shared DP code */
+	u16 dp_phy_pd_ctl;
+	u16 dp_phy_vco_div;
+	/* the link clock leaves the PHY at twice the link rate */
+	bool dp_link_clk_x2;
 
 	const char * const *reset_list;
 	int num_resets;
@@ -777,6 +785,9 @@ static const struct qmp_phy_cfg qcs615_usb3dp_phy_cfg = {
 	.configure_dp_phy	= qcs615_qmp_configure_dp_phy,
 	.calibrate_dp_phy	= qcs615_qmp_calibrate_dp_phy,
 
+	.dp_phy_pd_ctl		= QSERDES_DP_PHY_PD_CTL,
+	.dp_phy_vco_div		= QSERDES_V2_DP_PHY_VCO_DIV,
+
 	.reset_list		= qcs615_usb3dpphy_reset_l,
 	.num_resets		= ARRAY_SIZE(qcs615_usb3dpphy_reset_l),
 	.vreg_list		= qmp_phy_qcs615_vreg_l,
@@ -816,6 +827,9 @@ static const struct qmp_phy_cfg shikra_usb3dp_phy_cfg = {
 	.configure_dp_tx	= qcs615_qmp_configure_dp_tx,
 	.configure_dp_phy	= qcs615_qmp_configure_dp_phy,
 	.calibrate_dp_phy	= qcs615_qmp_calibrate_dp_phy,
+
+	.dp_phy_pd_ctl		= QSERDES_DP_PHY_PD_CTL,
+	.dp_phy_vco_div		= QSERDES_V2_DP_PHY_VCO_DIV,
 
 	.reset_list		= shikra_usb3dpphy_reset_l,
 	.num_resets		= ARRAY_SIZE(shikra_usb3dpphy_reset_l),
@@ -861,6 +875,10 @@ static const struct qmp_phy_cfg msm8998_usb3dp_phy_cfg = {
 	.configure_dp_tx	= msm8998_qmp_configure_dp_tx,
 	.configure_dp_phy	= msm8998_qmp_configure_dp_phy,
 	.calibrate_dp_phy	= msm8998_qmp_calibrate_dp_phy,
+
+	.dp_phy_pd_ctl		= QSERDES_V3_8998_DP_PHY_PD_CTL,
+	.dp_phy_vco_div		= QSERDES_V3_8998_DP_PHY_VCO_DIV,
+	.dp_link_clk_x2		= true,
 
 	.reset_list		= msm8998_usb3dpphy_reset_l,
 	.num_resets		= ARRAY_SIZE(msm8998_usb3dpphy_reset_l),
@@ -1022,6 +1040,29 @@ static void qmp_usbc_configure_dp_mode(struct qmp_usbc *qmp)
 		writel(0xd9, qmp->dp_dp_phy + QSERDES_DP_PHY_MODE);
 }
 
+/*
+ * Rate of the link clock the PHY hands to the clock controller. MSM8998
+ * sends twice the link rate (VCO / 5) and its MMCC link RCG divides by
+ * two, see LG's dp_link_2x_clk_divsel_five in mdss-dp-pll-8998.c and
+ * F_SLEW(162000, 324000, ext_dp_phy_pll_link, 2, ...) in clock-mmss-8998.c.
+ */
+static unsigned long qmp_usbc_dp_link_clk_rate(const struct qmp_usbc *qmp)
+{
+	unsigned long rate;
+
+	switch (qmp->dp_opts.link_rate) {
+	case 1620:
+	case 2700:
+	case 5400:
+		rate = qmp->dp_opts.link_rate * 100000UL;
+		break;
+	default:
+		return 0;
+	}
+
+	return qmp->cfg->dp_link_clk_x2 ? rate * 2 : rate;
+}
+
 static int qmp_usbc_configure_dp_clocks(struct qmp_usbc *qmp)
 {
 	const struct phy_configure_opts_dp *dp_opts = &qmp->dp_opts;
@@ -1045,12 +1086,9 @@ static int qmp_usbc_configure_dp_clocks(struct qmp_usbc *qmp)
 		dev_err(qmp->dev, "link rate:%d not supported\n", dp_opts->link_rate);
 		return -EINVAL;
 	}
-	if (qmp->cfg == &msm8998_usb3dp_phy_cfg)
-		writel(phy_vco_div, qmp->dp_dp_phy + QSERDES_V3_DP_PHY_VCO_DIV);
-	else
-		writel(phy_vco_div, qmp->dp_dp_phy + QSERDES_V2_DP_PHY_VCO_DIV);
+	writel(phy_vco_div, qmp->dp_dp_phy + qmp->cfg->dp_phy_vco_div);
 
-	clk_set_rate(qmp->dp_link_hw.clk, dp_opts->link_rate * 100000);
+	clk_set_rate(qmp->dp_link_hw.clk, qmp_usbc_dp_link_clk_rate(qmp));
 	clk_set_rate(qmp->dp_pixel_hw.clk, pixel_freq);
 
 	return 0;
@@ -1183,58 +1221,98 @@ static int qcs615_qmp_calibrate_dp_phy(struct qmp_usbc *qmp)
 	return 0;
 }
 
+/*
+ * LG's mdss_dp_phy_aux_setup() (drivers/video/fbdev/msm/mdss_dp_util.c)
+ * powers the DP PHY up with PD_CTL = 0x3d, loads the AUX settings from
+ * qcom,aux-cfg0..9-settings in msm8998-mdss.dtsi and writes 0x1e to the
+ * AUX interrupt mask: decode, sync, align and request errors.
+ */
 static void msm8998_qmp_dp_aux_init(struct qmp_usbc *qmp)
 {
-	writel(0x00, qmp->dp_dp_phy + QSERDES_V3_DP_PHY_AUX_CFG0);
-	writel(0x13, qmp->dp_dp_phy + QSERDES_V3_DP_PHY_AUX_CFG1);
-	writel(0x00, qmp->dp_dp_phy + QSERDES_V3_DP_PHY_AUX_CFG2);
-	writel(0x00, qmp->dp_dp_phy + QSERDES_V3_DP_PHY_AUX_CFG3);
-	writel(0x0a, qmp->dp_dp_phy + QSERDES_V3_DP_PHY_AUX_CFG4);
-	writel(0x26, qmp->dp_dp_phy + QSERDES_V3_DP_PHY_AUX_CFG5);
-	writel(0x0a, qmp->dp_dp_phy + QSERDES_V3_DP_PHY_AUX_CFG6);
-	writel(0x03, qmp->dp_dp_phy + QSERDES_V3_DP_PHY_AUX_CFG7);
-	writel(0xbb, qmp->dp_dp_phy + QSERDES_V3_DP_PHY_AUX_CFG8);
-	writel(0x03, qmp->dp_dp_phy + QSERDES_V3_DP_PHY_AUX_CFG9);
+	void __iomem *dp_phy = qmp->dp_dp_phy;
+
+	writel(DP_PHY_PD_CTL_PWRDN | DP_PHY_PD_CTL_AUX_PWRDN |
+	       DP_PHY_PD_CTL_LANE_0_1_PWRDN | DP_PHY_PD_CTL_LANE_2_3_PWRDN |
+	       DP_PHY_PD_CTL_PLL_PWRDN,
+	       dp_phy + QSERDES_V3_8998_DP_PHY_PD_CTL);
+
+	writel(0x00, dp_phy + QSERDES_V3_8998_DP_PHY_AUX_CFG0);
+	writel(0x13, dp_phy + QSERDES_V3_8998_DP_PHY_AUX_CFG1);
+	writel(0x00, dp_phy + QSERDES_V3_8998_DP_PHY_AUX_CFG2);
+	writel(0x00, dp_phy + QSERDES_V3_8998_DP_PHY_AUX_CFG3);
+	writel(0x0a, dp_phy + QSERDES_V3_8998_DP_PHY_AUX_CFG4);
+	writel(0x26, dp_phy + QSERDES_V3_8998_DP_PHY_AUX_CFG5);
+	writel(0x0a, dp_phy + QSERDES_V3_8998_DP_PHY_AUX_CFG6);
+	writel(0x03, dp_phy + QSERDES_V3_8998_DP_PHY_AUX_CFG7);
+	writel(0xbb, dp_phy + QSERDES_V3_8998_DP_PHY_AUX_CFG8);
+	writel(0x03, dp_phy + QSERDES_V3_8998_DP_PHY_AUX_CFG9);
 	qmp->dp_aux_cfg = 0;
 
-	/* LG's mask is 0x1e: stop, decode, sync and align, not request. */
-	writel(PHY_AUX_STOP_ERR_MASK | PHY_AUX_DEC_ERR_MASK |
-	       PHY_AUX_SYNC_ERR_MASK | PHY_AUX_ALIGN_ERR_MASK,
-	       qmp->dp_dp_phy + QSERDES_V3_DP_PHY_AUX_INTERRUPT_MASK);
+	writel(PHY_AUX_DEC_ERR_MASK | PHY_AUX_SYNC_ERR_MASK |
+	       PHY_AUX_ALIGN_ERR_MASK | PHY_AUX_REQ_ERR_MASK,
+	       dp_phy + QSERDES_V3_8998_DP_PHY_AUX_INTERRUPT_MASK);
 }
 
+/*
+ * Voltage swing and pre-emphasis, as LG's
+ * mdss_dp_aux_update_voltage_and_pre_emphasis_lvl() in
+ * drivers/video/fbdev/msm/mdss_dp_aux.c does it: both TX blocks get the
+ * 0x2a/0x20 defaults, then the table entry (LG's tables are the QCS615
+ * ones) only if neither value is reserved.
+ */
 static void msm8998_qmp_configure_dp_tx(struct qmp_usbc *qmp)
 {
+	const struct qmp_phy_cfg *cfg = qmp->cfg;
 	const struct phy_configure_opts_dp *dp_opts = &qmp->dp_opts;
-	unsigned int lanes = dp_opts->lanes ? dp_opts->lanes : 4;
-	bool reverse = qmp->orientation == TYPEC_ORIENTATION_REVERSE;
-	u32 lane_mode;
+	unsigned int v_level = 0, p_level = 0;
+	u8 swing, emph;
+	int i;
 
-	/* HBR uses 0xc6. RBR and HBR2 use 0xf6. */
-	lane_mode = dp_opts->link_rate == 2700 ? 0xc6 : 0xf6;
+	writel(0x2a, qmp->dp_tx + QSERDES_V3_TX_TX_DRV_LVL);
+	writel(0x2a, qmp->dp_tx2 + QSERDES_V3_TX_TX_DRV_LVL);
+	writel(0x20, qmp->dp_tx + QSERDES_V3_TX_TX_EMP_POST1_LVL);
+	writel(0x20, qmp->dp_tx2 + QSERDES_V3_TX_TX_EMP_POST1_LVL);
 
-	if (lanes == 4 || reverse) {
-		writel(lane_mode, qmp->dp_tx + QSERDES_V3_TX_LANE_MODE_1);
-		writel(0x2a, qmp->dp_tx + QSERDES_V3_TX_TX_DRV_LVL);
-		writel(0x20, qmp->dp_tx + QSERDES_V3_TX_TX_EMP_POST1_LVL);
-		writel(0x11, qmp->dp_tx + QSERDES_V3_TX_RES_CODE_LANE_OFFSET_TX);
-		writel(0x11, qmp->dp_tx + QSERDES_V3_TX_RES_CODE_LANE_OFFSET_RX);
+	for (i = 0; i < dp_opts->lanes && i < 4; i++) {
+		v_level = max(v_level, dp_opts->voltage[i]);
+		p_level = max(p_level, dp_opts->pre[i]);
 	}
-	if (lanes == 4 || !reverse) {
-		writel(lane_mode, qmp->dp_tx2 + QSERDES_V3_TX_LANE_MODE_1);
-		writel(0x2a, qmp->dp_tx2 + QSERDES_V3_TX_TX_DRV_LVL);
-		writel(0x20, qmp->dp_tx2 + QSERDES_V3_TX_TX_EMP_POST1_LVL);
-		writel(0x11, qmp->dp_tx2 + QSERDES_V3_TX_RES_CODE_LANE_OFFSET_TX);
-		writel(0x11, qmp->dp_tx2 + QSERDES_V3_TX_RES_CODE_LANE_OFFSET_RX);
-	}
+
+	if (v_level > 3 || p_level > 3)
+		return;
+
+	swing = (*cfg->swing_tbl)[v_level][p_level];
+	emph = (*cfg->pre_emphasis_tbl)[v_level][p_level];
+	if (swing == 0xff || emph == 0xff)
+		return;
+
+	swing |= DP_PHY_TXn_TX_DRV_LVL_MUX_EN;
+	emph |= DP_PHY_TXn_TX_EMP_POST1_LVL_MUX_EN;
+
+	writel(swing, qmp->dp_tx + QSERDES_V3_TX_TX_DRV_LVL);
+	writel(swing, qmp->dp_tx2 + QSERDES_V3_TX_TX_DRV_LVL);
+	writel(emph, qmp->dp_tx + QSERDES_V3_TX_TX_EMP_POST1_LVL);
+	writel(emph, qmp->dp_tx2 + QSERDES_V3_TX_TX_EMP_POST1_LVL);
 }
 
+/*
+ * dp_config_vco_rate() and dp_pll_enable() from LG's
+ * drivers/clk/msm/mdss/mdss-dp-pll-8998-util.c, in LG's order. The PLL
+ * tables were written by qmp_usbc_dp_serdes_init().
+ *
+ * PD_CTL powers lanes 0-3 (0x3d), only 2/3 behind TX1 (0x35) or only
+ * 0/1 behind TX0 (0x2d). A two-lane link uses TX1 for a normal plug and
+ * TX0 for a flipped one; the controller's lane map follows.
+ */
 static int msm8998_qmp_configure_dp_phy(struct qmp_usbc *qmp)
 {
 	const struct phy_configure_opts_dp *dp_opts = &qmp->dp_opts;
 	unsigned int lanes = dp_opts->lanes ? dp_opts->lanes : 4;
 	bool reverse = qmp->orientation == TYPEC_ORIENTATION_REVERSE;
-	u32 pd_ctl, bias_en, drvr_en, status;
+	void __iomem *dp_phy = qmp->dp_dp_phy;
+	void __iomem *tx = qmp->dp_tx;
+	void __iomem *tx2 = qmp->dp_tx2;
+	u32 pd_ctl, bias_en, drvr_en, lane_mode, status;
 	int ret;
 
 	if (lanes == 4)
@@ -1243,26 +1321,25 @@ static int msm8998_qmp_configure_dp_phy(struct qmp_usbc *qmp)
 		pd_ctl = 0x2d;
 	else
 		pd_ctl = 0x35;
-	writel(pd_ctl, qmp->dp_dp_phy + QSERDES_V3_DP_PHY_PD_CTL);
-
-	writel(reverse ? 0x48 : 0x58,
-	       qmp->dp_dp_phy + QSERDES_V3_DP_PHY_MODE);
-	writel(0x05, qmp->dp_dp_phy + QSERDES_V3_DP_PHY_TX0_TX1_LANE_CTL);
-	writel(0x05, qmp->dp_dp_phy + QSERDES_V3_DP_PHY_TX2_TX3_LANE_CTL);
-
-	qmp_configure_lane(qmp->dev, qmp->dp_tx, qmp->cfg->dp_tx_tbl,
-			   qmp->cfg->dp_tx_tbl_num, 1);
-	qmp_configure_lane(qmp->dev, qmp->dp_tx2, qmp->cfg->dp_tx_tbl,
-			   qmp->cfg->dp_tx_tbl_num, 2);
+	writel(pd_ctl, dp_phy + QSERDES_V3_8998_DP_PHY_PD_CTL);
 
 	ret = qmp_usbc_configure_dp_clocks(qmp);
 	if (ret)
 		return ret;
 
-	writel(0x01, qmp->dp_dp_phy + QSERDES_V3_DP_PHY_CFG);
-	writel(0x05, qmp->dp_dp_phy + QSERDES_V3_DP_PHY_CFG);
-	writel(0x01, qmp->dp_dp_phy + QSERDES_V3_DP_PHY_CFG);
-	writel(0x09, qmp->dp_dp_phy + QSERDES_V3_DP_PHY_CFG);
+	writel(reverse ? 0x48 : 0x58, dp_phy + QSERDES_V3_8998_DP_PHY_MODE);
+	writel(0x05, dp_phy + QSERDES_V3_8998_DP_PHY_TX0_TX1_LANE_CTL);
+	writel(0x05, dp_phy + QSERDES_V3_8998_DP_PHY_TX2_TX3_LANE_CTL);
+
+	qmp_configure_lane(qmp->dev, tx, qmp->cfg->dp_tx_tbl,
+			   qmp->cfg->dp_tx_tbl_num, 1);
+	qmp_configure_lane(qmp->dev, tx2, qmp->cfg->dp_tx_tbl,
+			   qmp->cfg->dp_tx_tbl_num, 2);
+
+	writel(0x01, dp_phy + QSERDES_V3_8998_DP_PHY_CFG);
+	writel(0x05, dp_phy + QSERDES_V3_8998_DP_PHY_CFG);
+	writel(0x01, dp_phy + QSERDES_V3_8998_DP_PHY_CFG);
+	writel(0x09, dp_phy + QSERDES_V3_8998_DP_PHY_CFG);
 	writel(0x20, qmp->dp_serdes + QSERDES_V3_COM_RESETSM_CNTRL);
 
 	ret = readl_poll_timeout(qmp->dp_serdes + QSERDES_V3_COM_C_READY_STATUS,
@@ -1272,8 +1349,8 @@ static int msm8998_qmp_configure_dp_phy(struct qmp_usbc *qmp)
 		return ret;
 	}
 
-	writel(0x19, qmp->dp_dp_phy + QSERDES_V3_DP_PHY_CFG);
-	ret = readl_poll_timeout(qmp->dp_dp_phy + QSERDES_V3_DP_PHY_STATUS,
+	writel(0x19, dp_phy + QSERDES_V3_8998_DP_PHY_CFG);
+	ret = readl_poll_timeout(dp_phy + QSERDES_V3_8998_DP_PHY_STATUS,
 				 status, status & BIT(1), 500, 10000);
 	if (ret) {
 		dev_err(qmp->dev, "PHY_READY not ready\n");
@@ -1283,38 +1360,50 @@ static int msm8998_qmp_configure_dp_phy(struct qmp_usbc *qmp)
 	bias_en = lanes == 1 ? 0x3e : 0x3f;
 	drvr_en = lanes == 1 ? 0x13 : 0x10;
 	if (lanes == 4 || reverse) {
-		writel(bias_en, qmp->dp_tx + QSERDES_V3_TX_TRANSCEIVER_BIAS_EN);
-		writel(drvr_en, qmp->dp_tx + QSERDES_V3_TX_HIGHZ_DRVR_EN);
+		writel(bias_en, tx + QSERDES_V3_TX_TRANSCEIVER_BIAS_EN);
+		writel(drvr_en, tx + QSERDES_V3_TX_HIGHZ_DRVR_EN);
 	}
 	if (lanes == 4 || !reverse) {
-		writel(bias_en, qmp->dp_tx2 + QSERDES_V3_TX_TRANSCEIVER_BIAS_EN);
-		writel(drvr_en, qmp->dp_tx2 + QSERDES_V3_TX_HIGHZ_DRVR_EN);
+		writel(bias_en, tx2 + QSERDES_V3_TX_TRANSCEIVER_BIAS_EN);
+		writel(drvr_en, tx2 + QSERDES_V3_TX_HIGHZ_DRVR_EN);
 	}
-	writel(0x0a, qmp->dp_tx + QSERDES_V3_TX_TX_POL_INV);
-	writel(0x0a, qmp->dp_tx2 + QSERDES_V3_TX_TX_POL_INV);
+	writel(0x0a, tx + QSERDES_V3_TX_TX_POL_INV);
+	writel(0x0a, tx2 + QSERDES_V3_TX_TX_POL_INV);
 
-	writel(0x18, qmp->dp_dp_phy + QSERDES_V3_DP_PHY_CFG);
+	writel(0x18, dp_phy + QSERDES_V3_8998_DP_PHY_CFG);
 	usleep_range(2000, 2100);
-	writel(0x19, qmp->dp_dp_phy + QSERDES_V3_DP_PHY_CFG);
+	writel(0x19, dp_phy + QSERDES_V3_8998_DP_PHY_CFG);
 
-	msm8998_qmp_configure_dp_tx(qmp);
+	/* HBR uses 0xc6. RBR and HBR2 use 0xf6. */
+	lane_mode = dp_opts->link_rate == 2700 ? 0xc6 : 0xf6;
+	writel(lane_mode, tx + QSERDES_V3_TX_LANE_MODE_1);
+	writel(lane_mode, tx2 + QSERDES_V3_TX_LANE_MODE_1);
 
-	writel(0x1f, qmp->dp_tx + QSERDES_V3_TX_CLKBUF_ENABLE);
-	writel(0x1f, qmp->dp_tx2 + QSERDES_V3_TX_CLKBUF_ENABLE);
-	writel(0x0f, qmp->dp_tx + QSERDES_V3_TX_CLKBUF_ENABLE);
-	writel(0x0f, qmp->dp_tx2 + QSERDES_V3_TX_CLKBUF_ENABLE);
+	writel(0x1f, tx + QSERDES_V3_TX_CLKBUF_ENABLE);
+	writel(0x1f, tx2 + QSERDES_V3_TX_CLKBUF_ENABLE);
+	writel(0x0f, tx + QSERDES_V3_TX_CLKBUF_ENABLE);
+	writel(0x0f, tx2 + QSERDES_V3_TX_CLKBUF_ENABLE);
 
-	writel(0x09, qmp->dp_dp_phy + QSERDES_V3_DP_PHY_CFG);
+	writel(0x09, dp_phy + QSERDES_V3_8998_DP_PHY_CFG);
 	usleep_range(2000, 2100);
-	writel(0x19, qmp->dp_dp_phy + QSERDES_V3_DP_PHY_CFG);
+	writel(0x19, dp_phy + QSERDES_V3_8998_DP_PHY_CFG);
 	usleep_range(2000, 2100);
 
-	ret = readl_poll_timeout(qmp->dp_dp_phy + QSERDES_V3_DP_PHY_STATUS,
+	ret = readl_poll_timeout(dp_phy + QSERDES_V3_8998_DP_PHY_STATUS,
 				 status, status & BIT(1), 500, 10000);
 	if (ret) {
 		dev_err(qmp->dev, "PHY_READY not ready after lane setup\n");
 		return ret;
 	}
+
+	writel(0x2a, tx + QSERDES_V3_TX_TX_DRV_LVL);
+	writel(0x2a, tx2 + QSERDES_V3_TX_TX_DRV_LVL);
+	writel(0x20, tx + QSERDES_V3_TX_TX_EMP_POST1_LVL);
+	writel(0x20, tx2 + QSERDES_V3_TX_TX_EMP_POST1_LVL);
+	writel(0x11, tx + QSERDES_V3_TX_RES_CODE_LANE_OFFSET_TX);
+	writel(0x11, tx2 + QSERDES_V3_TX_RES_CODE_LANE_OFFSET_TX);
+	writel(0x11, tx + QSERDES_V3_TX_RES_CODE_LANE_OFFSET_RX);
+	writel(0x11, tx2 + QSERDES_V3_TX_RES_CODE_LANE_OFFSET_RX);
 
 	return 0;
 }
@@ -1326,7 +1415,7 @@ static int msm8998_qmp_calibrate_dp_phy(struct qmp_usbc *qmp)
 	qmp->dp_aux_cfg++;
 	qmp->dp_aux_cfg %= ARRAY_SIZE(cfg1_settings);
 	writel(cfg1_settings[qmp->dp_aux_cfg],
-	       qmp->dp_dp_phy + QSERDES_V3_DP_PHY_AUX_CFG1);
+	       qmp->dp_dp_phy + QSERDES_V3_8998_DP_PHY_AUX_CFG1);
 
 	return 0;
 }
@@ -1614,6 +1703,7 @@ static int qmp_usbc_dp_power_on(struct phy *phy)
 
 	void __iomem *tx = qmp->dp_tx;
 	void __iomem *tx2 = qmp->dp_tx2;
+	int ret;
 
 	/*
 	 * FIXME: SW_PORTSELECT handling for DP orientation flip is not implemented.
@@ -1639,11 +1729,11 @@ static int qmp_usbc_dp_power_on(struct phy *phy)
 	cfg->configure_dp_tx(qmp);
 
 	/* Configure link rate, swing, etc. */
-	cfg->configure_dp_phy(qmp);
+	ret = cfg->configure_dp_phy(qmp);
 
 	mutex_unlock(&qmp->phy_mutex);
 
-	return 0;
+	return ret;
 }
 
 static int qmp_usbc_dp_power_off(struct phy *phy)
@@ -1658,7 +1748,7 @@ static int qmp_usbc_dp_power_off(struct phy *phy)
 	}
 
 	/* Assert DP PHY power down */
-	writel(DP_PHY_PD_CTL_PSR_PWRDN, qmp->dp_dp_phy + QSERDES_DP_PHY_PD_CTL);
+	writel(DP_PHY_PD_CTL_PSR_PWRDN, qmp->dp_dp_phy + qmp->cfg->dp_phy_pd_ctl);
 
 	mutex_unlock(&qmp->phy_mutex);
 
@@ -1971,6 +2061,23 @@ static const struct clk_ops qmp_dp_pixel_clk_ops = {
 
 static int qmp_dp_link_clk_determine_rate(struct clk_hw *hw, struct clk_rate_request *req)
 {
+	const struct qmp_usbc *qmp = container_of(hw, struct qmp_usbc, dp_link_hw);
+	unsigned long rate;
+
+	/*
+	 * Twice the link rate cannot be told apart from the link rate
+	 * (HBR x 2 is HBR2), so a doubled link clock offers whatever
+	 * phy_configure() last set. The clock controller divides it down.
+	 */
+	if (qmp->cfg->dp_link_clk_x2) {
+		rate = qmp_usbc_dp_link_clk_rate(qmp);
+		if (!rate)
+			return -EINVAL;
+
+		req->rate = rate;
+		return 0;
+	}
+
 	switch (req->rate) {
 	case 162000000:
 	case 270000000:
@@ -1983,20 +2090,9 @@ static int qmp_dp_link_clk_determine_rate(struct clk_hw *hw, struct clk_rate_req
 
 static unsigned long qmp_dp_link_clk_recalc_rate(struct clk_hw *hw, unsigned long parent_rate)
 {
-	const struct qmp_usbc *qmp;
-	const struct phy_configure_opts_dp *dp_opts;
+	const struct qmp_usbc *qmp = container_of(hw, struct qmp_usbc, dp_link_hw);
 
-	qmp = container_of(hw, struct qmp_usbc, dp_link_hw);
-	dp_opts = &qmp->dp_opts;
-
-	switch (dp_opts->link_rate) {
-	case 1620:
-	case 2700:
-	case 5400:
-		return dp_opts->link_rate * 100000;
-	default:
-		return 0;
-	}
+	return qmp_usbc_dp_link_clk_rate(qmp);
 }
 
 static const struct clk_ops qmp_dp_link_clk_ops = {
