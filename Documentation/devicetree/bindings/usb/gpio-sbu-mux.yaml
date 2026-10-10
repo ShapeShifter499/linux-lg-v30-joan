@@ -19,6 +19,8 @@ properties:
   compatible:
     items:
       - enum:
+          # LG V30 DP AUX switch; part not identified (active-low OE, select)
+          - lg,joan-sbu-mux
           - nxp,cbdtu02043
           - onnn,fsusb42
           - onnn,fsusb43l10x
