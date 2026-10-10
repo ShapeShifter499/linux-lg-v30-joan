@@ -1638,8 +1638,8 @@
  *
  * adreno_get_pwrlevels() registers the vdd supply with the OPP framework,
  * so every dev_pm_opp_set_rate() scales the rail before raising the core
- * clock. opp-level is intentionally omitted: the GPU's power domain is
- * the GPU_GX GDSC (msm8998.dtsi), which has no performance states.
+ * clock. Only the voltages are set here; each OPP's VDD_MX vote comes
+ * from its required-opps in msm8998.dtsi.
  *
  * The voltages below are only a fallback. At probe a540_gfx_rail.c
  * replaces them with this part's fused open-loop voltages, the value the
@@ -1651,54 +1651,32 @@
  * fused up to 150 mV higher would not survive it.
  */
 &gpu_opp_table {
-	/delete-node/ opp-710000097;
-	/delete-node/ opp-670000048;
-	/delete-node/ opp-596000097;
-	/delete-node/ opp-515000097;
-	/delete-node/ opp-414000000;
-	/delete-node/ opp-342000000;
-	/delete-node/ opp-257000000;
-
 	opp-710000097 {
-		opp-hz = /bits/ 64 <710000097>;
 		opp-microvolt = <1088000>;
-		opp-supported-hw = <0xff>;
 	};
 
 	opp-670000048 {
-		opp-hz = /bits/ 64 <670000048>;
 		opp-microvolt = <1024000>;
-		opp-supported-hw = <0xff>;
 	};
 
 	opp-596000097 {
-		opp-hz = /bits/ 64 <596000097>;
 		opp-microvolt = <968000>;
-		opp-supported-hw = <0xff>;
 	};
 
 	opp-515000097 {
-		opp-hz = /bits/ 64 <515000097>;
 		opp-microvolt = <916000>;
-		opp-supported-hw = <0xff>;
 	};
 
 	opp-414000000 {
-		opp-hz = /bits/ 64 <414000000>;
 		opp-microvolt = <832000>;
-		opp-supported-hw = <0xff>;
 	};
 
 	opp-342000000 {
-		opp-hz = /bits/ 64 <342000000>;
 		opp-microvolt = <772000>;
-		opp-supported-hw = <0xff>;
 	};
 
 	opp-257000000 {
-		opp-hz = /bits/ 64 <257000000>;
 		opp-microvolt = <724000>;
-		opp-supported-hw = <0xff>;
 	};
 };
 

@@ -2577,51 +2577,60 @@
 			interrupts = <GIC_SPI 300 IRQ_TYPE_LEVEL_HIGH>;
 			iommus = <&adreno_smmu 0>;
 			operating-points-v2 = <&gpu_opp_table>;
-			power-domains = <&gpucc GPU_GX_GDSC>;
+			power-domains = <&gpucc GPU_GX_GDSC>,
+					<&rpmpd RPMPD_VDDMX>;
+			power-domain-names = "gx",
+					     "mx";
 			#cooling-cells = <2>;
 			status = "disabled";
 
+			/*
+			 * Each OPP votes VDD_MX at the level the vendor kernel
+			 * pairs with that GPU frequency (msm8998-v2.dtsi,
+			 * qcom,gfxfreq-mx-speedbin0): SVS up to 414 MHz, NOM
+			 * for 515 and 596 MHz, TURBO for 670 and 710 MHz.
+			 */
 			gpu_opp_table: opp-table {
 				compatible = "operating-points-v2";
 				opp-710000097 {
 					opp-hz = /bits/ 64 <710000097>;
-					opp-level = <RPM_SMD_LEVEL_TURBO>;
+					required-opps = <&rpmpd_opp_turbo>;
 					opp-supported-hw = <0xff>;
 				};
 
 				opp-670000048 {
 					opp-hz = /bits/ 64 <670000048>;
-					opp-level = <RPM_SMD_LEVEL_NOM_PLUS>;
+					required-opps = <&rpmpd_opp_turbo>;
 					opp-supported-hw = <0xff>;
 				};
 
 				opp-596000097 {
 					opp-hz = /bits/ 64 <596000097>;
-					opp-level = <RPM_SMD_LEVEL_NOM>;
+					required-opps = <&rpmpd_opp_nom>;
 					opp-supported-hw = <0xff>;
 				};
 
 				opp-515000097 {
 					opp-hz = /bits/ 64 <515000097>;
-					opp-level = <RPM_SMD_LEVEL_SVS_PLUS>;
+					required-opps = <&rpmpd_opp_nom>;
 					opp-supported-hw = <0xff>;
 				};
 
 				opp-414000000 {
 					opp-hz = /bits/ 64 <414000000>;
-					opp-level = <RPM_SMD_LEVEL_SVS>;
+					required-opps = <&rpmpd_opp_svs>;
 					opp-supported-hw = <0xff>;
 				};
 
 				opp-342000000 {
 					opp-hz = /bits/ 64 <342000000>;
-					opp-level = <RPM_SMD_LEVEL_LOW_SVS>;
+					required-opps = <&rpmpd_opp_svs>;
 					opp-supported-hw = <0xff>;
 				};
 
 				opp-257000000 {
 					opp-hz = /bits/ 64 <257000000>;
-					opp-level = <RPM_SMD_LEVEL_MIN_SVS>;
+					required-opps = <&rpmpd_opp_svs>;
 					opp-supported-hw = <0xff>;
 				};
 			};
