@@ -6,7 +6,9 @@
  * Copyright (c) 2014,2017 The Linux Foundation. All rights reserved.
  */
 
+#include <linux/pm_domain.h>
 #include <linux/pm_opp.h>
+#include <linux/pm_runtime.h>
 #include <linux/property.h>
 
 #include "adreno_gpu.h"
@@ -306,18 +308,62 @@ static const struct of_device_id dt_match[] = {
 };
 MODULE_DEVICE_TABLE(of, dt_match);
 
+/*
+ * Power the domains attached by adreno_attach_pm_domains(), if any. MX goes
+ * first and comes down last; it is powered at no performance level until the
+ * resume callback's dev_pm_opp_set_rate() votes the level of the OPP.
+ */
+static int adreno_pm_domains_get(struct adreno_gpu *adreno_gpu)
+{
+	int ret;
+
+	if (!adreno_gpu->gx_pd || !adreno_gpu->mx_pd)
+		return 0;
+
+	ret = pm_runtime_resume_and_get(adreno_gpu->mx_pd->pd_devs[0]);
+	if (ret)
+		return ret;
+
+	ret = pm_runtime_resume_and_get(adreno_gpu->gx_pd->pd_devs[0]);
+	if (ret)
+		pm_runtime_put_sync(adreno_gpu->mx_pd->pd_devs[0]);
+
+	return ret;
+}
+
+static void adreno_pm_domains_put(struct adreno_gpu *adreno_gpu)
+{
+	if (!adreno_gpu->gx_pd || !adreno_gpu->mx_pd)
+		return;
+
+	pm_runtime_put_sync(adreno_gpu->gx_pd->pd_devs[0]);
+	pm_runtime_put_sync(adreno_gpu->mx_pd->pd_devs[0]);
+}
+
 static int adreno_runtime_resume(struct device *dev)
 {
 	struct msm_gpu *gpu = dev_to_gpu(dev);
-	int ret = gpu->funcs->pm_resume(gpu);
-	if (!ret)
-		ret = msm_perfcntr_resume(gpu);
-	return ret;
+	struct adreno_gpu *adreno_gpu = to_adreno_gpu(gpu);
+	int ret;
+
+	ret = adreno_pm_domains_get(adreno_gpu);
+	if (ret)
+		return ret;
+
+	ret = gpu->funcs->pm_resume(gpu);
+	if (ret) {
+		/* As genpd does for a lone domain whose resume callback fails */
+		adreno_pm_domains_put(adreno_gpu);
+		return ret;
+	}
+
+	return msm_perfcntr_resume(gpu);
 }
 
 static int adreno_runtime_suspend(struct device *dev)
 {
 	struct msm_gpu *gpu = dev_to_gpu(dev);
+	struct adreno_gpu *adreno_gpu = to_adreno_gpu(gpu);
 	int ret;
 
 	/*
@@ -338,12 +384,15 @@ static int adreno_runtime_suspend(struct device *dev)
 	/*
 	 * Where the OPP core owns a supply for us it keeps that supply enabled
 	 * from the first dev_pm_opp_set_rate() onwards, which would hold the
-	 * rail up for as long as the machine is running. Setting a rate of 0
+	 * rail up for as long as the machine is running, and the same goes for
+	 * the MX level voted through the required OPPs. Setting a rate of 0
 	 * is how a consumer tells the OPP core it is done with it for now; the
 	 * next set_rate on resume brings it back.
 	 */
-	if (device_property_present(dev, "vdd-supply"))
+	if (device_property_present(dev, "vdd-supply") || adreno_gpu->mx_pd)
 		dev_pm_opp_set_rate(dev, 0);
+
+	adreno_pm_domains_put(adreno_gpu);
 
 	return 0;
 }

@@ -19,6 +19,8 @@
 #include "adreno_common.xml.h"
 #include "adreno_pm4.xml.h"
 
+struct dev_pm_domain_list;
+
 extern bool snapshot_debugbus;
 
 enum {
@@ -249,6 +251,14 @@ struct adreno_gpu {
 	bool has_ray_tracing;
 
 	u64 uche_trap_base;
+
+	/*
+	 * GX and MX power domains, for a GPU that names an MX domain next to
+	 * its GX domain (see adreno_attach_pm_domains()). NULL when the driver
+	 * core attached the GPU to a single power domain itself.
+	 */
+	struct dev_pm_domain_list *gx_pd;
+	struct dev_pm_domain_list *mx_pd;
 };
 #define to_adreno_gpu(x) container_of(x, struct adreno_gpu, base)
 
