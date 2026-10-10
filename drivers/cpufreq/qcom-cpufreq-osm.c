@@ -1794,6 +1794,103 @@ static int qcom_osm_enable_core_clock(struct platform_device *pdev)
 	return 0;
 }
 
+/* MSM8998 perf-cluster speed bins with a vendor table (msm8998-v2.dtsi) */
+#define MSM8998_SPEED_BIN_MAX		3
+
+static void qcom_osm_clear_opp_config(void *token)
+{
+	dev_pm_opp_clear_config((unsigned long)token);
+}
+
+/* Whether @cpu_dev's OPP table selects its OPPs by speed bin */
+static bool qcom_osm_opp_table_is_binned(struct device *cpu_dev)
+{
+	struct device_node *np __free(device_node) =
+		dev_pm_opp_of_get_opp_desc_node(cpu_dev);
+
+	if (!np)
+		return false;
+
+	for_each_available_child_of_node_scoped(np, child)
+		if (of_property_present(child, "opp-supported-hw"))
+			return true;
+
+	return false;
+}
+
+/**
+ * qcom_osm_set_speed_bin() - Select the CPU OPPs of this part's speed bin
+ * @pdev: the cpufreq platform device
+ *
+ * The MSM8998 perf cluster has four speed bins (msm8998-v2.dtsi
+ * qcom,perfcl-speedbin{0,1,2,3}-v0): bin 0 goes to 2496.0 MHz all-core
+ * (2592.0 MHz single-core), bin 1 to 2208.0 MHz (2304.0), bins 2 and 3 to
+ * 2361.6 MHz (2457.6). A CPU OPP table that carries opp-supported-hw holds
+ * the OPPs of every bin, bit N standing for bin N, and is filtered here
+ * before anything populates it. A table without it is the bin 2/3 table of
+ * the DTs that came before the per-bin OPPs, which a bin 0 or 1 part must
+ * not run: such a part, and any bin without a vendor table, keeps the
+ * clocks the bootloader left.
+ *
+ * Return: zero on success, negative errno otherwise.
+ */
+static int qcom_osm_set_speed_bin(struct platform_device *pdev)
+{
+	u32 bin, supported_hw;
+	struct dev_pm_opp_config config = {
+		.supported_hw = &supported_hw,
+		.supported_hw_count = 1,
+	};
+	bool binned = false;
+	int cpu, ret;
+
+	ret = nvmem_cell_read_variable_le_u32(&pdev->dev, "speedbin", &bin);
+	if (ret)
+		return dev_err_probe(&pdev->dev, ret,
+				     "cannot read the CPU speed bin\n");
+
+	if (bin > MSM8998_SPEED_BIN_MAX)
+		goto no_table;
+
+	supported_hw = BIT(bin);
+
+	for_each_possible_cpu(cpu) {
+		struct device *cpu_dev = get_cpu_device(cpu);
+
+		if (!cpu_dev)
+			return -EPROBE_DEFER;
+
+		if (!qcom_osm_opp_table_is_binned(cpu_dev))
+			continue;
+
+		ret = dev_pm_opp_set_config(cpu_dev, &config);
+		if (ret < 0)
+			return dev_err_probe(&pdev->dev, ret,
+					     "cannot set the speed bin of CPU%d\n",
+					     cpu);
+
+		ret = devm_add_action_or_reset(&pdev->dev,
+					       qcom_osm_clear_opp_config,
+					       (void *)(unsigned long)ret);
+		if (ret)
+			return ret;
+
+		binned = true;
+	}
+
+	if (bin < 2 && !binned)
+		goto no_table;
+
+	dev_info(&pdev->dev, "CPU speed bin %u\n", bin);
+	return 0;
+
+no_table:
+	dev_err(&pdev->dev,
+		"no OPP table for CPU speed bin %u, clusters stay at their boot clocks\n",
+		bin);
+	return -ENODEV;
+}
+
 static int qcom_cpufreq_hw_driver_probe(struct platform_device *pdev)
 {
 	const struct qcom_cpufreq_soc_data *soc_data;
@@ -1810,30 +1907,6 @@ static int qcom_cpufreq_hw_driver_probe(struct platform_device *pdev)
 	soc_data = of_device_get_match_data(&pdev->dev);
 	if (!soc_data)
 		return -EINVAL;
-
-	/*
-	 * The CPU OPPs and CPRh levels in the MSM8998 DT are the perf-cluster
-	 * speed-bin 2/3 table (2361.6 MHz all-core). Bin 1 parts are only
-	 * qualified to 2208 MHz, and bin 0 uses a different upper table, so
-	 * do not take the clusters over on a part the table was not made for.
-	 */
-	if (of_device_is_compatible(pdev->dev.of_node, "qcom,cpufreq-hw-8998")) {
-		u32 bin;
-
-		ret = nvmem_cell_read_variable_le_u32(&pdev->dev, "speedbin", &bin);
-		if (ret)
-			return dev_err_probe(&pdev->dev, ret,
-					     "cannot read the CPU speed bin\n");
-
-		if (bin != 2 && bin != 3) {
-			dev_err(&pdev->dev,
-				"no OPP table for CPU speed bin %u, clusters stay at their boot clocks\n",
-				bin);
-			return -ENODEV;
-		}
-
-		dev_info(&pdev->dev, "CPU speed bin %u\n", bin);
-	}
 
 	if (!soc_data->uses_tz) {
 		/*
@@ -1863,6 +1936,16 @@ static int qcom_cpufreq_hw_driver_probe(struct platform_device *pdev)
 		if (!pd_dev || !pd_dev->dev.driver ||
 		    !device_is_bound(&pd_dev->dev))
 			return -EPROBE_DEFER;
+	}
+
+	/*
+	 * Done once the CPRh is up, so that the CPU OPP tables this creates
+	 * find the CPRh levels their OPPs require.
+	 */
+	if (of_device_is_compatible(pdev->dev.of_node, "qcom,cpufreq-hw-8998")) {
+		ret = qcom_osm_set_speed_bin(pdev);
+		if (ret)
+			return ret;
 	}
 
 	clk = clk_get(&pdev->dev, "xo");
