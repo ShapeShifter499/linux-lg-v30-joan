@@ -19,11 +19,12 @@
  * RAW10 lanes is 440 Mb/s per lane.
  *
  * The part follows the HI556/HI846 register map: 16-bit register data,
- * chip ID 0x0553 readable at 0x0f16, streaming controlled by 0x0a00.  LG's
- * exposure fill writes the 0x0126 block that the mode lists default to
- * 256 lines; the analog gain register is the family's 0x0077.  Both are
- * taken from the family layout, not from a decoded vendor struct -- check
- * them on the bench before trusting AGC.
+ * chip ID 0x0553 readable at 0x0f16, streaming controlled by 0x0a00.  The
+ * exposure, gain and frame-length registers are LG's: the sensor library's
+ * output descriptor (libmmcamera_hi553.so @0x8fd0) lists x/y output
+ * 0x0a12/0x0a14, line length 0x0008, frame length 0x0006, coarse exposure
+ * 0x0004 and analogue gain 0x003a, and its exposure fill writes exactly
+ * those, plus 1.0x (0x0100) digital gain to 0x0126/0x012a/0x012c.
  */
 
 #include <linux/clk.h>
@@ -49,18 +50,17 @@
 #define HI553_REG_FRAME_LENGTH		CCI_REG16(0x0006)
 #define HI553_FRAME_LENGTH_MAX		0x7fff
 
-/*
- * Coarse (long) exposure in lines.  The family uses 0x0074; LG's hi553
- * fill also programs the 0x0126/0x0128/0x012a block the mode lists seed
- * with 0x0100, so 0x0126 is what is driven here.
- */
-#define HI553_REG_EXPOSURE		CCI_REG16(0x0126)
+/* Coarse (long) exposure in lines (LG: minimum 6) */
+#define HI553_REG_EXPOSURE		CCI_REG16(0x0004)
 #define HI553_EXPOSURE_MIN		6
 #define HI553_EXPOSURE_OFFSET		6
 #define HI553_EXPOSURE_DEFAULT		0x100
 
-/* Analog gain, raw register value; range taken from the HI556 sibling */
-#define HI553_REG_ANALOG_GAIN		CCI_REG16(0x0077)
+/*
+ * Analogue gain code: gain = (code + 16) / 16, x1 to x16 (LG's library
+ * writes (gain - 1) * 16, clamped to [1, 16])
+ */
+#define HI553_REG_ANALOG_GAIN		CCI_REG16(0x003a)
 #define HI553_ANA_GAIN_MIN		0
 #define HI553_ANA_GAIN_MAX		240
 #define HI553_ANA_GAIN_DEFAULT		0
@@ -92,9 +92,16 @@ static const char * const hi553_supply_names[] = {
 	"dvdd",
 };
 
-/* The sensor reads out unflipped; LG's lists never touch flip registers */
+/*
+ * The sensor reads out unflipped and its first row starts G B.  LG's
+ * library labels it GRBG, but on the V30 under warm light the GRBG reading
+ * needs a red gain of 3.0 and a blue gain of 0.82 while the GBRG reading
+ * needs 0.82 and 3.0, which is what the IMX351 (whose order is confirmed)
+ * converges to in the same room; a grey-world render of a raw frame is
+ * natural in GBRG and colour-swapped in GRBG.
+ */
 static const u32 hi553_mbus_codes[] = {
-	MEDIA_BUS_FMT_SGRBG10_1X10,
+	MEDIA_BUS_FMT_SGBRG10_1X10,
 };
 
 struct hi553_mode {
