@@ -50,6 +50,15 @@ patternProperties:
         $ref: /schemas/types.yaml#/definitions/int32-array
         maxItems: 2
 
+    patternProperties:
+      '^qcom,opp-[co]loop-vadj-speed[0-9]+$':
+        description: |
+          Replaces qcom,opp-cloop-vadj (cloop) or qcom,opp-oloop-vadj
+          (oloop) on parts of the speed bin given by the suffix, for SoCs
+          whose voltage adjustments differ between speed bins.
+        $ref: /schemas/types.yaml#/definitions/int32-array
+        maxItems: 2
+
     required:
       - opp-level
       - qcom,opp-fuse-level
