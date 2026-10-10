@@ -565,6 +565,13 @@ struct qmp_usbc {
 	struct typec_mux_dev *mux;
 	enum typec_orientation orientation;
 	bool dp_only;
+
+	/* which half owns the lanes, see qmp_usbc_update_lanes() */
+	bool usb_on;
+	bool dp_on;
+	/* mode of the last reset, and nothing programmed since */
+	bool dp_mode;
+	bool mode_fresh;
 };
 
 static inline void qphy_setbits(void __iomem *base, u32 offset, u32 val)
@@ -949,6 +956,81 @@ static int qmp_usbc_com_exit(struct phy *phy)
 	regulator_bulk_disable(cfg->num_vregs, qmp->vregs);
 
 	return 0;
+}
+
+/*
+ * Reset the PHY into USB3 or DP mode while it stays powered. The TCSR
+ * mode only changes with the resets held, as in com_init().
+ */
+static int qmp_usbc_reset_mode(struct qmp_usbc *qmp, bool is_dp)
+{
+	int ret;
+
+	ret = reset_control_bulk_assert(qmp->num_resets, qmp->resets);
+	if (ret) {
+		dev_err(qmp->dev, "reset assert failed\n");
+		return ret;
+	}
+
+	qmp_usbc_set_phy_mode(qmp, is_dp);
+
+	ret = reset_control_bulk_deassert(qmp->num_resets, qmp->resets);
+	if (ret) {
+		dev_err(qmp->dev, "reset deassert failed\n");
+		return ret;
+	}
+
+	qmp->dp_mode = is_dp;
+	qmp->mode_fresh = true;
+
+	return 0;
+}
+
+/*
+ * Supplies and clocks for one more user of a PHY with a DP half. The
+ * first user also resets the PHY into its own mode; later users leave
+ * the lanes to qmp_usbc_update_lanes().
+ */
+static int qmp_usbc_get(struct qmp_usbc *qmp, struct phy *phy, bool is_dp)
+{
+	const struct qmp_phy_cfg *cfg = qmp->cfg;
+	int ret;
+
+	if (!qmp->usb_init_count && !qmp->dp_init_count) {
+		ret = qmp_usbc_com_init(phy, is_dp);
+		if (ret)
+			return ret;
+
+		qmp->dp_mode = is_dp;
+		qmp->mode_fresh = true;
+		return 0;
+	}
+
+	ret = regulator_bulk_enable(cfg->num_vregs, qmp->vregs);
+	if (ret) {
+		dev_err(qmp->dev, "failed to enable regulators, err=%d\n", ret);
+		return ret;
+	}
+
+	ret = clk_bulk_prepare_enable(qmp->num_clks, qmp->clks);
+	if (ret)
+		regulator_bulk_disable(cfg->num_vregs, qmp->vregs);
+
+	return ret;
+}
+
+/* Undo qmp_usbc_get() after the caller dropped its count. */
+static void qmp_usbc_put(struct qmp_usbc *qmp, struct phy *phy)
+{
+	const struct qmp_phy_cfg *cfg = qmp->cfg;
+
+	if (!qmp->usb_init_count && !qmp->dp_init_count) {
+		qmp_usbc_com_exit(phy);
+		return;
+	}
+
+	clk_bulk_disable_unprepare(qmp->num_clks, qmp->clks);
+	regulator_bulk_disable(cfg->num_vregs, qmp->vregs);
 }
 
 static void qcs615_qmp_dp_aux_init(struct qmp_usbc *qmp)
@@ -1497,20 +1579,68 @@ static int qmp_usbc_usb_power_off(struct phy *phy)
 	return 0;
 }
 
-static int qmp_usbc_check_phy_status(struct qmp_usbc *qmp, bool is_dp)
+/*
+ * USB3 and DP cannot share this PHY: TCSR switches the lanes between
+ * them. Rather than fail phy_init() for whichever half comes second,
+ * which leaves the PHY core's counts out of step with the consumer,
+ * each half keeps its count and the half without the lanes is parked.
+ * The Type-C mux decides through dp_only: a DP pin assignment hands the
+ * lanes to DP, anything else to USB3. Without a mux, DP gets them only
+ * while USB3 is not in use.
+ *
+ * Called with phy_mutex held, on PHYs with a DP half.
+ */
+static int qmp_usbc_update_lanes(struct qmp_usbc *qmp)
 {
-	/*
-	 * USB3 and DP cannot share this PHY. DP-only alt mode parks USB3
-	 * first, so a later DP init is allowed while the USB count is
-	 * still held by dwc3.
-	 */
-	if (is_dp && qmp->usb_init_count && !qmp->dp_only) {
-		dev_err(qmp->dev, "PHY is configured for USB, can not enable DP\n");
-		return -EBUSY;
+	const struct qmp_phy_cfg *cfg = qmp->cfg;
+	bool want_usb, want_dp;
+	int ret;
+
+	want_usb = qmp->usb_init_count && !qmp->dp_only;
+	want_dp = qmp->dp_init_count && (qmp->dp_only || !qmp->usb_init_count);
+
+	if (qmp->usb_on && !want_usb) {
+		qmp_usbc_usb_power_off(qmp->usb_phy);
+		qmp->usb_on = false;
+		qmp->mode_fresh = false;
+		dev_dbg(qmp->dev, "USB3 parked\n");
 	}
-	if (!is_dp && qmp->dp_init_count) {
-		dev_err(qmp->dev, "PHY is configured for DP, can not enable USB\n");
-		return -EBUSY;
+
+	if (qmp->dp_on && !want_dp) {
+		writel(DP_PHY_PD_CTL_PSR_PWRDN,
+		       qmp->dp_dp_phy + cfg->dp_phy_pd_ctl);
+		qmp->dp_on = false;
+		qmp->mode_fresh = false;
+		dev_dbg(qmp->dev, "DP parked\n");
+	}
+
+	if (want_usb && !qmp->usb_on) {
+		if (!qmp->mode_fresh || qmp->dp_mode) {
+			ret = qmp_usbc_reset_mode(qmp, false);
+			if (ret)
+				return ret;
+		}
+
+		qmp->mode_fresh = false;
+		ret = qmp_usbc_usb_power_on(qmp->usb_phy);
+		if (ret)
+			return ret;
+
+		qmp->usb_on = true;
+		dev_dbg(qmp->dev, "lanes on USB3\n");
+	}
+
+	if (want_dp && !qmp->dp_on) {
+		if (!qmp->mode_fresh || !qmp->dp_mode) {
+			ret = qmp_usbc_reset_mode(qmp, true);
+			if (ret)
+				return ret;
+		}
+
+		qmp->mode_fresh = false;
+		cfg->dp_aux_init(qmp);
+		qmp->dp_on = true;
+		dev_dbg(qmp->dev, "lanes on DP\n");
 	}
 
 	return 0;
@@ -1523,9 +1653,19 @@ static int qmp_usbc_usb_enable(struct phy *phy)
 
 	mutex_lock(&qmp->phy_mutex);
 
-	ret = qmp_usbc_check_phy_status(qmp, false);
-	if (ret)
+	if (qmp->dp_serdes) {
+		ret = qmp_usbc_get(qmp, phy, false);
+		if (ret)
+			goto out_unlock;
+
+		qmp->usb_init_count++;
+		ret = qmp_usbc_update_lanes(qmp);
+		if (ret) {
+			qmp->usb_init_count--;
+			qmp_usbc_put(qmp, phy);
+		}
 		goto out_unlock;
+	}
 
 	ret = qmp_usbc_com_init(phy, false);
 	if (ret)
@@ -1537,6 +1677,7 @@ static int qmp_usbc_usb_enable(struct phy *phy)
 		goto out_unlock;
 	}
 
+	qmp->usb_on = true;
 	qmp->usb_init_count++;
 out_unlock:
 	mutex_unlock(&qmp->phy_mutex);
@@ -1547,13 +1688,27 @@ out_unlock:
 static int qmp_usbc_usb_disable(struct phy *phy)
 {
 	struct qmp_usbc *qmp = phy_get_drvdata(phy);
-	int ret;
+	int ret = 0;
+
+	mutex_lock(&qmp->phy_mutex);
 
 	qmp->usb_init_count--;
+
+	if (qmp->dp_serdes) {
+		/* Parks USB3, and gives DP the lanes if it was waiting. */
+		qmp_usbc_update_lanes(qmp);
+		qmp_usbc_put(qmp, phy);
+		goto out_unlock;
+	}
+
+	qmp->usb_on = false;
 	ret = qmp_usbc_usb_power_off(phy);
-	if (ret)
-		return ret;
-	return qmp_usbc_com_exit(phy);
+	if (!ret)
+		ret = qmp_usbc_com_exit(phy);
+out_unlock:
+	mutex_unlock(&qmp->phy_mutex);
+
+	return ret;
 }
 
 static int qmp_usbc_usb_set_mode(struct phy *phy, enum phy_mode mode, int submode)
@@ -1565,10 +1720,15 @@ static int qmp_usbc_usb_set_mode(struct phy *phy, enum phy_mode mode, int submod
 	return 0;
 }
 
+/*
+ * phy_init() for DP always succeeds. If USB3 holds the lanes, DP waits
+ * parked until the Type-C mux or USB3 lets go of them; failing here
+ * would leave msm-dp, which ignores the result, unbalanced against the
+ * PHY core's init count.
+ */
 static int qmp_usbc_dp_enable(struct phy *phy)
 {
 	struct qmp_usbc *qmp = phy_get_drvdata(phy);
-	const struct qmp_phy_cfg *cfg = qmp->cfg;
 	int ret;
 
 	if (qmp->dp_init_count) {
@@ -1578,17 +1738,20 @@ static int qmp_usbc_dp_enable(struct phy *phy)
 
 	mutex_lock(&qmp->phy_mutex);
 
-	ret = qmp_usbc_check_phy_status(qmp, true);
+	ret = qmp_usbc_get(qmp, phy, true);
 	if (ret)
 		goto dp_init_unlock;
-
-	ret = qmp_usbc_com_init(phy, true);
-	if (ret)
-		goto dp_init_unlock;
-
-	cfg->dp_aux_init(qmp);
 
 	qmp->dp_init_count++;
+	ret = qmp_usbc_update_lanes(qmp);
+	if (ret) {
+		qmp->dp_init_count--;
+		qmp_usbc_put(qmp, phy);
+		goto dp_init_unlock;
+	}
+
+	if (!qmp->dp_on)
+		dev_info(qmp->dev, "USB3 holds the lanes, DP waits for alt mode\n");
 
 dp_init_unlock:
 	mutex_unlock(&qmp->phy_mutex);
@@ -1601,9 +1764,10 @@ static int qmp_usbc_dp_disable(struct phy *phy)
 
 	mutex_lock(&qmp->phy_mutex);
 
-	qmp_usbc_com_exit(phy);
-
 	qmp->dp_init_count--;
+	/* Parks DP, and hands the lanes back to USB3 unless alt mode holds them. */
+	qmp_usbc_update_lanes(qmp);
+	qmp_usbc_put(qmp, phy);
 
 	mutex_unlock(&qmp->phy_mutex);
 
@@ -1611,9 +1775,10 @@ static int qmp_usbc_dp_disable(struct phy *phy)
 }
 
 /*
- * msm-dp does not check phy_init(), so it can reach these ops after
- * qmp_usbc_check_phy_status() refused DP because USB3 owns the PHY.
- * Touching the DP registers then would reprogram the SerDes under USB.
+ * While DP is parked these ops must not touch the DP registers: the
+ * SerDes is running USB3. power_on and power_off still succeed so the
+ * PHY core's power count stays balanced with msm-dp's calls; a failed
+ * power_off would leave the count at one and skip the next power_on.
  */
 static int qmp_usbc_dp_configure(struct phy *phy, union phy_configure_opts *opts)
 {
@@ -1623,7 +1788,7 @@ static int qmp_usbc_dp_configure(struct phy *phy, union phy_configure_opts *opts
 
 	mutex_lock(&qmp->phy_mutex);
 
-	if (!qmp->dp_init_count) {
+	if (!qmp->dp_on) {
 		mutex_unlock(&qmp->phy_mutex);
 		return -EBUSY;
 	}
@@ -1648,7 +1813,7 @@ static int qmp_usbc_dp_calibrate(struct phy *phy)
 
 	mutex_lock(&qmp->phy_mutex);
 
-	if (!qmp->dp_init_count) {
+	if (!qmp->dp_on) {
 		mutex_unlock(&qmp->phy_mutex);
 		return -EBUSY;
 	}
@@ -1715,9 +1880,10 @@ static int qmp_usbc_dp_power_on(struct phy *phy)
 
 	mutex_lock(&qmp->phy_mutex);
 
-	if (!qmp->dp_init_count) {
+	if (!qmp->dp_on) {
 		mutex_unlock(&qmp->phy_mutex);
-		return -EBUSY;
+		dev_warn(qmp->dev, "DP has no lanes: no DP alt mode on the port\n");
+		return 0;
 	}
 
 	qmp_usbc_dp_serdes_init(qmp);
@@ -1742,9 +1908,9 @@ static int qmp_usbc_dp_power_off(struct phy *phy)
 
 	mutex_lock(&qmp->phy_mutex);
 
-	if (!qmp->dp_init_count) {
+	if (!qmp->dp_on) {
 		mutex_unlock(&qmp->phy_mutex);
-		return -EBUSY;
+		return 0;
 	}
 
 	/* Assert DP PHY power down */
@@ -1828,9 +1994,11 @@ static int __maybe_unused qmp_usbc_runtime_suspend(struct device *dev)
 		return 0;
 	}
 
-	qmp_usbc_enable_autonomous_mode(qmp);
-
-	clk_disable_unprepare(qmp->pipe_clk);
+	/* A parked USB3 half has no pipe clock to stop. */
+	if (qmp->usb_on) {
+		qmp_usbc_enable_autonomous_mode(qmp);
+		clk_disable_unprepare(qmp->pipe_clk);
+	}
 	clk_bulk_disable_unprepare(qmp->num_clks, qmp->clks);
 
 	return 0;
@@ -1851,6 +2019,9 @@ static int __maybe_unused qmp_usbc_runtime_resume(struct device *dev)
 	ret = clk_bulk_prepare_enable(qmp->num_clks, qmp->clks);
 	if (ret)
 		return ret;
+
+	if (!qmp->usb_on)
+		return 0;
 
 	ret = clk_prepare_enable(qmp->pipe_clk);
 	if (ret) {
@@ -2175,11 +2346,19 @@ static int qmp_usbc_typec_switch_set(struct typec_switch_dev *sw,
 	mutex_lock(&qmp->phy_mutex);
 	qmp->orientation = orientation;
 
-	if (qmp->usb_init_count) {
+	/*
+	 * A running USB3 half restarts on the new side. DP picks the
+	 * orientation up at its next configure and power_on.
+	 */
+	if (qmp->usb_on) {
 		qmp_usbc_usb_power_off(qmp->usb_phy);
-		qmp_usbc_com_exit(qmp->usb_phy);
-
-		qmp_usbc_com_init(qmp->usb_phy, false);
+		if (qmp->dp_serdes) {
+			qmp_usbc_reset_mode(qmp, false);
+		} else {
+			qmp_usbc_com_exit(qmp->usb_phy);
+			qmp_usbc_com_init(qmp->usb_phy, false);
+		}
+		qmp->mode_fresh = false;
 		qmp_usbc_usb_power_on(qmp->usb_phy);
 	}
 
@@ -2223,9 +2402,9 @@ static int qmp_usbc_typec_mux_set(struct typec_mux_dev *mux,
 				  struct typec_mux_state *state)
 {
 	struct qmp_usbc *qmp = typec_mux_get_drvdata(mux);
-	const struct qmp_phy_cfg *cfg = qmp->cfg;
 	bool dp_only = false;
 	unsigned int svid = 0;
+	int ret;
 
 	if (!qmp->dp_serdes)
 		return 0;
@@ -2234,13 +2413,12 @@ static int qmp_usbc_typec_mux_set(struct typec_mux_dev *mux,
 		svid = state->alt->svid;
 
 	/*
-	 * This PHY is USB3 or DP, never both. Pin assignments C and E
-	 * are DP-only. D and F would need both lanes, which this block
-	 * cannot do, so they stay on USB3.
+	 * This PHY carries USB3 or DP, never both, so every DP pin
+	 * assignment parks USB3. C and E use four lanes. D uses two and
+	 * leaves USB to the USB 2.0 pair, which is what LG's PD stack does
+	 * when it starts the host HS-only for an SVID 0xff01 partner.
 	 */
-	if (svid == USB_TYPEC_DP_SID &&
-	    (state->mode == TYPEC_DP_STATE_C ||
-	     state->mode == TYPEC_DP_STATE_E))
+	if (svid == USB_TYPEC_DP_SID && state->mode >= TYPEC_STATE_MODAL)
 		dp_only = true;
 
 	mutex_lock(&qmp->phy_mutex);
@@ -2249,22 +2427,14 @@ static int qmp_usbc_typec_mux_set(struct typec_mux_dev *mux,
 		return 0;
 	}
 
+	dev_dbg(qmp->dev, "Type-C mode %lu: lanes to %s\n", state->mode,
+		dp_only ? "DP" : "USB3");
+
 	qmp->dp_only = dp_only;
-	if (qmp->usb_init_count) {
-		if (dp_only) {
-			qmp_usbc_usb_power_off(qmp->usb_phy);
-			if (qmp->dp_init_count)
-				cfg->dp_aux_init(qmp);
-		} else if (!qmp->dp_init_count) {
-			reset_control_bulk_assert(qmp->num_resets, qmp->resets);
-			qmp_usbc_set_phy_mode(qmp, false);
-			reset_control_bulk_deassert(qmp->num_resets, qmp->resets);
-			qmp_usbc_usb_power_on(qmp->usb_phy);
-		}
-	}
+	ret = qmp_usbc_update_lanes(qmp);
 	mutex_unlock(&qmp->phy_mutex);
 
-	return 0;
+	return ret;
 }
 
 static int qmp_usbc_typec_mux_register(struct qmp_usbc *qmp)
