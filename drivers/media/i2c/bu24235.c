@@ -53,6 +53,12 @@
 #define BU24235_E2P_CAL_SPLIT	26
 #define BU24235_E2P_CAL_ADDR2	0x0aac
 #define BU24235_E2P_CAL_SIZE	48
+/*
+ * The qcom CCI caps a single read message (12 bytes on msm8998's cci_v2),
+ * enforced by i2c_check_for_quirks() as -EOPNOTSUPP. The EEPROM has no
+ * such limit, so long reads are split into adapter-sized chunks.
+ */
+#define BU24235_E2P_MAX_READ	12
 
 /* the calibration lands in controller RAM at this address */
 #define BU24235_RAM_CAL_DEST	0x1dc0
@@ -106,18 +112,18 @@ static inline struct bu24235_device *sd_to_bu24235(struct v4l2_subdev *sd)
 }
 
 /* one transaction: 16-bit big-endian register address, then len data bytes */
-static int bu24235_read(struct i2c_client *client, u16 reg, void *val,
-			size_t len)
+static int bu24235_read_addr(struct i2c_client *client, u16 slave_addr,
+			     u16 reg, void *val, size_t len)
 {
 	struct i2c_msg msgs[2];
-	u8 addr[2] = { reg >> 8, reg & 0xff };
+	u8 reg_buf[2] = { reg >> 8, reg & 0xff };
 	int ret;
 
-	msgs[0].addr = client->addr;
+	msgs[0].addr = slave_addr;
 	msgs[0].flags = 0;
-	msgs[0].len = sizeof(addr);
-	msgs[0].buf = addr;
-	msgs[1].addr = client->addr;
+	msgs[0].len = sizeof(reg_buf);
+	msgs[0].buf = reg_buf;
+	msgs[1].addr = slave_addr;
 	msgs[1].flags = I2C_M_RD;
 	msgs[1].len = len;
 	msgs[1].buf = val;
@@ -127,6 +133,49 @@ static int bu24235_read(struct i2c_client *client, u16 reg, void *val,
 		return ret;
 	if (ret != 2)
 		return -EIO;
+
+	return 0;
+}
+
+static int bu24235_read(struct i2c_client *client, u16 reg, void *val,
+			size_t len)
+{
+	return bu24235_read_addr(client, client->addr, reg, val, len);
+}
+
+static int bu24235_eeprom_read(struct i2c_client *client, u16 reg, void *val,
+			       size_t len)
+{
+	return bu24235_read_addr(client, BU24235_E2P_ADDR, reg, val, len);
+}
+
+/*
+ * Read len bytes from the EEPROM, splitting the transfer into chunks no
+ * larger than the adapter allows for a single read message. Each chunk
+ * re-issues the register address, so the EEPROM's own limits do not
+ * apply and the byte stream is contiguous.
+ */
+static int bu24235_eeprom_read_chunked(struct i2c_client *client, u16 reg,
+				       void *val, size_t len)
+{
+	const struct i2c_adapter_quirks *quirks = client->adapter->quirks;
+	size_t max_len = BU24235_E2P_MAX_READ;
+	u8 *buf = val;
+
+	if (quirks && quirks->max_read_len && quirks->max_read_len < max_len)
+		max_len = quirks->max_read_len;
+
+	while (len) {
+		size_t chunk = min(len, max_len);
+		int ret = bu24235_eeprom_read(client, reg, buf, chunk);
+
+		if (ret)
+			return ret;
+
+		reg += chunk;
+		buf += chunk;
+		len -= chunk;
+	}
 
 	return 0;
 }
@@ -215,14 +264,14 @@ static int bu24235_read_cal(struct i2c_client *client, u8 *cal)
 {
 	int ret;
 
-	ret = bu24235_read(client, BU24235_E2P_CAL_BASE, cal,
-			   BU24235_E2P_CAL_SPLIT);
+	ret = bu24235_eeprom_read_chunked(client, BU24235_E2P_CAL_BASE, cal,
+					  BU24235_E2P_CAL_SPLIT);
 	if (ret)
 		return ret;
 
-	return bu24235_read(client, BU24235_E2P_CAL_ADDR2,
-			    cal + BU24235_E2P_CAL_SPLIT,
-			    BU24235_E2P_CAL_SIZE - BU24235_E2P_CAL_SPLIT);
+	return bu24235_eeprom_read_chunked(client, BU24235_E2P_CAL_ADDR2,
+					   cal + BU24235_E2P_CAL_SPLIT,
+					   BU24235_E2P_CAL_SIZE - BU24235_E2P_CAL_SPLIT);
 }
 
 static int bu24235_download(struct bu24235_device *bu24235,
@@ -336,23 +385,33 @@ static int bu24235_init_cmd(struct bu24235_device *bu24235, u16 cal_ver)
 static int bu24235_init(struct bu24235_device *bu24235)
 {
 	struct i2c_client *client = bu24235->client;
-	u8 map_ver[2] = { 0 }, cal_ver[2] = { 0 };
 	const struct bu24235_fw *fw = NULL;
+	u8 map_ver = 0, cal_ver[2] = { 0 };
 	unsigned int i;
 	int ret;
 
 	/* which lens controller did this unit ship with? */
-	ret = bu24235_read(client, BU24235_E2P_MAP_VER, map_ver, 2);
+	ret = bu24235_eeprom_read(client, BU24235_E2P_MAP_VER, &map_ver, 1);
 	if (ret)
 		return ret;
-	if (map_ver[1] == 0x01 || map_ver[1] == 0x02) {
+
+	switch (map_ver) {
+	case 0xff:
+	case 0x01:
+	case 0x02:
 		dev_dbg(&client->dev,
-			"Renesas lens controller fitted, not us (map 0x%02x%02x)\n",
-			map_ver[0], map_ver[1]);
+			"Renesas lens controller fitted, not us (map 0x%02x)\n",
+			map_ver);
 		return -ENODEV;
+	case 0x03:
+		break;
+	default:
+		dev_err(&client->dev, "unknown module map version 0x%02x\n",
+			map_ver);
+		return -EINVAL;
 	}
 
-	ret = bu24235_read(client, BU24235_E2P_CAL_VER, cal_ver, 2);
+	ret = bu24235_eeprom_read(client, BU24235_E2P_CAL_VER, cal_ver, 2);
 	if (ret)
 		return ret;
 
