@@ -226,6 +226,16 @@
 		pinctrl-names = "default";
 	};
 
+	/* Stock names this external actuator rail CAM0_VAF (PM8998 GPIO 7). */
+	cam0_vaf: cam0-vaf-regulator {
+		compatible = "regulator-fixed";
+		regulator-name = "cam0_vaf";
+		gpio = <&pm8998_gpios 7 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		pinctrl-0 = <&cam0_vaf_en>;
+		pinctrl-names = "default";
+	};
+
 	/*
 	 * Wide camera rails: external LDOs switched by TLMM GPIOs, LG's
 	 * CAM1_VANA (GPIO 39) and CAM1_DVDD (GPIO 21).  As for the main
@@ -424,11 +434,17 @@
 	/*
 	 * ROHM BU24235 AF/OIS controller of the rear camera module (the
 	 * Renesas variant of the module uses 0x24 and has no driver yet).
-	 * No supplies: powered by the sensor's power-up.
+	 * Stock controls its dedicated CAM0_VAF rail with PM8998 GPIO 7 and
+	 * releases CAM0_OIS_RESET with TLMM GPIO 23 after VAF is enabled.
 	 */
 	bu24235: lens@3e {
 		compatible = "rohm,bu24235";
 		reg = <0x3e>;
+
+		vaf-supply = <&cam0_vaf>;
+		reset-gpios = <&tlmm 23 GPIO_ACTIVE_LOW>;
+		pinctrl-0 = <&cam0_ois_reset>;
+		pinctrl-names = "default";
 	};
 };
 
@@ -530,6 +546,12 @@
 
 	cam0_dvdd_en: cam0-dvdd-en-state {
 		pins = "gpio20";
+		function = "normal";
+		output-low;
+	};
+
+	cam0_vaf_en: cam0-vaf-en-state {
+		pins = "gpio7";
 		function = "normal";
 		output-low;
 	};
@@ -1029,6 +1051,14 @@
 		function = "cam_mclk";
 		drive-strength = <2>;
 		bias-disable;
+	};
+
+	cam0_ois_reset: cam0-ois-reset-state {
+		pins = "gpio23";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-disable;
+		output-low;
 	};
 
 	/* Wide camera: MCLK1 on GPIO 14 and LG's CAM1 GPIOs (rear2 states) */
