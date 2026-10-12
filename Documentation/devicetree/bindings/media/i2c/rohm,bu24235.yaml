@@ -13,12 +13,11 @@ description: >-
   The BU24235 is a closed-loop AF/OIS lens controller with RAM firmware
   download, used in the LG Innotek rear camera module of the LG V30
   (joan).  It sits on the camera module's CCI I2C bus next to the IMX351
-  sensor and the module EEPROM, and shares the module's supplies with
-  them; it has no regulator properties of its own and answers on the bus
-  only while the sensor is powered.  The module is dual-sourced: the
-  EEPROM map version at 0x0be2 tells the BU24235 and the Renesas
-  controller variant apart, and this driver declines the bus when the
-  Renesas one is fitted.
+  sensor and the module EEPROM. Its VAF rail and active-low reset must be
+  enabled in addition to the shared module supplies before it answers on
+  the bus. The module is dual-sourced: the EEPROM map version at 0x0be2
+  tells the BU24235 and the Renesas controller variant apart, and this
+  driver declines the bus when the Renesas one is fitted.
 
   The firmware files are LG's per-revision controller programs, selected
   by the EEPROM calibration version at 0x0ac2.
@@ -33,14 +32,27 @@ properties:
   reg:
     maxItems: 1
 
+  vaf-supply:
+    description: Power supply for the AF/OIS controller.
+
+  reset-gpios:
+    maxItems: 1
+    description:
+      Active-low reset for the AF/OIS controller. A high level releases the
+      controller from reset.
+
 required:
   - compatible
   - reg
+  - vaf-supply
+  - reset-gpios
 
 additionalProperties: false
 
 examples:
   - |
+    #include <dt-bindings/gpio/gpio.h>
+
     i2c {
         #address-cells = <1>;
         #size-cells = <0>;
@@ -48,6 +60,8 @@ examples:
         lens@3e {
             compatible = "rohm,bu24235";
             reg = <0x3e>;
+            vaf-supply = <&cam0_vaf>;
+            reset-gpios = <&tlmm 23 GPIO_ACTIVE_LOW>;
         };
     };
 
