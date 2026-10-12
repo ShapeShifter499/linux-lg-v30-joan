@@ -3,12 +3,12 @@
  * ROHM BU24235 AF/OIS controller with RAM firmware download, as fitted to
  * the LG Innotek rear camera module of the LG V30 (joan).
  *
- * The part shares the camera module's supplies with the IMX351 sensor and
- * has no regulators of its own, so no I2C access happens at probe; the
- * controller is brought up on the first focus request, which userspace
- * only makes while the sensor is on.  The module is dual-sourced: the
- * module EEPROM (0x54 on the same bus) tells which lens controller is
- * fitted, and this driver declines anything that is not the ROHM one.
+ * The controller has a dedicated VAF supply and an active-low reset.  They
+ * are managed with runtime PM and the controller is initialized lazily on
+ * the first focus request while the subdevice is open.  The module is
+ * dual-sourced: the module EEPROM (0x54 on the same bus) tells which lens
+ * controller is fitted, and this driver declines anything that is not the
+ * ROHM one.
  *
  * The download protocol, firmware file names, revision selection by
  * EEPROM calibration version and the checksums are transcribed from LG's
@@ -18,9 +18,12 @@
 
 #include <linux/delay.h>
 #include <linux/firmware.h>
+#include <linux/gpio/consumer.h>
 #include <linux/i2c.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
+#include <linux/pm_runtime.h>
+#include <linux/regulator/consumer.h>
 
 #include <media/v4l2-ctrls.h>
 #include <media/v4l2-device.h>
@@ -102,7 +105,10 @@ struct bu24235_device {
 	struct v4l2_subdev sd;
 	struct v4l2_ctrl_handler ctrls;
 	struct i2c_client *client;
+	struct regulator *vaf;
+	struct gpio_desc *reset_gpio;
 	struct mutex mutex;
+	bool powered;
 	bool init_done;
 };
 
@@ -377,10 +383,52 @@ static int bu24235_init_cmd(struct bu24235_device *bu24235, u16 cal_ver)
 	return ret;
 }
 
+static int bu24235_power_on(struct bu24235_device *bu24235)
+{
+	struct device *dev = &bu24235->client->dev;
+	int ret;
+
+	if (bu24235->powered)
+		return 0;
+
+	ret = regulator_enable(bu24235->vaf);
+	if (ret) {
+		dev_err(dev, "failed to enable VAF supply: %d\n", ret);
+		return ret;
+	}
+
+	/* Stock powers VAF before taking the active-low OIS reset high. */
+	gpiod_set_value_cansleep(bu24235->reset_gpio, 0);
+	usleep_range(1000, 1100);
+	bu24235->powered = true;
+	bu24235->init_done = false;
+
+	return 0;
+}
+
+static int bu24235_power_off(struct bu24235_device *bu24235)
+{
+	int ret;
+
+	if (!bu24235->powered) {
+		bu24235->init_done = false;
+		return 0;
+	}
+
+	gpiod_set_value_cansleep(bu24235->reset_gpio, 1);
+	bu24235->init_done = false;
+
+	ret = regulator_disable(bu24235->vaf);
+	if (!ret)
+		bu24235->powered = false;
+
+	return ret;
+}
+
 /*
- * Bring the controller up on first use.  Everything here needs the camera
- * module powered, which only happens while the IMX351 streams; a failure
- * leaves init_done clear so the next focus request retries.
+ * Bring the controller up on first use. The shared camera-module supplies
+ * still need the IMX351 powered, so a failure leaves init_done clear and the
+ * next focus request retries.
  */
 static int bu24235_init(struct bu24235_device *bu24235)
 {
@@ -447,10 +495,18 @@ static int bu24235_set_focus(struct bu24235_device *bu24235, s32 val)
 	s16 dac;
 	int ret;
 
+	ret = bu24235_power_on(bu24235);
+	if (ret)
+		return ret;
+
 	if (!bu24235->init_done) {
 		ret = bu24235_init(bu24235);
-		if (ret)
+		if (ret) {
+			if (bu24235_power_off(bu24235))
+				dev_warn(&bu24235->client->dev,
+					 "failed to power off after init error\n");
 			return ret;
+		}
 	}
 
 	dac = (s16)(val - BU24235_MAX_FOCUS_POS / 2 - 1);
@@ -462,11 +518,22 @@ static int bu24235_s_ctrl(struct v4l2_ctrl *ctrl)
 {
 	struct bu24235_device *bu24235 =
 		container_of(ctrl->handler, struct bu24235_device, ctrls);
+	struct device *dev = &bu24235->client->dev;
+	int pm_ret = 0;
 	int ret;
+
+	/* Cache controls set while the subdevice is closed and powered off. */
+	if (pm_runtime_enabled(dev)) {
+		pm_ret = pm_runtime_get_if_in_use(dev);
+		if (pm_ret <= 0)
+			return pm_ret < 0 ? pm_ret : 0;
+	}
 
 	mutex_lock(&bu24235->mutex);
 	ret = bu24235_set_focus(bu24235, ctrl->val);
 	mutex_unlock(&bu24235->mutex);
+	if (pm_ret > 0)
+		pm_runtime_put(dev);
 
 	return ret;
 }
@@ -475,19 +542,67 @@ static const struct v4l2_ctrl_ops bu24235_ctrl_ops = {
 	.s_ctrl = bu24235_s_ctrl,
 };
 
+static int bu24235_open(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
+{
+	return pm_runtime_resume_and_get(sd->dev);
+}
+
+static int bu24235_close(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
+{
+	pm_runtime_put_autosuspend(sd->dev);
+
+	return 0;
+}
+
+static const struct v4l2_subdev_internal_ops bu24235_internal_ops = {
+	.open = bu24235_open,
+	.close = bu24235_close,
+};
+
 static const struct v4l2_subdev_ops bu24235_subdev_ops = { };
+
+static int bu24235_runtime_suspend(struct device *dev)
+{
+	struct v4l2_subdev *sd = dev_get_drvdata(dev);
+	struct bu24235_device *bu24235 = sd_to_bu24235(sd);
+	int ret;
+
+	mutex_lock(&bu24235->mutex);
+	ret = bu24235_power_off(bu24235);
+	mutex_unlock(&bu24235->mutex);
+
+	return ret;
+}
+
+static int bu24235_runtime_resume(struct device *dev)
+{
+	/* The hardware powers up lazily once the sensor's shared rails are on. */
+	return 0;
+}
 
 static int bu24235_probe(struct i2c_client *client)
 {
+	struct device *dev = &client->dev;
 	struct bu24235_device *bu24235;
 	int ret;
 
-	bu24235 = devm_kzalloc(&client->dev, sizeof(*bu24235), GFP_KERNEL);
+	bu24235 = devm_kzalloc(dev, sizeof(*bu24235), GFP_KERNEL);
 	if (!bu24235)
 		return -ENOMEM;
 
+	bu24235->vaf = devm_regulator_get(dev, "vaf");
+	if (IS_ERR(bu24235->vaf))
+		return dev_err_probe(dev, PTR_ERR(bu24235->vaf),
+				     "failed to get VAF supply\n");
+
+	bu24235->reset_gpio = devm_gpiod_get(dev, "reset", GPIOD_OUT_HIGH);
+	if (IS_ERR(bu24235->reset_gpio))
+		return dev_err_probe(dev, PTR_ERR(bu24235->reset_gpio),
+				     "failed to get reset GPIO\n");
+
 	v4l2_i2c_subdev_init(&bu24235->sd, client, &bu24235_subdev_ops);
 	bu24235->sd.flags |= V4L2_SUBDEV_FL_HAS_DEVNODE;
+	bu24235->sd.internal_ops = &bu24235_internal_ops;
 	bu24235->client = client;
 	mutex_init(&bu24235->mutex);
 
@@ -507,13 +622,20 @@ static int bu24235_probe(struct i2c_client *client)
 
 	bu24235->sd.entity.function = MEDIA_ENT_F_LENS;
 
+	pm_runtime_enable(dev);
+
 	ret = v4l2_async_register_subdev(&bu24235->sd);
 	if (ret)
-		goto err_entity;
+		goto err_pm_runtime;
+
+	pm_runtime_set_autosuspend_delay(dev, 1000);
+	pm_runtime_use_autosuspend(dev);
+	pm_runtime_idle(dev);
 
 	return 0;
 
-err_entity:
+err_pm_runtime:
+	pm_runtime_disable(dev);
 	media_entity_cleanup(&bu24235->sd.entity);
 err_handler:
 	v4l2_ctrl_handler_free(&bu24235->ctrls);
@@ -523,10 +645,15 @@ err_handler:
 static void bu24235_remove(struct i2c_client *client)
 {
 	struct v4l2_subdev *sd = i2c_get_clientdata(client);
+	struct bu24235_device *bu24235 = sd_to_bu24235(sd);
+	struct device *dev = &client->dev;
 
 	v4l2_async_unregister_subdev(sd);
 	media_entity_cleanup(&sd->entity);
 	v4l2_ctrl_handler_free(sd->ctrl_handler);
+	pm_runtime_disable(dev);
+	bu24235_power_off(bu24235);
+	pm_runtime_set_suspended(dev);
 }
 
 static const struct i2c_device_id bu24235_id_table[] = {
@@ -541,10 +668,18 @@ static const struct of_device_id bu24235_of_table[] = {
 };
 MODULE_DEVICE_TABLE(of, bu24235_of_table);
 
+static const struct dev_pm_ops bu24235_pm_ops = {
+	SET_SYSTEM_SLEEP_PM_OPS(pm_runtime_force_suspend,
+				pm_runtime_force_resume)
+	SET_RUNTIME_PM_OPS(bu24235_runtime_suspend,
+			   bu24235_runtime_resume, NULL)
+};
+
 static struct i2c_driver bu24235_i2c_driver = {
 	.driver = {
 		.name = BU24235_NAME,
 		.of_match_table = bu24235_of_table,
+		.pm = &bu24235_pm_ops,
 	},
 	.probe = bu24235_probe,
 	.remove = bu24235_remove,
