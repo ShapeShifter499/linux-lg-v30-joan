@@ -2061,6 +2061,41 @@
 			};
 		};
 
+		mm3-dai-link {
+			link-name = "MultiMedia3";
+			cpu {
+				sound-dai = <&q6asmdai MSM_FRONTEND_DAI_MULTIMEDIA3>;
+			};
+		};
+
+		mm4-dai-link {
+			link-name = "MultiMedia4";
+			cpu {
+				sound-dai = <&q6asmdai MSM_FRONTEND_DAI_MULTIMEDIA4>;
+			};
+		};
+
+		mm5-dai-link {
+			link-name = "MultiMedia5";
+			cpu {
+				sound-dai = <&q6asmdai MSM_FRONTEND_DAI_MULTIMEDIA5>;
+			};
+		};
+
+		mm6-dai-link {
+			link-name = "MultiMedia6";
+			cpu {
+				sound-dai = <&q6asmdai MSM_FRONTEND_DAI_MULTIMEDIA6>;
+			};
+		};
+
+		mm7-dai-link {
+			link-name = "MultiMedia7";
+			cpu {
+				sound-dai = <&q6asmdai MSM_FRONTEND_DAI_MULTIMEDIA7>;
+			};
+		};
+
 		slim-playback-dai-link {
 			link-name = "SLIM Playback";
 			cpu {
@@ -2123,6 +2158,51 @@
 			};
 		};
 
+		slim2-playback-dai-link {
+			link-name = "SLIM Playback 2";
+			cpu {
+				sound-dai = <&q6afedai SLIMBUS_1_RX>;
+			};
+
+			platform {
+				sound-dai = <&q6routing>;
+			};
+
+			codec {
+				sound-dai = <&wcd9340 2>; /* AIF2_PB */
+			};
+		};
+
+		slim2-capture-dai-link {
+			link-name = "SLIM Capture 2";
+			cpu {
+				sound-dai = <&q6afedai SLIMBUS_1_TX>;
+			};
+
+			platform {
+				sound-dai = <&q6routing>;
+			};
+
+			codec {
+				sound-dai = <&wcd9340 3>; /* AIF2_CAP */
+			};
+		};
+
+		slim3-capture-dai-link {
+			link-name = "SLIM Capture 3";
+			cpu {
+				sound-dai = <&q6afedai SLIMBUS_2_TX>;
+			};
+
+			platform {
+				sound-dai = <&q6routing>;
+			};
+
+			codec {
+				sound-dai = <&wcd9340 5>; /* AIF3_CAP */
+			};
+		};
+
 		/*
 		 * The SLIMBUS_8_TX "FM Capture" backend comes back together with
 		 * the WCN3990 slim2 wiring below; without the codec dai it would
@@ -2143,6 +2223,26 @@
 
 	dai@1 {
 		reg = <MSM_FRONTEND_DAI_MULTIMEDIA2>;
+	};
+
+	dai@2 {
+		reg = <MSM_FRONTEND_DAI_MULTIMEDIA3>;
+	};
+
+	dai@3 {
+		reg = <MSM_FRONTEND_DAI_MULTIMEDIA4>;
+	};
+
+	dai@4 {
+		reg = <MSM_FRONTEND_DAI_MULTIMEDIA5>;
+	};
+
+	dai@5 {
+		reg = <MSM_FRONTEND_DAI_MULTIMEDIA6>;
+	};
+
+	dai@6 {
+		reg = <MSM_FRONTEND_DAI_MULTIMEDIA7>;
 	};
 };
 
@@ -2186,6 +2286,18 @@
 
 	dai@3 {
 		reg = <SLIMBUS_0_TX>;
+	};
+
+	dai@4 {
+		reg = <SLIMBUS_1_RX>;
+	};
+
+	dai@5 {
+		reg = <SLIMBUS_1_TX>;
+	};
+
+	dai@7 {
+		reg = <SLIMBUS_2_TX>;
 	};
 
 	dai@152 {
