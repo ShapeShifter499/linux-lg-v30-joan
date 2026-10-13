@@ -1033,7 +1033,7 @@ static const struct soc_enum tx_adc_mux7_enum =
 	SOC_ENUM_SINGLE(WCD934X_CDC_TX_INP_MUX_ADC_MUX3_CFG1, 2,
 			ARRAY_SIZE(adc_mux_text), adc_mux_text);
 static const struct soc_enum tx_adc_mux8_enum =
-	SOC_ENUM_SINGLE(WCD934X_CDC_TX_INP_MUX_ADC_MUX1_CFG1, 4,
+	SOC_ENUM_SINGLE(WCD934X_CDC_TX_INP_MUX_ADC_MUX0_CFG1, 4,
 			ARRAY_SIZE(adc_mux_text), adc_mux_text);
 
 static const struct soc_enum rx_int0_1_interp_mux_enum =
