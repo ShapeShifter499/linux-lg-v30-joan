@@ -2029,9 +2029,19 @@
 		 * ruled out; both of those also appear in Qualcomm's generic
 		 * 8998 configuration, which is the likelier explanation.  Left
 		 * out until something can actually be captured from it.
+		 *
+		 * The mic biases also need the codec MCLK.  Nothing else on the
+		 * capture path depends on it, so without these routes a capture
+		 * with no WCD playback running leaves ANA_BIAS and the codec clock
+		 * off, and the decimators deliver exact zeros.  LG's msm8998
+		 * machine driver adds the same four routes (wcd_audio_paths).
 		 */
 		audio-routing =
 			"RX_BIAS", "MCLK",
+			"MIC BIAS1", "MCLK",
+			"MIC BIAS2", "MCLK",
+			"MIC BIAS3", "MCLK",
+			"MIC BIAS4", "MCLK",
 			"AMIC1", "MIC BIAS1",
 			"AMIC2", "MIC BIAS2",
 			"AMIC3", "MIC BIAS3",
