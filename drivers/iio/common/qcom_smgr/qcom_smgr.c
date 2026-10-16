@@ -792,8 +792,8 @@ static int qcom_smgr_probe(struct qrtr_device *qdev)
 		}
 
 		/* Skip if sensor type is not supported */
-		if (smgr->sensors[i]->type == SNS_SMGR_SENSOR_TYPE_UNKNOWN ||
-		    !qcom_smgr_sensor_type_iio_channels[smgr->sensors[i]->type])
+		if (smgr->sensors[i].type == SNS_SMGR_SENSOR_TYPE_UNKNOWN ||
+		    !qcom_smgr_sensor_type_iio_channels[smgr->sensors[i].type])
 			continue;
 
 		ret = qcom_smgr_register_sensor(smgr, &smgr->sensors[i]);
