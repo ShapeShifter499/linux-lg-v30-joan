@@ -461,6 +461,33 @@ static int stmfts_command(struct stmfts_data *sdata, const u8 cmd)
 	return 0;
 }
 
+/*
+ * Turn on the sensing the controller needs for an open input device. The
+ * power-on sequence ends with SLEEP_IN, so this has to follow every power-on
+ * while the device is open, not just the first open: on Android the evdev
+ * stays open across blank/unblank, and the panel driver repowers the
+ * controller at each unblank.
+ */
+static int stmfts_start_sensing(struct stmfts_data *sdata)
+{
+	int err;
+
+	err = i2c_smbus_write_byte(sdata->client, STMFTS_MS_MT_SENSE_ON);
+	if (err)
+		return err;
+
+	if (sdata->hover_enabled &&
+	    i2c_smbus_write_byte(sdata->client, STMFTS_SS_HOVER_SENSE_ON))
+		dev_warn(&sdata->client->dev, "failed to enable hover\n");
+
+	/* I can still use only the touch screen */
+	if (sdata->use_key &&
+	    i2c_smbus_write_byte(sdata->client, STMFTS_MS_KEY_SENSE_ON))
+		dev_warn(&sdata->client->dev, "failed to enable touchkey\n");
+
+	return 0;
+}
+
 static int stmfts_input_open(struct input_dev *dev)
 {
 	struct stmfts_data *sdata = input_get_drvdata(dev);
@@ -470,32 +497,14 @@ static int stmfts_input_open(struct input_dev *dev)
 	if (err)
 		return err;
 
-	err = i2c_smbus_write_byte(sdata->client, STMFTS_MS_MT_SENSE_ON);
+	err = stmfts_start_sensing(sdata);
 	if (err) {
 		pm_runtime_put_sync(&sdata->client->dev);
 		return err;
 	}
 
-	scoped_guard(mutex, &sdata->mutex) {
+	scoped_guard(mutex, &sdata->mutex)
 		sdata->running = true;
-
-		if (sdata->hover_enabled) {
-			err = i2c_smbus_write_byte(sdata->client,
-						   STMFTS_SS_HOVER_SENSE_ON);
-			if (err)
-				dev_warn(&sdata->client->dev,
-					 "failed to enable hover\n");
-		}
-	}
-
-	if (sdata->use_key) {
-		err = i2c_smbus_write_byte(sdata->client,
-					   STMFTS_MS_KEY_SENSE_ON);
-		if (err)
-			/* I can still use only the touch screen */
-			dev_warn(&sdata->client->dev,
-				 "failed to enable touchkey\n");
-	}
 
 	return 0;
 }
@@ -1001,10 +1010,13 @@ void stmfts_set_power(struct i2c_client *client, bool on)
 	if (!sdata)
 		return;
 
-	if (on)
-		stmfts_power_on(sdata);
-	else
+	if (!on) {
 		stmfts_power_off(sdata);
+		return;
+	}
+
+	if (!stmfts_power_on(sdata) && sdata->running)
+		stmfts_start_sensing(sdata);
 }
 EXPORT_SYMBOL_GPL(stmfts_set_power);
 
@@ -1211,8 +1223,13 @@ static int stmfts_suspend(struct device *dev)
 static int stmfts_resume(struct device *dev)
 {
 	struct stmfts_data *sdata = dev_get_drvdata(dev);
+	int err;
 
-	return stmfts_power_on(sdata);
+	err = stmfts_power_on(sdata);
+	if (!err && sdata->running)
+		err = stmfts_start_sensing(sdata);
+
+	return err;
 }
 
 static const struct dev_pm_ops stmfts_pm_ops = {
