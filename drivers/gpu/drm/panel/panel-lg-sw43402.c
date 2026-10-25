@@ -159,6 +159,7 @@ static int sw43402_mode_index_for(struct sw43402_panel *ctx)
 static int sw43402_prepare(struct drm_panel *panel)
 {
 	struct sw43402_panel *ctx = to_sw43402(panel);
+	u8 drs_cmd[2] = { 0x3d, 0x00 };
 	int mode_idx;
 	struct mipi_dsi_multi_context dsi_ctx = { .dsi = ctx->link };
 	struct drm_dsc_picture_parameter_set pps;
@@ -177,8 +178,8 @@ static int sw43402_prepare(struct drm_panel *panel)
 
 	/* Downstream dsi_lp_mode on-command sequence (DV3.1) */
 	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xb0, 0x20, 0x43);
-	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0x3d,
-				     sw43402_drs[mode_idx].res_byte);
+	drs_cmd[1] = sw43402_drs[mode_idx].res_byte;
+	mipi_dsi_dcs_write_buffer_multi(&dsi_ctx, drs_cmd, sizeof(drs_cmd));
 	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xf2, 0x00);
 	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xff, 0x03, 0x00);
 	mipi_dsi_msleep(&dsi_ctx, 1);
