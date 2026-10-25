@@ -392,6 +392,7 @@ static int qcom_smgr_iio_read_raw(struct iio_dev *iio_dev,
 		int ret;
 
 		if (!iio_buffer_enabled(iio_dev)) {
+			mutex_lock(&sensor->oneshot_lock);
 			reinit_completion(&sensor->sample_ready);
 			ret = qcom_smgr_request_buffering(smgr, sensor, true);
 			if (ret)
@@ -399,6 +400,7 @@ static int qcom_smgr_iio_read_raw(struct iio_dev *iio_dev,
 			ret = wait_for_completion_timeout(&sensor->sample_ready,
 				msecs_to_jiffies(250));
 			qcom_smgr_request_buffering(smgr, sensor, false);
+			mutex_unlock(&sensor->oneshot_lock);
 			if (!ret)
 				return -ETIMEDOUT;
 		}
@@ -745,6 +747,7 @@ static int qcom_smgr_register_sensor(struct qcom_smgr *smgr,
 	priv->sensor = sensor;
 
 	init_completion(&sensor->sample_ready);
+	mutex_init(&sensor->oneshot_lock);
 
 	priv->samp_freq_vals[0] = 1;
 	priv->samp_freq_vals[1] = 1;

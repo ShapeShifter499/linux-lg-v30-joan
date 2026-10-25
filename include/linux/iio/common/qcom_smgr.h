@@ -4,6 +4,7 @@
 #define __QCOM_SMGR_H__
 
 #include <linux/completion.h>
+#include <linux/mutex.h>
 #include <linux/iio/iio.h>
 #include <linux/iio/types.h>
 #include <linux/soc/qcom/qmi.h>
@@ -57,6 +58,7 @@ struct qcom_smgr_sensor {
 	/* Latest report sample, for one-shot sysfs reads */
 	u32 last_sample_values[3];
 	struct completion sample_ready;
+	struct mutex oneshot_lock;
 };
 
 struct qcom_smgr_iio_priv {
