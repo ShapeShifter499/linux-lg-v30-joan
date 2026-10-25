@@ -19,6 +19,7 @@
 
 #include <video/mipi_display.h>
 
+#include <drm/drm_crtc.h>
 #include <drm/drm_mipi_dsi.h>
 #include <drm/drm_panel.h>
 #include <drm/drm_probe_helper.h>
@@ -99,6 +100,36 @@ static void sw43402_reset(struct sw43402_panel *ctx)
 	gpiod_set_value(ctx->reset_gpio, 0);
 	usleep_range(9000, 10000);
 }
+
+/*
+ * 60 Hz DRS modes per downstream DV3.1: QHD/FHD/HD share one panel line
+ * rate (vtotal kept at 2916) and switch with a single DCS 0x3D write.
+ * DSC slice widths per config3/1/2 (720/540/360, 2 slices each).
+ */
+static const struct drm_display_mode sw43402_modes[] = {
+	{
+		.clock = (1440 + 92 + 48 + 32) * (2880 + 10 + 25 + 1) * 60 / 1000,
+		.hdisplay = 1440, .hsync_start = 1440 + 92,
+		.hsync_end = 1440 + 92 + 32, .htotal = 1440 + 92 + 48 + 32,
+		.vdisplay = 2880, .vsync_start = 2880 + 10,
+		.vsync_end = 2880 + 10 + 1, .vtotal = 2880 + 10 + 25 + 1,
+		.width_mm = 68, .height_mm = 136,
+	}, {
+		.clock = (1080 + 92 + 168 + 32) * (2160 + 730 + 25 + 1) * 60 / 1000,
+		.hdisplay = 1080, .hsync_start = 1080 + 92,
+		.hsync_end = 1080 + 92 + 32, .htotal = 1080 + 92 + 168 + 32,
+		.vdisplay = 2160, .vsync_start = 2160 + 730,
+		.vsync_end = 2160 + 730 + 1, .vtotal = 2160 + 730 + 25 + 1,
+		.width_mm = 68, .height_mm = 136,
+	}, {
+		.clock = (720 + 92 + 288 + 32) * (1440 + 1450 + 25 + 1) * 60 / 1000,
+		.hdisplay = 720, .hsync_start = 720 + 92,
+		.hsync_end = 720 + 92 + 32, .htotal = 720 + 92 + 288 + 32,
+		.vdisplay = 1440, .vsync_start = 1440 + 1450,
+		.vsync_end = 1440 + 1450 + 1, .vtotal = 1440 + 1450 + 25 + 1,
+		.width_mm = 68, .height_mm = 136,
+	},
+};
 
 static int sw43402_mode_index_for(struct sw43402_panel *ctx)
 {
@@ -263,35 +294,6 @@ static int sw43402_unprepare(struct drm_panel *panel)
 	return 0;
 }
 
-/*
- * 60 Hz DRS modes per downstream DV3.1: QHD/FHD/HD share one panel line
- * rate (vtotal kept at 2916) and switch with a single DCS 0x3D write.
- * DSC slice widths per config3/1/2 (720/540/360, 2 slices each).
- */
-static const struct drm_display_mode sw43402_modes[] = {
-	{
-		.clock = (1440 + 92 + 48 + 32) * (2880 + 10 + 25 + 1) * 60 / 1000,
-		.hdisplay = 1440, .hsync_start = 1440 + 92,
-		.hsync_end = 1440 + 92 + 32, .htotal = 1440 + 92 + 48 + 32,
-		.vdisplay = 2880, .vsync_start = 2880 + 10,
-		.vsync_end = 2880 + 10 + 1, .vtotal = 2880 + 10 + 25 + 1,
-		.width_mm = 68, .height_mm = 136,
-	}, {
-		.clock = (1080 + 92 + 168 + 32) * (2160 + 730 + 25 + 1) * 60 / 1000,
-		.hdisplay = 1080, .hsync_start = 1080 + 92,
-		.hsync_end = 1080 + 92 + 32, .htotal = 1080 + 92 + 168 + 32,
-		.vdisplay = 2160, .vsync_start = 2160 + 730,
-		.vsync_end = 2160 + 730 + 1, .vtotal = 2160 + 730 + 25 + 1,
-		.width_mm = 68, .height_mm = 136,
-	}, {
-		.clock = (720 + 92 + 288 + 32) * (1440 + 1450 + 25 + 1) * 60 / 1000,
-		.hdisplay = 720, .hsync_start = 720 + 92,
-		.hsync_end = 720 + 92 + 32, .htotal = 720 + 92 + 288 + 32,
-		.vdisplay = 1440, .vsync_start = 1440 + 1450,
-		.vsync_end = 1440 + 1450 + 1, .vtotal = 1440 + 1450 + 25 + 1,
-		.width_mm = 68, .height_mm = 136,
-	},
-};
 
 static const struct {
 	u8 res_byte;		/* DCS 0x3D value */
