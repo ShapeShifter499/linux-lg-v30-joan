@@ -51,6 +51,8 @@ struct sw43402_panel {
 
 	/* joan: touch controller powered together with the display */
 	struct i2c_client *touch_client;
+
+	struct drm_connector *connector;
 };
 
 static inline struct sw43402_panel *to_sw43402(struct drm_panel *panel)
@@ -98,9 +100,26 @@ static void sw43402_reset(struct sw43402_panel *ctx)
 	usleep_range(9000, 10000);
 }
 
+static int sw43402_mode_index_for(struct sw43402_panel *ctx)
+{
+	struct drm_connector *conn = ctx->connector;
+	int hdisplay, i;
+
+	if (!conn || !conn->state || !conn->state->crtc || !conn->state->crtc->state)
+		return 0;
+
+	hdisplay = conn->state->crtc->state->mode.hdisplay;
+	for (i = 0; i < ARRAY_SIZE(sw43402_modes); i++)
+		if (sw43402_modes[i].hdisplay == hdisplay)
+			return i;
+
+	return 0;
+}
+
 static int sw43402_prepare(struct drm_panel *panel)
 {
 	struct sw43402_panel *ctx = to_sw43402(panel);
+	int mode_idx;
 	struct mipi_dsi_multi_context dsi_ctx = { .dsi = ctx->link };
 	struct drm_dsc_picture_parameter_set pps;
 	int ret;
@@ -112,9 +131,14 @@ static int sw43402_prepare(struct drm_panel *panel)
 
 	sw43402_reset(ctx);
 
+	/* Pick the DRS mode userspace selected; default QHD */
+	mode_idx = sw43402_mode_index_for(ctx);
+	ctx->dsc.slice_width = sw43402_drs[mode_idx].slice_width;
+
 	/* Downstream dsi_lp_mode on-command sequence (DV3.1) */
 	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xb0, 0x20, 0x43);
-	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0x3d, 0x00);
+	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0x3d,
+				     sw43402_drs[mode_idx].res_byte);
 	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xf2, 0x00);
 	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xff, 0x03, 0x00);
 	mipi_dsi_msleep(&dsi_ctx, 1);
@@ -239,25 +263,70 @@ static int sw43402_unprepare(struct drm_panel *panel)
 	return 0;
 }
 
-/* 1440x2880 command mode, 60 Hz; porches per downstream DV3.1 */
-static const struct drm_display_mode sw43402_mode = {
-	.clock = (1440 + 92 + 48 + 32) * (2880 + 10 + 25 + 1) * 60 / 1000,
-	.hdisplay = 1440,
-	.hsync_start = 1440 + 92,
-	.hsync_end = 1440 + 92 + 32,
-	.htotal = 1440 + 92 + 48 + 32,
-	.vdisplay = 2880,
-	.vsync_start = 2880 + 10,
-	.vsync_end = 2880 + 10 + 1,
-	.vtotal = 2880 + 10 + 25 + 1,
-	.width_mm = 68,
-	.height_mm = 136,
+/*
+ * 60 Hz DRS modes per downstream DV3.1: QHD/FHD/HD share one panel line
+ * rate (vtotal kept at 2916) and switch with a single DCS 0x3D write.
+ * DSC slice widths per config3/1/2 (720/540/360, 2 slices each).
+ */
+static const struct drm_display_mode sw43402_modes[] = {
+	{
+		.clock = (1440 + 92 + 48 + 32) * (2880 + 10 + 25 + 1) * 60 / 1000,
+		.hdisplay = 1440, .hsync_start = 1440 + 92,
+		.hsync_end = 1440 + 92 + 32, .htotal = 1440 + 92 + 48 + 32,
+		.vdisplay = 2880, .vsync_start = 2880 + 10,
+		.vsync_end = 2880 + 10 + 1, .vtotal = 2880 + 10 + 25 + 1,
+		.width_mm = 68, .height_mm = 136,
+	}, {
+		.clock = (1080 + 92 + 168 + 32) * (2160 + 730 + 25 + 1) * 60 / 1000,
+		.hdisplay = 1080, .hsync_start = 1080 + 92,
+		.hsync_end = 1080 + 92 + 32, .htotal = 1080 + 92 + 168 + 32,
+		.vdisplay = 2160, .vsync_start = 2160 + 730,
+		.vsync_end = 2160 + 730 + 1, .vtotal = 2160 + 730 + 25 + 1,
+		.width_mm = 68, .height_mm = 136,
+	}, {
+		.clock = (720 + 92 + 288 + 32) * (1440 + 1450 + 25 + 1) * 60 / 1000,
+		.hdisplay = 720, .hsync_start = 720 + 92,
+		.hsync_end = 720 + 92 + 32, .htotal = 720 + 92 + 288 + 32,
+		.vdisplay = 1440, .vsync_start = 1440 + 1450,
+		.vsync_end = 1440 + 1450 + 1, .vtotal = 1440 + 1450 + 25 + 1,
+		.width_mm = 68, .height_mm = 136,
+	},
+};
+
+static const struct {
+	u8 res_byte;		/* DCS 0x3D value */
+	u16 slice_width;	/* DSC slice width */
+} sw43402_drs[] = {
+	{ 0x00, 720 },	/* QHD */
+	{ 0x01, 540 },	/* FHD */
+	{ 0x03, 360 },	/* HD  */
 };
 
 static int sw43402_get_modes(struct drm_panel *panel,
 			     struct drm_connector *connector)
 {
-	return drm_connector_helper_get_modes_fixed(connector, &sw43402_mode);
+	struct sw43402_panel *ctx = to_sw43402(panel);
+	int i, n = 0;
+
+	ctx->connector = connector;
+
+	for (i = 0; i < ARRAY_SIZE(sw43402_modes); i++) {
+		struct drm_display_mode *mode;
+
+		mode = drm_mode_duplicate(connector->dev, &sw43402_modes[i]);
+		if (!mode)
+			break;
+		mode->type = DRM_MODE_TYPE_DRIVER;
+		if (i == 0)
+			mode->type |= DRM_MODE_TYPE_PREFERRED;
+		drm_mode_probed_add(connector, mode);
+		n++;
+	}
+
+	connector->display_info.width_mm = sw43402_modes[0].width_mm;
+	connector->display_info.height_mm = sw43402_modes[0].height_mm;
+
+	return n;
 }
 
 
