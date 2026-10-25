@@ -174,6 +174,7 @@ static int sw43402_prepare(struct drm_panel *panel)
 
 	/* Pick the DRS mode userspace selected; default QHD */
 	mode_idx = sw43402_mode_index_for(ctx);
+	ctx->dsc.slice_width = sw43402_drs[mode_idx].slice_width;
 
 	/* Downstream dsi_lp_mode on-command sequence (DV3.1) */
 	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xb0, 0x20, 0x43);
@@ -469,18 +470,12 @@ static int sw43402_probe(struct mipi_dsi_device *dsi)
 	dsi->format = MIPI_DSI_FMT_RGB888;
 	dsi->mode_flags = MIPI_DSI_MODE_LPM | MIPI_DSI_CLOCK_NON_CONTINUOUS;
 
-	/*
-	 * DSC 1.1, 8bpc/8bpp. Slice width 360 divides every DRS resolution
-	 * (1440/1080/720), so one static DSC config passes the host's
-	 * mode_valid check for all modes; the per-mode PPS carries the
-	 * geometry to the DDIC. LG's tables use 2x720 (QHD) / 2x540 (FHD) /
-	 * 2x360 (HD), which a static-DSC host cannot model.
-	 */
+	/* DSC 1.1, config3: 720x16 slices, 2 slices, 8bpc/8bpp */
 	ctx->dsc.dsc_version_major = 1;
 	ctx->dsc.dsc_version_minor = 1;
 	ctx->dsc.slice_height = 16;
-	ctx->dsc.slice_width = 360;
-	ctx->dsc.slice_count = 4;
+	ctx->dsc.slice_width = 720;
+	ctx->dsc.slice_count = 2;
 	ctx->dsc.bits_per_component = 8;
 	ctx->dsc.bits_per_pixel = 8 << 4;
 	ctx->dsc.block_pred_enable = true;
