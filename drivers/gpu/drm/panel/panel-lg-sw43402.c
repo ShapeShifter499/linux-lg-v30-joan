@@ -395,9 +395,7 @@ static int sw43402_probe(struct mipi_dsi_device *dsi)
 
 	dsi->lanes = 4;
 	dsi->format = MIPI_DSI_FMT_RGB888;
-	dsi->mode_flags = MIPI_DSI_MODE_VIDEO | MIPI_DSI_MODE_VIDEO_BURST |
-			 MIPI_DSI_MODE_VIDEO_HSE | MIPI_DSI_MODE_LPM |
-			 MIPI_DSI_CLOCK_NON_CONTINUOUS;
+	dsi->mode_flags = MIPI_DSI_MODE_LPM | MIPI_DSI_CLOCK_NON_CONTINUOUS;
 
 	/* DSC 1.1, config3: 720x16 slices, 2 slices, 8bpc/8bpp */
 	ctx->dsc.dsc_version_major = 1;
