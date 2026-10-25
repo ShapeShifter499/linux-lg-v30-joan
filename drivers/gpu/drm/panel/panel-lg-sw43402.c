@@ -131,6 +131,15 @@ static const struct drm_display_mode sw43402_modes[] = {
 	},
 };
 
+static const struct {
+	u8 res_byte;		/* DCS 0x3D value */
+	u16 slice_width;	/* DSC slice width */
+} sw43402_drs[] = {
+	{ 0x00, 720 },	/* QHD */
+	{ 0x01, 540 },	/* FHD */
+	{ 0x03, 360 },	/* HD  */
+};
+
 static int sw43402_mode_index_for(struct sw43402_panel *ctx)
 {
 	struct drm_connector *conn = ctx->connector;
@@ -295,14 +304,6 @@ static int sw43402_unprepare(struct drm_panel *panel)
 }
 
 
-static const struct {
-	u8 res_byte;		/* DCS 0x3D value */
-	u16 slice_width;	/* DSC slice width */
-} sw43402_drs[] = {
-	{ 0x00, 720 },	/* QHD */
-	{ 0x01, 540 },	/* FHD */
-	{ 0x03, 360 },	/* HD  */
-};
 
 static int sw43402_get_modes(struct drm_panel *panel,
 			     struct drm_connector *connector)
