@@ -5,6 +5,7 @@
  * Copyright (c) 2021-2025, Yassine Oudjana <y.oudjana@protonmail.com>
  */
 
+#include <linux/completion.h>
 #include <linux/iio/buffer.h>
 #include <linux/iio/common/qcom_smgr.h>
 #include <linux/iio/iio.h>
@@ -313,6 +314,12 @@ static void qcom_smgr_buffering_report_handler(struct qmi_handle *hdl,
 		iio_data.values[0] = cpu_to_le32(temp);
 	}
 
+	/* Cache for one-shot sysfs reads */
+	for (j = 0; j < ARRAY_SIZE(sensor->last_sample_values); ++j)
+		sensor->last_sample_values[j] = iio_data.values[j];
+
+	complete(&sensor->sample_ready);
+
 	iio_push_to_buffers(sensor->iio_dev, &iio_data);
 }
 
@@ -377,8 +384,30 @@ static int qcom_smgr_iio_read_raw(struct iio_dev *iio_dev,
 				  int *val2, long mask)
 {
 	struct qcom_smgr_iio_priv *priv = iio_priv(iio_dev);
+	struct qcom_smgr_sensor *sensor = priv->sensor;
 
 	switch (mask) {
+	case IIO_CHAN_INFO_RAW: {
+		struct qcom_smgr *smgr = dev_get_drvdata(iio_dev->dev.parent);
+		int ret;
+
+		if (!iio_buffer_enabled(iio_dev)) {
+			reinit_completion(&sensor->sample_ready);
+			ret = qcom_smgr_request_buffering(smgr, sensor, true);
+			if (ret)
+				return ret;
+			ret = wait_for_completion_timeout(&sensor->sample_ready,
+				msecs_to_jiffies(250));
+			qcom_smgr_request_buffering(smgr, sensor, false);
+			if (!ret)
+				return -ETIMEDOUT;
+		}
+
+		if (chan->scan_index >= ARRAY_SIZE(sensor->last_sample_values))
+			return -EINVAL;
+		*val = (s32)sensor->last_sample_values[chan->scan_index];
+		return IIO_VAL_INT;
+	}
 	case IIO_CHAN_INFO_SAMP_FREQ:
 		*val = priv->sensor->data_types[0].cur_sample_rate;
 		return IIO_VAL_INT;
@@ -447,6 +476,7 @@ static const struct iio_chan_spec qcom_smgr_accel_iio_channels[] = {
 			.storagebits = 32,
 			.endianness = IIO_LE,
 		},
+		.info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
 		.info_mask_shared_by_type = BIT(IIO_CHAN_INFO_SCALE) |
 					    BIT(IIO_CHAN_INFO_SAMP_FREQ),
 		.ext_info = qcom_smgr_iio_ext_info
@@ -462,6 +492,7 @@ static const struct iio_chan_spec qcom_smgr_accel_iio_channels[] = {
 			.storagebits = 32,
 			.endianness = IIO_LE,
 		},
+		.info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
 		.info_mask_shared_by_type = BIT(IIO_CHAN_INFO_SCALE) |
 					    BIT(IIO_CHAN_INFO_SAMP_FREQ),
 		.ext_info = qcom_smgr_iio_ext_info
@@ -477,6 +508,7 @@ static const struct iio_chan_spec qcom_smgr_accel_iio_channels[] = {
 			.storagebits = 32,
 			.endianness = IIO_LE,
 		},
+		.info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
 		.info_mask_shared_by_type = BIT(IIO_CHAN_INFO_SCALE) |
 					    BIT(IIO_CHAN_INFO_SAMP_FREQ),
 		.ext_info = qcom_smgr_iio_ext_info
@@ -506,6 +538,7 @@ static const struct iio_chan_spec qcom_smgr_gyro_iio_channels[] = {
 			.storagebits = 32,
 			.endianness = IIO_LE,
 		},
+		.info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
 		.info_mask_shared_by_type = BIT(IIO_CHAN_INFO_SCALE) |
 					    BIT(IIO_CHAN_INFO_SAMP_FREQ),
 		.ext_info = qcom_smgr_iio_ext_info
@@ -521,6 +554,7 @@ static const struct iio_chan_spec qcom_smgr_gyro_iio_channels[] = {
 			.storagebits = 32,
 			.endianness = IIO_LE,
 		},
+		.info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
 		.info_mask_shared_by_type = BIT(IIO_CHAN_INFO_SCALE) |
 					    BIT(IIO_CHAN_INFO_SAMP_FREQ),
 		.ext_info = qcom_smgr_iio_ext_info
@@ -536,6 +570,7 @@ static const struct iio_chan_spec qcom_smgr_gyro_iio_channels[] = {
 			.storagebits = 32,
 			.endianness = IIO_LE,
 		},
+		.info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
 		.info_mask_shared_by_type = BIT(IIO_CHAN_INFO_SCALE) |
 					    BIT(IIO_CHAN_INFO_SAMP_FREQ),
 		.ext_info = qcom_smgr_iio_ext_info
@@ -565,6 +600,7 @@ static const struct iio_chan_spec qcom_smgr_mag_iio_channels[] = {
 			.storagebits = 32,
 			.endianness = IIO_LE,
 		},
+		.info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
 		.info_mask_shared_by_type = BIT(IIO_CHAN_INFO_SCALE) |
 					    BIT(IIO_CHAN_INFO_SAMP_FREQ),
 		.ext_info = qcom_smgr_iio_ext_info
@@ -580,6 +616,7 @@ static const struct iio_chan_spec qcom_smgr_mag_iio_channels[] = {
 			.storagebits = 32,
 			.endianness = IIO_LE,
 		},
+		.info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
 		.info_mask_shared_by_type = BIT(IIO_CHAN_INFO_SCALE) |
 					    BIT(IIO_CHAN_INFO_SAMP_FREQ),
 		.ext_info = qcom_smgr_iio_ext_info
@@ -595,6 +632,7 @@ static const struct iio_chan_spec qcom_smgr_mag_iio_channels[] = {
 			.storagebits = 32,
 			.endianness = IIO_LE,
 		},
+		.info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
 		.info_mask_shared_by_type = BIT(IIO_CHAN_INFO_SCALE) |
 					    BIT(IIO_CHAN_INFO_SAMP_FREQ),
 		.ext_info = qcom_smgr_iio_ext_info
@@ -622,7 +660,8 @@ static const struct iio_chan_spec qcom_smgr_prox_iio_channels[] = {
 			.storagebits = 32,
 			.endianness = IIO_LE,
 		},
-		.info_mask_separate = BIT(IIO_CHAN_INFO_SCALE) |
+		.info_mask_separate = BIT(IIO_CHAN_INFO_RAW) |
+			      BIT(IIO_CHAN_INFO_SCALE) |
 				      BIT(IIO_CHAN_INFO_SAMP_FREQ)
 	},
 	{
@@ -648,7 +687,8 @@ static const struct iio_chan_spec qcom_smgr_pressure_iio_channels[] = {
 			.storagebits = 32,
 			.endianness = IIO_LE,
 		},
-		.info_mask_separate = BIT(IIO_CHAN_INFO_SCALE) |
+		.info_mask_separate = BIT(IIO_CHAN_INFO_RAW) |
+			      BIT(IIO_CHAN_INFO_SCALE) |
 				      BIT(IIO_CHAN_INFO_SAMP_FREQ)
 	},
 	{
@@ -703,6 +743,8 @@ static int qcom_smgr_register_sensor(struct qcom_smgr *smgr,
 
 	priv = iio_priv(iio_dev);
 	priv->sensor = sensor;
+
+	init_completion(&sensor->sample_ready);
 
 	priv->samp_freq_vals[0] = 1;
 	priv->samp_freq_vals[1] = 1;

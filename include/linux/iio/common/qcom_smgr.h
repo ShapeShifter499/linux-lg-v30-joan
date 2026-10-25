@@ -3,6 +3,7 @@
 #ifndef __QCOM_SMGR_H__
 #define __QCOM_SMGR_H__
 
+#include <linux/completion.h>
 #include <linux/iio/iio.h>
 #include <linux/iio/types.h>
 #include <linux/soc/qcom/qmi.h>
@@ -52,6 +53,10 @@ struct qcom_smgr_sensor {
 	struct qcom_smgr_data_type_item *data_types;
 
 	struct iio_dev *iio_dev;
+
+	/* Latest report sample, for one-shot sysfs reads */
+	u32 last_sample_values[3];
+	struct completion sample_ready;
 };
 
 struct qcom_smgr_iio_priv {
