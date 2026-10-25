@@ -114,13 +114,13 @@ static const struct drm_display_mode sw43402_modes[] = {
 		.vdisplay = 2880, .vsync_start = 2880 + 10,
 		.vsync_end = 2880 + 10 + 1, .vtotal = 2880 + 10 + 25 + 1,
 		.width_mm = 68, .height_mm = 136,
-	}, {
-		.clock = (1080 + 92 + 168 + 32) * (2160 + 730 + 25 + 1) * 60 / 1000,
-		.hdisplay = 1080, .hsync_start = 1080 + 92,
-		.hsync_end = 1080 + 92 + 32, .htotal = 1080 + 92 + 168 + 32,
-		.vdisplay = 2160, .vsync_start = 2160 + 730,
-		.vsync_end = 2160 + 730 + 1, .vtotal = 2160 + 730 + 25 + 1,
-		.width_mm = 68, .height_mm = 136,
+	/*
+	 * FHD 1080x2160 is deliberately NOT exposed: the msm DSI host
+	 * validates modes against one static DSC config and 1080 is not a
+	 * multiple of the 720 slice width the panel's PPS carries. LG's
+	 * config1 uses 540-wide slices for FHD, which a static-DSC host
+	 * cannot express. Revisit if msm grows per-mode DSC support.
+	 */
 	}, {
 		.clock = (720 + 92 + 288 + 32) * (1440 + 1450 + 25 + 1) * 60 / 1000,
 		.hdisplay = 720, .hsync_start = 720 + 92,
