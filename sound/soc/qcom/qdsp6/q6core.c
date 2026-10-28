@@ -253,6 +253,17 @@ int q6core_get_svc_api_info(int svc_id, struct q6core_svc_api_info *ainfo)
 		return 0;
 
 	mutex_lock(&g_core->lock);
+	/*
+	 * The MSM8998 ADSP firmware stops reading its glink FIFO for good
+	 * when it receives AVCS_CMD_GET_FWK_VERSION: no crash, no watchdog,
+	 * just a dead transport that also takes the SLIMbus QMI service with
+	 * it. Leave the versions unknown there; AFE, ASM and ADM then use
+	 * their legacy APIs, which this firmware speaks.
+	 */
+	if (!g_core->is_version_requested &&
+	    of_machine_is_compatible("qcom,msm8998"))
+		g_core->is_version_requested = true;
+
 	if (!g_core->is_version_requested) {
 		if (q6core_get_fwk_versions(g_core) == -ENOTSUPP)
 			q6core_get_svc_versions(g_core);
