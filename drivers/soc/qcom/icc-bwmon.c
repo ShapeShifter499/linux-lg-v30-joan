@@ -190,6 +190,8 @@ struct icc_bwmon {
 	unsigned int min_bw_kbps;
 	unsigned int target_kbps;
 	unsigned int current_kbps;
+	/* Vote for measured traffic * 100 / io_percent */
+	unsigned int io_percent;
 };
 
 /* BWMON v4 */
@@ -689,7 +691,24 @@ static irqreturn_t bwmon_intr_thread(int irq, void *dev_id)
 	if (bwmon->target_kbps == bwmon->current_kbps)
 		goto out;
 
-	dev_pm_opp_set_opp(bwmon->dev, target_opp);
+	if (bwmon->io_percent < 100) {
+		/*
+		 * The CPUs can only generate as much traffic as the current
+		 * vote lets through; vote above the measured level so the
+		 * monitor can see demand grow, as the vendor bw_hwmon did.
+		 */
+		unsigned int vote_kbps = min_t(u64, (u64)bwmon->target_kbps * 100 /
+					      bwmon->io_percent, bwmon->max_bw_kbps);
+		struct dev_pm_opp *vote_opp =
+			dev_pm_opp_find_bw_ceil(bwmon->dev, &vote_kbps, 0);
+
+		if (!IS_ERR(vote_opp)) {
+			dev_pm_opp_set_opp(bwmon->dev, vote_opp);
+			dev_pm_opp_put(vote_opp);
+		}
+	} else {
+		dev_pm_opp_set_opp(bwmon->dev, target_opp);
+	}
 	bwmon->current_kbps = bwmon->target_kbps;
 
 out:
@@ -808,6 +827,9 @@ static int bwmon_probe(struct platform_device *pdev)
 	dev_pm_opp_put(opp);
 
 	bwmon->dev = dev;
+	bwmon->io_percent = 100;
+	of_property_read_u32(dev->of_node, "qcom,io-percent", &bwmon->io_percent);
+	bwmon->io_percent = clamp(bwmon->io_percent, 1U, 100U);
 
 	bwmon_disable(bwmon);
 

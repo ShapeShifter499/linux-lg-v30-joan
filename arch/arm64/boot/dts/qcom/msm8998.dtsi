@@ -2913,7 +2913,8 @@
 		 * CPU to DDR bandwidth monitor. It raises the EBI vote with the
 		 * traffic the CPUs generate; without it DDR stays at whatever
 		 * the other masters vote, which starved memory-bound CPU work.
-		 * The steps are the vendor kernel's cpubw table (100-1804 MHz).
+		 * The steps are the vendor kernel's cpubw table from its 200 MHz floor
+		 * up to 1804 MHz.
 		 */
 		pmu@1008000 {
 			compatible = "qcom,msm8998-bwmon";
@@ -2921,17 +2922,13 @@
 			interrupts = <GIC_SPI 183 IRQ_TYPE_LEVEL_HIGH>;
 			interconnects = <&gnoc MAS_APSS_PROC &bimc SLV_EBI>;
 			operating-points-v2 = <&cpu_bwmon_opp_table>;
+			/* The vendor kernel's bw_hwmon io_percent for cpubw */
+			qcom,io-percent = <34>;
 
 			cpu_bwmon_opp_table: opp-table {
 				compatible = "operating-points-v2";
 
-				opp-0 {
-					opp-peak-kBps = <762000>;
-				};
 
-				opp-1 {
-					opp-peak-kBps = <1144000>;
-				};
 
 				opp-2 {
 					opp-peak-kBps = <1525000>;
