@@ -700,6 +700,26 @@ out:
 	return IRQ_HANDLED;
 }
 
+/*
+ * On MSM8998 both BWMON regions lie inside the BIMC register window that the
+ * interconnect driver has already claimed. The drivers use disjoint
+ * registers, so map a busy region without requesting it again.
+ */
+static void __iomem *bwmon_ioremap(struct platform_device *pdev, unsigned int index)
+{
+	void __iomem *base = devm_platform_ioremap_resource(pdev, index);
+	struct resource *res;
+
+	if (PTR_ERR_OR_ZERO(base) != -EBUSY)
+		return base;
+
+	res = platform_get_resource(pdev, IORESOURCE_MEM, index);
+	if (!res)
+		return IOMEM_ERR_PTR(-EINVAL);
+	base = devm_ioremap(&pdev->dev, res->start, resource_size(res));
+	return base ?: IOMEM_ERR_PTR(-ENOMEM);
+}
+
 static int bwmon_init_regmap(struct platform_device *pdev,
 			     struct icc_bwmon *bwmon)
 {
@@ -709,7 +729,7 @@ static int bwmon_init_regmap(struct platform_device *pdev,
 	int ret;
 
 	/* Map the monitor base */
-	base = devm_platform_ioremap_resource(pdev, 0);
+	base = bwmon_ioremap(pdev, 0);
 	if (IS_ERR(base))
 		return dev_err_probe(dev, PTR_ERR(base),
 				     "failed to map bwmon registers\n");
@@ -732,7 +752,7 @@ static int bwmon_init_regmap(struct platform_device *pdev,
 
 	if (bwmon->data->global_regmap_cfg) {
 		/* Map the global base, if separate */
-		base = devm_platform_ioremap_resource(pdev, 1);
+		base = bwmon_ioremap(pdev, 1);
 		if (IS_ERR(base))
 			return dev_err_probe(dev, PTR_ERR(base),
 					     "failed to map bwmon global registers\n");
