@@ -778,6 +778,11 @@ static int qcom_smgr_register_sensor(struct qcom_smgr *smgr,
 	return 0;
 }
 
+static void qcom_smgr_release_qmi(void *data)
+{
+	qmi_handle_release(data);
+}
+
 static int qcom_smgr_probe(struct qrtr_device *qdev)
 {
 	struct qcom_smgr *smgr;
@@ -803,8 +808,7 @@ static int qcom_smgr_probe(struct qrtr_device *qdev)
 		return dev_err_probe(smgr->dev, ret,
 			"Failed to initialize sensor manager handle\n");
 
-	ret = devm_add_action_or_reset(smgr->dev,
-				       (void(*)(void *))qmi_handle_release,
+	ret = devm_add_action_or_reset(smgr->dev, qcom_smgr_release_qmi,
 				       &smgr->sns_smgr_hdl);
 	if (ret)
 		return ret;
