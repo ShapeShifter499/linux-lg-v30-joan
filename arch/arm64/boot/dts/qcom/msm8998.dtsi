@@ -2909,6 +2909,72 @@
 			#interconnect-cells = <1>;
 		};
 
+		/*
+		 * CPU to DDR bandwidth monitor. It raises the EBI vote with the
+		 * traffic the CPUs generate; without it DDR stays at whatever
+		 * the other masters vote, which starved memory-bound CPU work.
+		 * The steps are the vendor kernel's cpubw table (100-1804 MHz).
+		 */
+		pmu@1008000 {
+			compatible = "qcom,msm8998-bwmon";
+			reg = <0x01008000 0x300>, <0x01001000 0x200>;
+			interrupts = <GIC_SPI 183 IRQ_TYPE_LEVEL_HIGH>;
+			interconnects = <&gnoc MAS_APSS_PROC &bimc SLV_EBI>;
+			operating-points-v2 = <&cpu_bwmon_opp_table>;
+
+			cpu_bwmon_opp_table: opp-table {
+				compatible = "operating-points-v2";
+
+				opp-0 {
+					opp-peak-kBps = <762000>;
+				};
+
+				opp-1 {
+					opp-peak-kBps = <1144000>;
+				};
+
+				opp-2 {
+					opp-peak-kBps = <1525000>;
+				};
+
+				opp-3 {
+					opp-peak-kBps = <2288000>;
+				};
+
+				opp-4 {
+					opp-peak-kBps = <3143000>;
+				};
+
+				opp-5 {
+					opp-peak-kBps = <4173000>;
+				};
+
+				opp-6 {
+					opp-peak-kBps = <5195000>;
+				};
+
+				opp-7 {
+					opp-peak-kBps = <5859000>;
+				};
+
+				opp-8 {
+					opp-peak-kBps = <7759000>;
+				};
+
+				opp-9 {
+					opp-peak-kBps = <9887000>;
+				};
+
+				opp-10 {
+					opp-peak-kBps = <11863000>;
+				};
+
+				opp-11 {
+					opp-peak-kBps = <13763000>;
+				};
+			};
+		};
+
 		cnoc: interconnect@1500000 {
 			compatible = "qcom,msm8998-cnoc";
 			reg = <0x01500000 0x10000>;
