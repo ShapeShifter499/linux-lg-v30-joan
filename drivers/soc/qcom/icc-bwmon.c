@@ -192,6 +192,7 @@ struct icc_bwmon {
 	unsigned int current_kbps;
 	/* Vote for measured traffic * 100 / io_percent */
 	unsigned int io_percent;
+	unsigned int vote_kbps;
 };
 
 /* BWMON v4 */
@@ -688,30 +689,32 @@ static irqreturn_t bwmon_intr_thread(int irq, void *dev_id)
 	bwmon_enable(bwmon, irq_enable);
 
 	trace_qcom_bwmon_update(dev_name(bwmon->dev), meas_kbps, up_kbps, down_kbps);
-	if (bwmon->target_kbps == bwmon->current_kbps)
-		goto out;
 
 	if (bwmon->io_percent < 100) {
 		/*
 		 * The CPUs can only generate as much traffic as the current
 		 * vote lets through; vote above the measured level so the
 		 * monitor can see demand grow, as the vendor bw_hwmon did.
+		 * Scale the measurement, not the OPP it rounded up to, or
+		 * even an idle system never votes below the floor's headroom.
 		 */
-		unsigned int vote_kbps = min_t(u64, (u64)bwmon->target_kbps * 100 /
+		unsigned int vote_kbps = min_t(u64, (u64)meas_kbps * 100 /
 					      bwmon->io_percent, bwmon->max_bw_kbps);
 		struct dev_pm_opp *vote_opp =
 			dev_pm_opp_find_bw_ceil(bwmon->dev, &vote_kbps, 0);
 
 		if (!IS_ERR(vote_opp)) {
-			dev_pm_opp_set_opp(bwmon->dev, vote_opp);
+			if (vote_kbps != bwmon->vote_kbps) {
+				dev_pm_opp_set_opp(bwmon->dev, vote_opp);
+				bwmon->vote_kbps = vote_kbps;
+			}
 			dev_pm_opp_put(vote_opp);
 		}
-	} else {
+	} else if (bwmon->target_kbps != bwmon->current_kbps) {
 		dev_pm_opp_set_opp(bwmon->dev, target_opp);
 	}
 	bwmon->current_kbps = bwmon->target_kbps;
 
-out:
 	dev_pm_opp_put(target_opp);
 	if (!IS_ERR(opp))
 		dev_pm_opp_put(opp);
