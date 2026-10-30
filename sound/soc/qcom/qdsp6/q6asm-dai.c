@@ -223,24 +223,27 @@ static int q6asm_dai_prepare(struct snd_soc_component *component,
 
 	prtd->pcm_count = snd_pcm_lib_period_bytes(substream);
 	/* rate and channels are sent to audio driver */
-	if (prtd->state == Q6ASM_STREAM_RUNNING) {
-		/* clear the previous setup if any  */
+	if (prtd->state != Q6ASM_STREAM_IDLE) {
+		/*
+		 * Clear the previous setup if any. A stopped stream is still
+		 * open on the DSP, so re-preparing after a stop (xrun, failed
+		 * trigger) must close it too, or the open below fails. What is
+		 * left of the old setup may already be gone, so a failed close
+		 * or unmap here is not fatal: the open below is what counts.
+		 */
 		ret = q6asm_cmd(prtd->audio_client, prtd->stream_id, CMD_CLOSE);
-		if (ret < 0) {
-			dev_err(dev, "Failed to close q6asm stream %d\n", prtd->stream_id);
-			return ret;
-		}
+		if (ret < 0)
+			dev_warn(dev, "Failed to close q6asm stream %d: %d\n",
+				 prtd->stream_id, ret);
 
 		ret = q6asm_unmap_memory_regions(substream->stream, prtd->audio_client);
-		if (ret < 0) {
-			dev_err(dev, "Failed to unmap memory regions for q6asm stream %d\n",
-				prtd->stream_id);
-			return ret;
-		}
+		if (ret < 0)
+			dev_warn(dev, "Failed to unmap memory regions for q6asm stream %d: %d\n",
+				 prtd->stream_id, ret);
 
 		q6routing_stream_close(soc_prtd->dai_link->id,
 					 substream->stream);
-		prtd->state = Q6ASM_STREAM_STOPPED;
+		prtd->state = Q6ASM_STREAM_IDLE;
 	}
 
 	ret = q6asm_map_memory_regions(substream->stream, prtd->audio_client,
@@ -258,6 +261,19 @@ static int q6asm_dai_prepare(struct snd_soc_component *component,
 		ret = q6asm_open_write(prtd->audio_client, prtd->stream_id,
 				       FORMAT_LINEAR_PCM,
 				       0, prtd->bits_per_sample, false);
+		if (ret < 0) {
+			/*
+			 * The DSP keeps a stream it was never told to close
+			 * open, and refuses to open its session again. Close
+			 * it and retry once rather than failing forever.
+			 */
+			q6asm_cmd(prtd->audio_client, prtd->stream_id,
+				  CMD_CLOSE);
+			ret = q6asm_open_write(prtd->audio_client,
+					       prtd->stream_id,
+					       FORMAT_LINEAR_PCM, 0,
+					       prtd->bits_per_sample, false);
+		}
 	} else if (substream->stream == SNDRV_PCM_STREAM_CAPTURE) {
 		ret = q6asm_open_read(prtd->audio_client, prtd->stream_id,
 				      FORMAT_LINEAR_PCM,
