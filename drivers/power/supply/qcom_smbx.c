@@ -418,6 +418,7 @@ static enum power_supply_property smb_properties[] = {
 	POWER_SUPPLY_PROP_CURRENT_NOW,
 	POWER_SUPPLY_PROP_VOLTAGE_NOW,
 	POWER_SUPPLY_PROP_STATUS,
+	POWER_SUPPLY_PROP_CHARGE_BEHAVIOUR,
 	POWER_SUPPLY_PROP_HEALTH,
 	POWER_SUPPLY_PROP_ONLINE,
 	POWER_SUPPLY_PROP_USB_TYPE,
@@ -667,6 +668,44 @@ static int smb_get_prop_health(struct smb_chip *chip, int *val)
 	}
 }
 
+/* Keep the USB power path enabled while inhibiting battery charging. */
+static int smb_get_charge_behaviour(struct smb_chip *chip, int *val)
+{
+	unsigned int reg;
+	int ret;
+
+	ret = regmap_read(chip->regmap, chip->base + CHARGING_ENABLE_CMD, &reg);
+	if (ret)
+		return ret;
+	*val = (reg & CHARGING_ENABLE_CMD_BIT) ?
+		POWER_SUPPLY_CHARGE_BEHAVIOUR_AUTO :
+		POWER_SUPPLY_CHARGE_BEHAVIOUR_INHIBIT_CHARGE;
+	return 0;
+}
+
+static int smb_set_charge_behaviour(struct smb_chip *chip, int behaviour)
+{
+	unsigned int enable;
+	int ret;
+
+	switch (behaviour) {
+	case POWER_SUPPLY_CHARGE_BEHAVIOUR_AUTO:
+		enable = CHARGING_ENABLE_CMD_BIT;
+		break;
+	case POWER_SUPPLY_CHARGE_BEHAVIOUR_INHIBIT_CHARGE:
+		enable = 0;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	ret = regmap_update_bits(chip->regmap, chip->base + CHARGING_ENABLE_CMD,
+				 CHARGING_ENABLE_CMD_BIT, enable);
+	if (!ret)
+		power_supply_changed(chip->chg_psy);
+	return ret;
+}
+
 static int smb_get_property(struct power_supply *psy,
 			     enum power_supply_property psp,
 			     union power_supply_propval *val)
@@ -692,6 +731,8 @@ static int smb_get_property(struct power_supply *psy,
 		return smb_get_prop_usb_online(chip, &val->intval);
 	case POWER_SUPPLY_PROP_STATUS:
 		return smb_get_prop_status(chip, &val->intval);
+	case POWER_SUPPLY_PROP_CHARGE_BEHAVIOUR:
+		return smb_get_charge_behaviour(chip, &val->intval);
 	case POWER_SUPPLY_PROP_HEALTH:
 		return smb_get_prop_health(chip, &val->intval);
 	case POWER_SUPPLY_PROP_USB_TYPE:
@@ -709,6 +750,8 @@ static int smb_set_property(struct power_supply *psy,
 	struct smb_chip *chip = power_supply_get_drvdata(psy);
 
 	switch (psp) {
+	case POWER_SUPPLY_PROP_CHARGE_BEHAVIOUR:
+		return smb_set_charge_behaviour(chip, val->intval);
 	case POWER_SUPPLY_PROP_STATUS:
 		return regmap_update_bits(chip->regmap, chip->base + USBIN_CMD_IL,
 					  USBIN_SUSPEND_BIT, !val->intval);
@@ -724,6 +767,7 @@ static int smb_property_is_writable(struct power_supply *psy,
 				     enum power_supply_property psp)
 {
 	switch (psp) {
+	case POWER_SUPPLY_PROP_CHARGE_BEHAVIOUR:
 	case POWER_SUPPLY_PROP_STATUS:
 	case POWER_SUPPLY_PROP_CURRENT_MAX:
 		return 1;
@@ -792,6 +836,8 @@ static const struct power_supply_desc smb_psy_desc = {
 		     BIT(POWER_SUPPLY_USB_TYPE_CDP) |
 		     BIT(POWER_SUPPLY_USB_TYPE_DCP) |
 		     BIT(POWER_SUPPLY_USB_TYPE_UNKNOWN),
+	.charge_behaviours = BIT(POWER_SUPPLY_CHARGE_BEHAVIOUR_AUTO) |
+			     BIT(POWER_SUPPLY_CHARGE_BEHAVIOUR_INHIBIT_CHARGE),
 	.properties = smb_properties,
 	.num_properties = ARRAY_SIZE(smb_properties),
 	.get_property = smb_get_property,
