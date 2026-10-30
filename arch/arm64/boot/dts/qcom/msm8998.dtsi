@@ -388,6 +388,7 @@
 
 		opp-300000000 {
 			opp-hz = /bits/ 64 <300000000>;
+			opp-peak-kBps = <0>;
 			opp-microwatt = <11678>;
 			required-opps = <&cprh_opp1>;
 			qcom,pll-override = <0x01200020>;
@@ -396,6 +397,7 @@
 
 		opp-364800000 {
 			opp-hz = /bits/ 64 <364800000>;
+			opp-peak-kBps = <0>;
 			opp-microwatt = <20129>;
 			required-opps = <&cprh_opp2>;
 			qcom,pll-override = <0x01200020>;
@@ -405,6 +407,7 @@
 
 		opp-441600000 {
 			opp-hz = /bits/ 64 <441600000>;
+			opp-peak-kBps = <0>;
 			opp-microwatt = <25395>;
 			required-opps = <&cprh_opp3>;
 			qcom,pll-override = <0x02200020>;
@@ -414,6 +417,7 @@
 
 		opp-518400000 {
 			opp-hz = /bits/ 64 <518400000>;
+			opp-peak-kBps = <0>;
 			opp-microwatt = <30225>;
 			required-opps = <&cprh_opp4>;
 			qcom,pll-override = <0x02200020>;
@@ -423,6 +427,7 @@
 
 		opp-595200000 {
 			opp-hz = /bits/ 64 <595200000>;
+			opp-peak-kBps = <0>;
 			opp-microwatt = <33141>;
 			required-opps = <&cprh_opp5>;
 			qcom,pll-override = <0x02200020>;
@@ -432,6 +437,7 @@
 
 		opp-672000000 {
 			opp-hz = /bits/ 64 <672000000>;
+			opp-peak-kBps = <0>;
 			opp-microwatt = <35067>;
 			required-opps = <&cprh_opp6>;
 			qcom,pll-override = <0x03200020>;
@@ -441,6 +447,7 @@
 
 		opp-748800000 {
 			opp-hz = /bits/ 64 <748800000>;
+			opp-peak-kBps = <0>;
 			opp-microwatt = <36374>;
 			required-opps = <&cprh_opp7>;
 			qcom,pll-override = <0x03200020>;
@@ -450,6 +457,7 @@
 
 		opp-825600000 {
 			opp-hz = /bits/ 64 <825600000>;
+			opp-peak-kBps = <0>;
 			opp-microwatt = <42381>;
 			required-opps = <&cprh_opp8>;
 			qcom,pll-override = <0x03220022>;
@@ -458,6 +466,7 @@
 
 		opp-883200000 {
 			opp-hz = /bits/ 64 <883200000>;
+			opp-peak-kBps = <0>;
 			opp-microwatt = <47283>;
 			required-opps = <&cprh_opp9>;
 			qcom,pll-override = <0x04250025>;
@@ -466,6 +475,7 @@
 
 		opp-960000000 {
 			opp-hz = /bits/ 64 <960000000>;
+			opp-peak-kBps = <0>;
 			opp-microwatt = <54290>;
 			required-opps = <&cprh_opp10>;
 			qcom,pll-override = <0x04280028>;
@@ -474,6 +484,7 @@
 
 		opp-1036800000 {
 			opp-hz = /bits/ 64 <1036800000>;
+			opp-peak-kBps = <0>;
 			opp-microwatt = <62182>;
 			required-opps = <&cprh_opp11>;
 			qcom,pll-override = <0x042b002b>;
@@ -482,6 +493,7 @@
 
 		opp-1094400000 {
 			opp-hz = /bits/ 64 <1094400000>;
+			opp-peak-kBps = <0>;
 			opp-microwatt = <66414>;
 			required-opps = <&cprh_opp12>;
 			qcom,pll-override = <0x052e002e>;
@@ -490,6 +502,7 @@
 
 		opp-1171200000 {
 			opp-hz = /bits/ 64 <1171200000>;
+			opp-peak-kBps = <0>;
 			opp-microwatt = <73061>;
 			required-opps = <&cprh_opp13>;
 			qcom,pll-override = <0x05310031>;
@@ -498,6 +511,7 @@
 
 		opp-1248000000 {
 			opp-hz = /bits/ 64 <1248000000>;
+			opp-peak-kBps = <0>;
 			opp-microwatt = <79053>;
 			required-opps = <&cprh_opp14>;
 			qcom,pll-override = <0x05340034>;
@@ -506,6 +520,7 @@
 
 		opp-1324800000 {
 			opp-hz = /bits/ 64 <1324800000>;
+			opp-peak-kBps = <0>;
 			opp-microwatt = <88013>;
 			required-opps = <&cprh_opp15>;
 			qcom,pll-override = <0x06370037>;
@@ -514,6 +529,7 @@
 
 		opp-1401600000 {
 			opp-hz = /bits/ 64 <1401600000>;
+			opp-peak-kBps = <0>;
 			opp-microwatt = <95480>;
 			required-opps = <&cprh_opp16>;
 			qcom,pll-override = <0x063a003a>;
@@ -522,6 +538,7 @@
 
 		opp-1478400000 {
 			opp-hz = /bits/ 64 <1478400000>;
+			opp-peak-kBps = <0>;
 			opp-microwatt = <103944>;
 			required-opps = <&cprh_opp17>;
 			qcom,pll-override = <0x073e003e>;
@@ -530,6 +547,7 @@
 
 		opp-1555200000 {
 			opp-hz = /bits/ 64 <1555200000>;
+			opp-peak-kBps = <0>;
 			opp-microwatt = <111724>;
 			required-opps = <&cprh_opp18>;
 			qcom,pll-override = <0x07410041>;
@@ -538,6 +556,7 @@
 
 		opp-1670400000 {
 			opp-hz = /bits/ 64 <1670400000>;
+			opp-peak-kBps = <0>;
 			opp-microwatt = <134278>;
 			required-opps = <&cprh_opp19>;
 			qcom,pll-override = <0x08460046>;
@@ -546,6 +565,7 @@
 
 		opp-1747200000 {
 			opp-hz = /bits/ 64 <1747200000>;
+			opp-peak-kBps = <0>;
 			opp-microwatt = <156544>;
 			required-opps = <&cprh_opp20>;
 			qcom,pll-override = <0x08490049>;
@@ -554,6 +574,7 @@
 
 		opp-1824000000 {
 			opp-hz = /bits/ 64 <1824000000>;
+			opp-peak-kBps = <0>;
 			opp-microwatt = <179368>;
 			required-opps = <&cprh_opp21>;
 			qcom,pll-override = <0x084c004c>;
@@ -562,6 +583,7 @@
 
 		opp-1900800000 {
 			opp-hz = /bits/ 64 <1900800000>;
+			opp-peak-kBps = <1525000>;
 			opp-microwatt = <201000>;
 			required-opps = <&cprh_opp22>;
 			qcom,pll-override = <0x094f004f>;
@@ -574,12 +596,23 @@
 	 * qcom,perfcl-speedbin{0,1,2,3}-v0: opp-supported-hw bit N is bin N.
 	 * Up to 2112 MHz every bin has the same rows; above it they differ.
 	 */
+	/*
+	 * opp-peak-kBps: DDR floors the CPUs vote while running at a frequency,
+	 * after the vendor kernel's memlat and mincpubw tables. The vendor kernel
+	 * held DDR at its 1804 MHz top step with the big cluster at 2457.6 MHz;
+	 * here a sustained 1804 MHz vote wedges the SoC, as from the BWMON, so
+	 * the floor stops at 1555 MHz. Without the floors only the BWMON raised
+	 * DDR, too late for bursty work.
+	 * Two steps only: schedutil switches the big cluster hundreds of times a
+	 * second, and an unchanged floor costs no RPM request.
+	 */
 	cpu4_opp_table: opp-table-cpu4 {
 		compatible = "operating-points-v2";
 		opp-shared;
 
 		opp-300000000 {
 			opp-hz = /bits/ 64 <300000000>;
+			opp-peak-kBps = <0>;
 			opp-supported-hw = <0xf>;
 			opp-microwatt = <57138>;
 			required-opps = <&cprh_opp1>;
@@ -589,6 +622,7 @@
 
 		opp-345600000 {
 			opp-hz = /bits/ 64 <345600000>;
+			opp-peak-kBps = <0>;
 			opp-supported-hw = <0xf>;
 			opp-microwatt = <76818>;
 			required-opps = <&cprh_opp2>;
@@ -599,6 +633,7 @@
 
 		opp-422400000 {
 			opp-hz = /bits/ 64 <422400000>;
+			opp-peak-kBps = <0>;
 			opp-supported-hw = <0xf>;
 			opp-microwatt = <91475>;
 			required-opps = <&cprh_opp3>;
@@ -609,6 +644,7 @@
 
 		opp-499200000 {
 			opp-hz = /bits/ 64 <499200000>;
+			opp-peak-kBps = <0>;
 			opp-supported-hw = <0xf>;
 			opp-microwatt = <105191>;
 			required-opps = <&cprh_opp4>;
@@ -619,6 +655,7 @@
 
 		opp-576000000 {
 			opp-hz = /bits/ 64 <576000000>;
+			opp-peak-kBps = <0>;
 			opp-supported-hw = <0xf>;
 			opp-microwatt = <119511>;
 			required-opps = <&cprh_opp5>;
@@ -629,6 +666,7 @@
 
 		opp-652800000 {
 			opp-hz = /bits/ 64 <652800000>;
+			opp-peak-kBps = <0>;
 			opp-supported-hw = <0xf>;
 			opp-microwatt = <137231>;
 			required-opps = <&cprh_opp6>;
@@ -639,6 +677,7 @@
 
 		opp-729600000 {
 			opp-hz = /bits/ 64 <729600000>;
+			opp-peak-kBps = <0>;
 			opp-supported-hw = <0xf>;
 			opp-microwatt = <151634>;
 			required-opps = <&cprh_opp7>;
@@ -649,6 +688,7 @@
 
 		opp-806400000 {
 			opp-hz = /bits/ 64 <806400000>;
+			opp-peak-kBps = <0>;
 			opp-supported-hw = <0xf>;
 			opp-microwatt = <164287>;
 			required-opps = <&cprh_opp8>;
@@ -659,6 +699,7 @@
 
 		opp-902400000 {
 			opp-hz = /bits/ 64 <902400000>;
+			opp-peak-kBps = <0>;
 			opp-supported-hw = <0xf>;
 			opp-microwatt = <181152>;
 			required-opps = <&cprh_opp9>;
@@ -668,6 +709,7 @@
 
 		opp-979200000 {
 			opp-hz = /bits/ 64 <979200000>;
+			opp-peak-kBps = <0>;
 			opp-supported-hw = <0xf>;
 			opp-microwatt = <198957>;
 			required-opps = <&cprh_opp10>;
@@ -677,6 +719,7 @@
 
 		opp-1056000000 {
 			opp-hz = /bits/ 64 <1056000000>;
+			opp-peak-kBps = <0>;
 			opp-supported-hw = <0xf>;
 			opp-microwatt = <216156>;
 			required-opps = <&cprh_opp11>;
@@ -686,6 +729,7 @@
 
 		opp-1132800000 {
 			opp-hz = /bits/ 64 <1132800000>;
+			opp-peak-kBps = <0>;
 			opp-supported-hw = <0xf>;
 			opp-microwatt = <232616>;
 			required-opps = <&cprh_opp12>;
@@ -695,6 +739,7 @@
 
 		opp-1190400000 {
 			opp-hz = /bits/ 64 <1190400000>;
+			opp-peak-kBps = <0>;
 			opp-supported-hw = <0xf>;
 			opp-microwatt = <254195>;
 			required-opps = <&cprh_opp13>;
@@ -704,6 +749,7 @@
 
 		opp-1267200000 {
 			opp-hz = /bits/ 64 <1267200000>;
+			opp-peak-kBps = <0>;
 			opp-supported-hw = <0xf>;
 			opp-microwatt = <283562>;
 			required-opps = <&cprh_opp14>;
@@ -713,6 +759,7 @@
 
 		opp-1344000000 {
 			opp-hz = /bits/ 64 <1344000000>;
+			opp-peak-kBps = <7759000>;
 			opp-supported-hw = <0xf>;
 			opp-microwatt = <317972>;
 			required-opps = <&cprh_opp15>;
@@ -722,6 +769,7 @@
 
 		opp-1420800000 {
 			opp-hz = /bits/ 64 <1420800000>;
+			opp-peak-kBps = <7759000>;
 			opp-supported-hw = <0xf>;
 			opp-microwatt = <355156>;
 			required-opps = <&cprh_opp16>;
@@ -731,6 +779,7 @@
 
 		opp-1497600000 {
 			opp-hz = /bits/ 64 <1497600000>;
+			opp-peak-kBps = <7759000>;
 			opp-supported-hw = <0xf>;
 			opp-microwatt = <391311>;
 			required-opps = <&cprh_opp17>;
@@ -740,6 +789,7 @@
 
 		opp-1574400000 {
 			opp-hz = /bits/ 64 <1574400000>;
+			opp-peak-kBps = <7759000>;
 			opp-supported-hw = <0xf>;
 			opp-microwatt = <449370>;
 			required-opps = <&cprh_opp18>;
@@ -749,6 +799,7 @@
 
 		opp-1651200000 {
 			opp-hz = /bits/ 64 <1651200000>;
+			opp-peak-kBps = <7759000>;
 			opp-supported-hw = <0xf>;
 			opp-microwatt = <505286>;
 			required-opps = <&cprh_opp19>;
@@ -758,6 +809,7 @@
 
 		opp-1728000000 {
 			opp-hz = /bits/ 64 <1728000000>;
+			opp-peak-kBps = <7759000>;
 			opp-supported-hw = <0xf>;
 			opp-microwatt = <580819>;
 			required-opps = <&cprh_opp20>;
@@ -767,6 +819,7 @@
 
 		opp-1804800000 {
 			opp-hz = /bits/ 64 <1804800000>;
+			opp-peak-kBps = <7759000>;
 			opp-supported-hw = <0xf>;
 			opp-microwatt = <638788>;
 			required-opps = <&cprh_opp21>;
@@ -776,6 +829,7 @@
 
 		opp-1881600000 {
 			opp-hz = /bits/ 64 <1881600000>;
+			opp-peak-kBps = <7759000>;
 			opp-supported-hw = <0xf>;
 			opp-microwatt = <732931>;
 			required-opps = <&cprh_opp22>;
@@ -785,6 +839,7 @@
 
 		opp-1958400000 {
 			opp-hz = /bits/ 64 <1958400000>;
+			opp-peak-kBps = <11863000>;
 			opp-supported-hw = <0xf>;
 			opp-microwatt = <823310>;
 			required-opps = <&cprh_opp23>;
@@ -794,6 +849,7 @@
 
 		opp-2035200000 {
 			opp-hz = /bits/ 64 <2035200000>;
+			opp-peak-kBps = <11863000>;
 			opp-supported-hw = <0xf>;
 			opp-microwatt = <896581>;
 			required-opps = <&cprh_opp24>;
@@ -803,6 +859,7 @@
 
 		opp-2112000000 {
 			opp-hz = /bits/ 64 <2112000000>;
+			opp-peak-kBps = <11863000>;
 			opp-supported-hw = <0xf>;
 			opp-microwatt = <1066625>;
 			required-opps = <&cprh_opp25>;
@@ -813,6 +870,7 @@
 		/* Speed bins 0, 2 and 3 */
 		opp-2208000000 {
 			opp-hz = /bits/ 64 <2208000000>;
+			opp-peak-kBps = <11863000>;
 			opp-supported-hw = <0xd>;
 			opp-microwatt = <1246899>;
 			required-opps = <&cprh_opp26>;
@@ -827,6 +885,7 @@
 		/* Speed bin 1: its top corner, with a 2304 MHz 1-core row */
 		opp-2208000000-1 {
 			opp-hz = /bits/ 64 <2208000000>;
+			opp-peak-kBps = <11863000>;
 			opp-supported-hw = <0x2>;
 			opp-microwatt = <1246899>;
 			required-opps = <&cprh_opp26>;
@@ -841,6 +900,7 @@
 		/* Speed bins 0, 2 and 3 */
 		opp-2265600000 {
 			opp-hz = /bits/ 64 <2265600000>;
+			opp-peak-kBps = <11863000>;
 			opp-supported-hw = <0xd>;
 			opp-microwatt = <1436099>;
 			required-opps = <&cprh_opp27>;
@@ -855,6 +915,7 @@
 		/* Speed bins 2 and 3 */
 		opp-2323200000 {
 			opp-hz = /bits/ 64 <2323200000>;
+			opp-peak-kBps = <11863000>;
 			opp-supported-hw = <0xc>;
 			opp-microwatt = <1587589>;
 			required-opps = <&cprh_opp28>;
@@ -869,6 +930,7 @@
 		/* Speed bin 0 */
 		opp-2342400000-0 {
 			opp-hz = /bits/ 64 <2342400000>;
+			opp-peak-kBps = <11863000>;
 			opp-supported-hw = <0x1>;
 			opp-microwatt = <1615894>;
 			required-opps = <&cprh_opp28>;
@@ -883,6 +945,7 @@
 		/* Speed bins 2 and 3 */
 		opp-2342400000 {
 			opp-hz = /bits/ 64 <2342400000>;
+			opp-peak-kBps = <11863000>;
 			opp-supported-hw = <0xc>;
 			opp-microwatt = <1615894>;
 			required-opps = <&cprh_opp29>;
@@ -897,6 +960,7 @@
 		/* Speed bins 2 and 3 */
 		opp-2361600000 {
 			opp-hz = /bits/ 64 <2361600000>;
+			opp-peak-kBps = <11863000>;
 			opp-supported-hw = <0xc>;
 			opp-microwatt = <1683000>;
 			required-opps = <&cprh_opp30>;
@@ -915,6 +979,7 @@
 		 */
 		opp-2457600000 {
 			opp-hz = /bits/ 64 <2457600000>;
+			opp-peak-kBps = <11863000>;
 			opp-supported-hw = <0xc>;
 			opp-microwatt = <1751415>;
 			required-opps = <&cprh_opp30>;
@@ -924,6 +989,7 @@
 		/* Speed bin 0 */
 		opp-2419200000 {
 			opp-hz = /bits/ 64 <2419200000>;
+			opp-peak-kBps = <11863000>;
 			opp-supported-hw = <0x1>;
 			opp-microwatt = <1724049>;
 			required-opps = <&cprh_opp29>;
@@ -938,6 +1004,7 @@
 		/* Speed bin 0 */
 		opp-2457600000-0 {
 			opp-hz = /bits/ 64 <2457600000>;
+			opp-peak-kBps = <11863000>;
 			opp-supported-hw = <0x1>;
 			opp-microwatt = <1751415>;
 			required-opps = <&cprh_opp30>;
@@ -952,6 +1019,7 @@
 		/* Speed bin 0 */
 		opp-2476800000 {
 			opp-hz = /bits/ 64 <2476800000>;
+			opp-peak-kBps = <11863000>;
 			opp-supported-hw = <0x1>;
 			opp-microwatt = <1765098>;
 			required-opps = <&cprh_opp31>;
@@ -966,6 +1034,7 @@
 		/* Speed bin 0 */
 		opp-2496000000 {
 			opp-hz = /bits/ 64 <2496000000>;
+			opp-peak-kBps = <11863000>;
 			opp-supported-hw = <0x1>;
 			opp-microwatt = <1778780>;
 			required-opps = <&cprh_opp32>;
@@ -980,6 +1049,7 @@
 		/* Speed bin 0: 1-core row of opp-2496000000, after its twin */
 		opp-2592000000 {
 			opp-hz = /bits/ 64 <2592000000>;
+			opp-peak-kBps = <11863000>;
 			opp-supported-hw = <0x1>;
 			opp-microwatt = <1847195>;
 			required-opps = <&cprh_opp32>;
@@ -989,6 +1059,7 @@
 		/* Speed bin 1: 1-core row of opp-2208000000-1, after its twin */
 		opp-2304000000 {
 			opp-hz = /bits/ 64 <2304000000>;
+			opp-peak-kBps = <11863000>;
 			opp-supported-hw = <0x2>;
 			opp-microwatt = <1301112>;
 			required-opps = <&cprh_opp26>;
@@ -1008,6 +1079,7 @@
 			power-domain-names = "perf";
 			qcom,freq-domain = <&cpufreq_hw 0>;
 			operating-points-v2 = <&cpu0_opp_table>;
+			interconnects = <&gnoc MAS_APSS_PROC &bimc SLV_EBI>;
 			#cooling-cells = <2>;
 			capacity-dmips-mhz = <1024>;
 			cpu-idle-states = <&little_cpu_sleep_0 &little_cpu_sleep_1>;
@@ -1028,6 +1100,7 @@
 			power-domain-names = "perf";
 			qcom,freq-domain = <&cpufreq_hw 0>;
 			operating-points-v2 = <&cpu0_opp_table>;
+			interconnects = <&gnoc MAS_APSS_PROC &bimc SLV_EBI>;
 			#cooling-cells = <2>;
 			capacity-dmips-mhz = <1024>;
 			cpu-idle-states = <&little_cpu_sleep_0 &little_cpu_sleep_1>;
@@ -1043,6 +1116,7 @@
 			power-domain-names = "perf";
 			qcom,freq-domain = <&cpufreq_hw 0>;
 			operating-points-v2 = <&cpu0_opp_table>;
+			interconnects = <&gnoc MAS_APSS_PROC &bimc SLV_EBI>;
 			#cooling-cells = <2>;
 			capacity-dmips-mhz = <1024>;
 			cpu-idle-states = <&little_cpu_sleep_0 &little_cpu_sleep_1>;
@@ -1058,6 +1132,7 @@
 			power-domain-names = "perf";
 			qcom,freq-domain = <&cpufreq_hw 0>;
 			operating-points-v2 = <&cpu0_opp_table>;
+			interconnects = <&gnoc MAS_APSS_PROC &bimc SLV_EBI>;
 			#cooling-cells = <2>;
 			capacity-dmips-mhz = <1024>;
 			cpu-idle-states = <&little_cpu_sleep_0 &little_cpu_sleep_1>;
@@ -1073,6 +1148,7 @@
 			power-domain-names = "perf";
 			qcom,freq-domain = <&cpufreq_hw 1>;
 			operating-points-v2 = <&cpu4_opp_table>;
+			interconnects = <&gnoc MAS_APSS_PROC &bimc SLV_EBI>;
 			#cooling-cells = <2>;
 			capacity-dmips-mhz = <1536>;
 			cpu-idle-states = <&big_cpu_sleep_0 &big_cpu_sleep_1>;
@@ -1093,6 +1169,7 @@
 			power-domain-names = "perf";
 			qcom,freq-domain = <&cpufreq_hw 1>;
 			operating-points-v2 = <&cpu4_opp_table>;
+			interconnects = <&gnoc MAS_APSS_PROC &bimc SLV_EBI>;
 			#cooling-cells = <2>;
 			capacity-dmips-mhz = <1536>;
 			cpu-idle-states = <&big_cpu_sleep_0 &big_cpu_sleep_1>;
@@ -1108,6 +1185,7 @@
 			power-domain-names = "perf";
 			qcom,freq-domain = <&cpufreq_hw 1>;
 			operating-points-v2 = <&cpu4_opp_table>;
+			interconnects = <&gnoc MAS_APSS_PROC &bimc SLV_EBI>;
 			#cooling-cells = <2>;
 			capacity-dmips-mhz = <1536>;
 			cpu-idle-states = <&big_cpu_sleep_0 &big_cpu_sleep_1>;
@@ -1123,6 +1201,7 @@
 			power-domain-names = "perf";
 			qcom,freq-domain = <&cpufreq_hw 1>;
 			operating-points-v2 = <&cpu4_opp_table>;
+			interconnects = <&gnoc MAS_APSS_PROC &bimc SLV_EBI>;
 			#cooling-cells = <2>;
 			capacity-dmips-mhz = <1536>;
 			cpu-idle-states = <&big_cpu_sleep_0 &big_cpu_sleep_1>;
@@ -1237,6 +1316,12 @@
 			opp-hz = /bits/ 64 <312500000>;
 			required-opps = <&rpmpd_opp_nom>;
 		};
+	};
+
+	/* Kryo 280 PMU, as the vendor kernel's cpu-pmu: perf/simpleperf counters */
+	pmu {
+		compatible = "arm,armv8-pmuv3";
+		interrupts = <GIC_PPI 6 IRQ_TYPE_LEVEL_HIGH>;
 	};
 
 	psci {
