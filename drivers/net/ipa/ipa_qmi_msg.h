@@ -35,8 +35,10 @@
 #define IPA_QMI_DRIVER_INIT_COMPLETE_REQ_SZ	4	/* -> server handle */
 #define IPA_QMI_DRIVER_INIT_COMPLETE_RSP_SZ	7	/* <- server handle */
 
-/* Maximum size of messages we expect the AP to receive (max of above) */
-#define IPA_QMI_SERVER_MAX_RCV_SZ		8
+/* CONFIG and FILTER requests may carry variable-length payloads.  QMI
+ * stores their payload length in u16; qmi_handle_init() adds the header.
+ */
+#define IPA_QMI_SERVER_MAX_RCV_SZ		U16_MAX
 #define IPA_QMI_CLIENT_MAX_RCV_SZ		25
 
 /* Request message for the IPA_QMI_INDICATION_REGISTER request */
