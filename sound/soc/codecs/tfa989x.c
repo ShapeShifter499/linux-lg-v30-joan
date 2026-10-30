@@ -88,7 +88,7 @@
 #define TFA9872_TDM_CONFIG1_SLLN_MSK	GENMASK(8, 4)	/* bits per slot, minus one */
 
 /* The manager needs a few tries to leave "wait for I2C settings" state. */
-#define TFA9872_START_RETRIES		20
+#define TFA9872_START_RETRIES		50
 
 /*
  * TDMSPKG, the amplifier's own level control.  NXP's header calls it "total
@@ -353,10 +353,17 @@ static int tfa989x_trigger(struct snd_pcm_substream *substream, int cmd,
 	case SNDRV_PCM_TRIGGER_START:
 	case SNDRV_PCM_TRIGGER_RESUME:
 	case SNDRV_PCM_TRIGGER_PAUSE_RELEASE:
+		/*
+		 * The manager keeps bringing the amplifier up on its own, so a
+		 * slow start only costs the first few milliseconds of sound.
+		 * Failing the trigger would abort the whole PCM stream.
+		 */
 		ret = tfa9872_amp_start(tfa989x);
-		if (ret)
-			dev_err(component->dev,
-				"amplifier failed to start: %d\n", ret);
+		if (ret == -ETIMEDOUT) {
+			dev_warn(component->dev,
+				 "amplifier slow to start, continuing\n");
+			return 0;
+		}
 		return ret;
 	case SNDRV_PCM_TRIGGER_STOP:
 	case SNDRV_PCM_TRIGGER_SUSPEND:
