@@ -1866,30 +1866,11 @@ static struct msm_gpu *a5xx_gpu_init(struct drm_device *dev)
 	}
 
 	/*
-	 * Vote for memory bandwidth on the GPU's interconnect path. The
-	 * path is optional: boards without an interconnect provider (or
-	 * without the DT property) get -ENODATA and simply run without
-	 * bus scaling. -EPROBE_DEFER propagates so the GPU comes up once
-	 * the interconnect driver is ready.
+	 * Memory bandwidth is voted by the OPP table: each GPU OPP carries an
+	 * opp-peak-kBps for the "gfx-mem" path, so dev_pm_opp_set_rate()
+	 * moves the DDR vote with the GPU clock, as downstream KGSL does
+	 * per power level.
 	 */
-	{
-		struct icc_path *icc_path = devm_of_icc_get(&pdev->dev, "gfx-mem");
-
-		if (IS_ERR(icc_path)) {
-			ret = PTR_ERR(icc_path);
-			if (ret == -ENODATA)
-				icc_path = NULL;
-			else if (ret != -EPROBE_DEFER)
-				dev_err(&pdev->dev, "failed to get gfx-mem interconnect: %d\n", ret);
-		}
-
-		if (!IS_ERR_OR_NULL(icc_path)) {
-			/* Max bandwidth for now; scale with devfreq later. */
-			icc_set_bw(icc_path, 0, Bps_to_icc(gpu->fast_rate) * 8);
-			dev_info(&pdev->dev, "gfx-mem interconnect: %llu Bps\n",
-				 Bps_to_icc(gpu->fast_rate) * 8ULL);
-		}
-	}
 
 	/* Set the speedbin value that is passed to userspace */
 	if (adreno_read_speedbin(&pdev->dev, &speedbin) || !speedbin)
