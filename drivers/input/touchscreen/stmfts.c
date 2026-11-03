@@ -8,7 +8,6 @@
 #include <linux/gpio/consumer.h>
 #include <linux/i2c.h>
 #include <linux/input/mt.h>
-#include <linux/input/stmfts.h>
 #include <linux/input/touchscreen.h>
 #include <linux/interrupt.h>
 #include <linux/irq.h>
@@ -18,6 +17,8 @@
 #include <linux/property.h>
 #include <linux/unaligned.h>
 #include <linux/regulator/consumer.h>
+
+#include <drm/drm_panel.h>
 
 /* I2C commands */
 #define STMFTS_READ_INFO			0x80
@@ -153,11 +154,15 @@ struct stmfts_data {
 
 	struct completion cmd_done;
 
+	struct drm_panel_follower panel_follower;
+
 	bool use_key;
 	bool led_status;
 	bool hover_enabled;
 	bool running;
 	bool powered;
+	bool follow_panel;
+	bool panel_on;
 };
 
 static int stmfts_brightness_set(struct led_classdev *led_cdev,
@@ -497,14 +502,20 @@ static int stmfts_input_open(struct input_dev *dev)
 	if (err)
 		return err;
 
-	err = stmfts_start_sensing(sdata);
+	scoped_guard(mutex, &sdata->mutex)
+		sdata->running = true;
+
+	/*
+	 * When following the panel, the controller is off while the panel
+	 * is; stmfts_panel_prepared() starts sensing once it is powered.
+	 */
+	err = sdata->powered ? stmfts_start_sensing(sdata) : 0;
 	if (err) {
+		scoped_guard(mutex, &sdata->mutex)
+			sdata->running = false;
 		pm_runtime_put_sync(&sdata->client->dev);
 		return err;
 	}
-
-	scoped_guard(mutex, &sdata->mutex)
-		sdata->running = true;
 
 	return 0;
 }
@@ -513,6 +524,14 @@ static void stmfts_input_close(struct input_dev *dev)
 {
 	struct stmfts_data *sdata = input_get_drvdata(dev);
 	int err;
+
+	if (!sdata->powered) {
+		/* The panel has the controller off; there is nothing to stop. */
+		scoped_guard(mutex, &sdata->mutex)
+			sdata->running = false;
+		pm_runtime_put_sync(&sdata->client->dev);
+		return;
+	}
 
 	err = i2c_smbus_write_byte(sdata->client, STMFTS_MS_MT_SENSE_OFF);
 	if (err)
@@ -995,30 +1014,44 @@ static void stmfts_power_off(void *data)
 }
 
 /*
- * joan: allow the panel driver to power the touch controller together
- * with the display. The controller emits a spurious touch event during
- * the display's power transitions while it stays awake (the evdev open
- * keeps runtime PM active), which unblanks the screen on its own. With
- * the controller powered off for the blank and re-initialized on wake,
- * the spurious event cannot happen and the controller is in a known
- * good state for the first taps.
+ * Power the controller together with the panel it sits on, when the DT
+ * links them with a "panel" phandle. The controller emits a spurious touch
+ * event during the display's power transitions while it stays awake (the
+ * evdev open keeps runtime PM active), which unblanks the screen on its
+ * own. Powered off before the panel is unprepared and re-initialized after
+ * it is prepared, it cannot, and it is in a known good state for the first
+ * taps.
  */
-void stmfts_set_power(struct i2c_client *client, bool on)
+static int stmfts_panel_prepared(struct drm_panel_follower *follower)
 {
-	struct stmfts_data *sdata = i2c_get_clientdata(client);
+	struct stmfts_data *sdata = container_of(follower, struct stmfts_data,
+						 panel_follower);
+	int err;
 
-	if (!sdata)
-		return;
+	sdata->panel_on = true;
 
-	if (!on) {
-		stmfts_power_off(sdata);
-		return;
-	}
+	err = stmfts_power_on(sdata);
+	if (!err && sdata->running)
+		err = stmfts_start_sensing(sdata);
 
-	if (!stmfts_power_on(sdata) && sdata->running)
-		stmfts_start_sensing(sdata);
+	return err;
 }
-EXPORT_SYMBOL_GPL(stmfts_set_power);
+
+static int stmfts_panel_unpreparing(struct drm_panel_follower *follower)
+{
+	struct stmfts_data *sdata = container_of(follower, struct stmfts_data,
+						 panel_follower);
+
+	sdata->panel_on = false;
+	stmfts_power_off(sdata);
+
+	return 0;
+}
+
+static const struct drm_panel_follower_funcs stmfts_panel_follower_funcs = {
+	.panel_prepared = stmfts_panel_prepared,
+	.panel_unpreparing = stmfts_panel_unpreparing,
+};
 
 static int stmfts_enable_led(struct stmfts_data *sdata)
 {
@@ -1154,6 +1187,21 @@ static int stmfts_probe(struct i2c_client *client)
 	if (err)
 		return err;
 
+	if (drm_is_panel_follower(dev)) {
+		sdata->follow_panel = true;
+		sdata->panel_follower.funcs = &stmfts_panel_follower_funcs;
+
+		/* Calls stmfts_panel_prepared() now if the panel is already on */
+		err = devm_drm_panel_add_follower(dev, &sdata->panel_follower);
+		if (err)
+			return dev_err_probe(dev, err,
+					     "failed to follow the panel\n");
+
+		/* Otherwise stay off until the panel comes up */
+		if (!sdata->panel_on)
+			stmfts_power_off(sdata);
+	}
+
 	err = input_register_device(sdata->input);
 	if (err)
 		return err;
@@ -1188,6 +1236,10 @@ static int stmfts_runtime_suspend(struct device *dev)
 	struct stmfts_data *sdata = dev_get_drvdata(dev);
 	int ret;
 
+	/* Already off with the panel */
+	if (!sdata->powered)
+		return 0;
+
 	ret = i2c_smbus_write_byte(sdata->client, STMFTS_SLEEP_IN);
 	if (ret)
 		dev_warn(dev, "failed to suspend device: %d\n", ret);
@@ -1208,6 +1260,9 @@ static int stmfts_runtime_resume(struct device *dev)
 	 * whether the latency is acceptable vs. finding the exact
 	 * SLEEP_OUT failure mode.
 	 */
+	if (sdata->follow_panel && !sdata->panel_on)
+		return 0;
+
 	return stmfts_power_on(sdata);
 }
 
@@ -1224,6 +1279,10 @@ static int stmfts_resume(struct device *dev)
 {
 	struct stmfts_data *sdata = dev_get_drvdata(dev);
 	int err;
+
+	/* stmfts_panel_prepared() powers us when the panel comes back */
+	if (sdata->follow_panel && !sdata->panel_on)
+		return 0;
 
 	err = stmfts_power_on(sdata);
 	if (!err && sdata->running)
