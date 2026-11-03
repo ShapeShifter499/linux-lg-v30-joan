@@ -396,6 +396,11 @@ static int qcom_icc_set(struct icc_node *src, struct icc_node *dst)
 	active_rate = min_t(u64, active_rate, INT_MAX);
 	sleep_rate = min_t(u64, sleep_rate, INT_MAX);
 
+	if (qp->bus_clk_max_rate) {
+		active_rate = min_t(u64, active_rate, qp->bus_clk_max_rate);
+		sleep_rate = min_t(u64, sleep_rate, qp->bus_clk_max_rate);
+	}
+
 	if (active_rate != qp->bus_clk_rate[QCOM_SMD_RPM_ACTIVE_STATE]) {
 		ret = qcom_icc_rpm_set_bus_rate(qp->bus_clk_desc, QCOM_SMD_RPM_ACTIVE_STATE,
 						active_rate);
@@ -484,6 +489,7 @@ int qnoc_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	qp->num_intf_clks = cd_num;
+	qp->bus_clk_max_rate = desc->bus_clk_max_rate;
 
 	if (desc->bus_clk_desc) {
 		qp->bus_clk_desc = devm_kzalloc(dev, sizeof(*qp->bus_clk_desc),
