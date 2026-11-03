@@ -1431,7 +1431,7 @@
 	vdda-supply = <&vreg_l2a_1p2>;
 	status = "okay";
 
-	panel@0 {
+	display_panel: panel@0 {
 		compatible = "lg,sw43402";
 		reg = <0>;
 
@@ -1654,6 +1654,7 @@
 		avdd-supply = <&vreg_touch_avdd>;
 
 		reset-gpios = <&tlmm 89 GPIO_ACTIVE_LOW>;
+		panel = <&display_panel>;
 
 		touchscreen-size-x = <1440>;
 		touchscreen-size-y = <2880>;
