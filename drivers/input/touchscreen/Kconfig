@@ -1244,6 +1244,8 @@ config TOUCHSCREEN_STMFTS
 	tristate "STMicroelectronics STMFTS touchscreen"
 	depends on I2C
 	depends on LEDS_CLASS
+	# We need to call into panel code so if DRM=m, this can't be 'y'
+	depends on DRM || !DRM
 	help
 	  Say Y here if you want support for STMicroelectronics
 	  STMFTS touchscreen.
