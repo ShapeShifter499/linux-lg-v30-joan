@@ -2849,46 +2849,68 @@
 			 * qcom,gfxfreq-mx-speedbin0): SVS up to 414 MHz, NOM
 			 * for 515 and 596 MHz, TURBO for 670 and 710 MHz.
 			 */
+			/*
+			 * DDR bandwidth follows the GPU clock, from the vendor
+			 * kernel's grp3d bus table (msm8998-v2 gpu-pwrlevels,
+			 * qcom,bus-freq). The vendor's 1804 MHz step for 670 and
+			 * 710 MHz is held at 1555 MHz: 1804 MHz is not stable
+			 * here yet. The vote is released while the GPU is
+			 * suspended (a5xx_pm_suspend()).
+			 */
 			gpu_opp_table: opp-table {
 				compatible = "operating-points-v2";
 				opp-710000097 {
 					opp-hz = /bits/ 64 <710000097>;
+					/* gfx-mem: DDR 1804 MHz on stock, capped at 1555; gfx-l3: none */
+					opp-peak-kBps = <12440000 0>;
 					required-opps = <&rpmpd_opp_turbo>;
 					opp-supported-hw = <0xff>;
 				};
 
 				opp-670000048 {
 					opp-hz = /bits/ 64 <670000048>;
+					/* gfx-mem: DDR 1804 MHz on stock, capped at 1555; gfx-l3: none */
+					opp-peak-kBps = <12440000 0>;
 					required-opps = <&rpmpd_opp_turbo>;
 					opp-supported-hw = <0xff>;
 				};
 
 				opp-596000097 {
 					opp-hz = /bits/ 64 <596000097>;
+					/* gfx-mem: DDR 1555 MHz; gfx-l3: none */
+					opp-peak-kBps = <12440000 0>;
 					required-opps = <&rpmpd_opp_nom>;
 					opp-supported-hw = <0xff>;
 				};
 
 				opp-515000097 {
 					opp-hz = /bits/ 64 <515000097>;
+					/* gfx-mem: DDR 1555 MHz; gfx-l3: none */
+					opp-peak-kBps = <12440000 0>;
 					required-opps = <&rpmpd_opp_nom>;
 					opp-supported-hw = <0xff>;
 				};
 
 				opp-414000000 {
 					opp-hz = /bits/ 64 <414000000>;
+					/* gfx-mem: DDR 1017 MHz; gfx-l3: none */
+					opp-peak-kBps = <8136000 0>;
 					required-opps = <&rpmpd_opp_svs>;
 					opp-supported-hw = <0xff>;
 				};
 
 				opp-342000000 {
 					opp-hz = /bits/ 64 <342000000>;
+					/* gfx-mem: DDR 768 MHz; gfx-l3: none */
+					opp-peak-kBps = <6144000 0>;
 					required-opps = <&rpmpd_opp_svs>;
 					opp-supported-hw = <0xff>;
 				};
 
 				opp-257000000 {
 					opp-hz = /bits/ 64 <257000000>;
+					/* gfx-mem: DDR 412 MHz; gfx-l3: none */
+					opp-peak-kBps = <3296000 0>;
 					required-opps = <&rpmpd_opp_svs>;
 					opp-supported-hw = <0xff>;
 				};
