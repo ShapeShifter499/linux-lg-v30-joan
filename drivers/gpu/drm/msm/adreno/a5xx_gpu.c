@@ -1103,6 +1103,9 @@ static void a5xx_destroy(struct msm_gpu *gpu)
 
 	DBG("%s", gpu->name);
 
+	if (dev_pm_qos_request_active(&a5xx_gpu->slumber_qos))
+		dev_pm_qos_remove_request(&a5xx_gpu->slumber_qos);
+
 	a5xx_preempt_fini(gpu);
 
 	if (a5xx_gpu->pm4_bo) {
@@ -1870,7 +1873,34 @@ static struct msm_gpu *a5xx_gpu_init(struct drm_device *dev)
 	 * opp-peak-kBps for the "gfx-mem" path, so dev_pm_opp_set_rate()
 	 * moves the DDR vote with the GPU clock, as downstream KGSL does
 	 * per power level.
+	 *
+	 * A 27 MHz OPP, if present, is the vendor's slumber level: no DDR
+	 * vote, used only while suspended, where msm_gpu_pm_suspend() parks
+	 * the clock at 27 MHz. Keep devfreq at or above the next OPP so the
+	 * running GPU is never left without bandwidth.
 	 */
+	{
+		unsigned long freq = 27000000;
+		struct dev_pm_opp *opp;
+
+		opp = dev_pm_opp_find_freq_exact(&pdev->dev, freq, true);
+		if (!IS_ERR(opp)) {
+			dev_pm_opp_put(opp);
+			freq++;
+			opp = dev_pm_opp_find_freq_ceil(&pdev->dev, &freq);
+			if (!IS_ERR(opp)) {
+				dev_pm_opp_put(opp);
+				ret = dev_pm_qos_add_request(&pdev->dev,
+							     &a5xx_gpu->slumber_qos,
+							     DEV_PM_QOS_MIN_FREQUENCY,
+							     freq / 1000);
+				if (ret < 0)
+					dev_warn(&pdev->dev,
+						 "no devfreq floor above the slumber OPP: %d\n",
+						 ret);
+			}
+		}
+	}
 
 	/* Set the speedbin value that is passed to userspace */
 	if (adreno_read_speedbin(&pdev->dev, &speedbin) || !speedbin)

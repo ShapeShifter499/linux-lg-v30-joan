@@ -275,6 +275,25 @@ void a540_gfx_apply_open_loop(struct device *dev)
 			dev_warn(dev, "cannot set %lu Hz to %d uV: %d\n",
 				 hz, ol[i], ret);
 	}
+
+	/*
+	 * The 27 MHz slumber OPP is only reached with the GPU suspended.
+	 * Give it the lowest corner voltage so parking there never asks
+	 * for more than the 257 MHz OPP does.
+	 */
+	{
+		struct dev_pm_opp *opp;
+
+		opp = dev_pm_opp_find_freq_exact(dev, 27000000, true);
+		if (!IS_ERR(opp)) {
+			dev_pm_opp_put(opp);
+			ret = dev_pm_opp_adjust_voltage(dev, 27000000,
+							ol[0], ol[0], ol[0]);
+			if (ret)
+				dev_warn(dev, "cannot set the slumber OPP to %d uV: %d\n",
+					 ol[0], ret);
+		}
+	}
 }
 
 static struct regmap *a540_mem_acc_map;

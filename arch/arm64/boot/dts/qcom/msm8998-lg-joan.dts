@@ -1755,6 +1755,11 @@
 	opp-257000000 {
 		opp-microvolt = <724000>;
 	};
+
+	/* Slumber (GPU suspended): replaced with the lowest fused corner */
+	opp-27000000 {
+		opp-microvolt = <724000>;
+	};
 };
 
 

@@ -4,6 +4,8 @@
 #ifndef __A5XX_GPU_H__
 #define __A5XX_GPU_H__
 
+#include <linux/pm_qos.h>
+
 #include "adreno_gpu.h"
 
 /* Bringing over the hack from the previous targets */
@@ -26,6 +28,9 @@ struct a5xx_gpu {
 	uint32_t gpmu_dwords;
 
 	uint32_t lm_leakage;
+
+	/* Keeps devfreq off the suspend-only 27 MHz slumber OPP */
+	struct dev_pm_qos_request slumber_qos;
 
 	struct msm_ringbuffer *cur_ring;
 	struct msm_ringbuffer *next_ring;

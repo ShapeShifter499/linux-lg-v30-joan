@@ -2854,8 +2854,8 @@
 			 * kernel's grp3d bus table (msm8998-v2 gpu-pwrlevels,
 			 * qcom,bus-freq). The vendor's 1804 MHz step for 670 and
 			 * 710 MHz is held at 1555 MHz: 1804 MHz is not stable
-			 * here yet. The vote is released while the GPU is
-			 * suspended (a5xx_pm_suspend()).
+			 * here yet. A suspended GPU parks on the 27 MHz slumber
+			 * OPP, which votes no DDR bandwidth.
 			 */
 			gpu_opp_table: opp-table {
 				compatible = "operating-points-v2";
@@ -2911,6 +2911,21 @@
 					opp-hz = /bits/ 64 <257000000>;
 					/* gfx-mem: DDR 412 MHz; gfx-l3: none */
 					opp-peak-kBps = <3296000 0>;
+					required-opps = <&rpmpd_opp_svs>;
+					opp-supported-hw = <0xff>;
+				};
+
+				/*
+				 * The vendor's 27 MHz slumber level (bus-freq 0),
+				 * only for a suspended GPU: msm_gpu_pm_suspend()
+				 * parks the clock here. It drops the DDR vote but
+				 * keeps the SVS rail level; releasing VDDMX with it
+				 * left the ADSP without SLIMbus on some boots. The
+				 * a5xx driver keeps devfreq above it.
+				 */
+				opp-27000000 {
+					opp-hz = /bits/ 64 <27000000>;
+					opp-peak-kBps = <0 0>;
 					required-opps = <&rpmpd_opp_svs>;
 					opp-supported-hw = <0xff>;
 				};
