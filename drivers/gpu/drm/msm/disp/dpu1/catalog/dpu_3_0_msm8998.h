@@ -277,7 +277,7 @@ static const struct dpu_perf_cfg msm8998_perf_data = {
 		{.rd_enable = 1, .wr_enable = 1},
 		{.rd_enable = 1, .wr_enable = 0}
 	},
-	.clk_inefficiency_factor = 200,
+	.clk_inefficiency_factor = 105,
 	.bw_inefficiency_factor = 120,
 };
 
