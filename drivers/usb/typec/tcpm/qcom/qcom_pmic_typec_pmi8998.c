@@ -98,6 +98,7 @@ struct pmic_typec_pmi8998 {
 	struct mutex			vbus_lock;	/* VBUS state serialization */
 
 	bool				debouncing_cc;
+	bool				cc_change_pending;
 	struct delayed_work		cc_debounce_dwork;
 
 	spinlock_t			lock;		/* Register atomicity */
@@ -125,10 +126,16 @@ static void pmi8998_cc_debounce(struct work_struct *work)
 	struct pmic_typec_pmi8998 *port =
 		container_of(work, struct pmic_typec_pmi8998, cc_debounce_dwork.work);
 	unsigned long flags;
+	bool cc_change;
 
 	spin_lock_irqsave(&port->lock, flags);
 	port->debouncing_cc = false;
+	cc_change = port->cc_change_pending;
+	port->cc_change_pending = false;
 	spin_unlock_irqrestore(&port->lock, flags);
+
+	if (cc_change)
+		tcpm_cc_change(port->tcpm_port);
 }
 
 /* Ignore CC changes for a moment after reprogramming the port. */
@@ -151,6 +158,8 @@ static irqreturn_t pmi8998_typec_isr(int irq, void *dev_id)
 
 	spin_lock_irqsave(&port->lock, flags);
 	cc_change = !port->debouncing_cc;
+	if (!cc_change)
+		port->cc_change_pending = true;
 	spin_unlock_irqrestore(&port->lock, flags);
 
 	tcpm_vbus_change(port->tcpm_port);
@@ -403,6 +412,12 @@ static int pmi8998_start_toggling(struct tcpc_dev *tcpc,
 	spin_lock_irqsave(&port->lock, flags);
 
 	pmi8998_set_cc_debounce(port);
+
+	/*
+	 * A partner that is already attached raises no interrupt, so read the
+	 * state back once the debounce ends, as LG's kernel does at probe.
+	 */
+	port->cc_change_pending = true;
 
 	/* Force the state machine through Disabled so it toggles again */
 	ret = pmi8998_update(port, TYPE_C_INTRPT_ENB_SOFTWARE_CTRL_REG,
