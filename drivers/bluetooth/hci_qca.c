@@ -2088,6 +2088,7 @@ retry:
 			hci_set_quirk(hdev, HCI_QUIRK_BROKEN_READ_TRANSMIT_POWER);
 			hci_set_quirk(hdev, HCI_QUIRK_BROKEN_LE_SET_DEFAULT_PHY);
 			hci_set_quirk(hdev, HCI_QUIRK_BROKEN_EXT_SCAN);
+			hci_set_quirk(hdev, HCI_QUIRK_BROKEN_EXT_CREATE_CONN);
 		}
 
 		hci_set_aosp_capable(hdev);
