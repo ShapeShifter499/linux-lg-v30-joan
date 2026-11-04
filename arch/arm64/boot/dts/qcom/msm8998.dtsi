@@ -3707,13 +3707,10 @@
 			#interrupt-cells = <4>;
 		};
 
-		usb3: usb@a8f8800 {
-			compatible = "qcom,msm8998-dwc3", "qcom,dwc3";
-			reg = <0x0a8f8800 0x400>;
+		usb3: usb3_dwc3: usb@a800000 {
+			compatible = "qcom,msm8998-dwc3", "qcom,snps-dwc3";
+			reg = <0x0a800000 0xfc100>;
 			status = "disabled";
-			#address-cells = <1>;
-			#size-cells = <1>;
-			ranges;
 
 			clocks = <&gcc GCC_CFG_NOC_USB3_AXI_CLK>,
 				 <&gcc GCC_USB30_MASTER_CLK>,
@@ -3730,10 +3727,12 @@
 					  <&gcc GCC_USB30_MASTER_CLK>;
 			assigned-clock-rates = <19200000>, <120000000>;
 
-			interrupts = <GIC_SPI 180 IRQ_TYPE_LEVEL_HIGH>,
+			interrupts = <GIC_SPI 131 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 180 IRQ_TYPE_LEVEL_HIGH>,
 				     <GIC_SPI 347 IRQ_TYPE_LEVEL_HIGH>,
 				     <GIC_SPI 243 IRQ_TYPE_LEVEL_HIGH>;
-			interrupt-names = "pwr_event",
+			interrupt-names = "dwc_usb3",
+					  "pwr_event",
 					  "qusb2_phy",
 					  "ss_phy_irq";
 
@@ -3745,35 +3744,30 @@
 					<&gnoc MAS_APSS_PROC &cnoc SLV_USB3_0>;
 			interconnect-names = "usb-ddr", "apps-usb";
 
-			usb3_dwc3: usb@a800000 {
-				compatible = "snps,dwc3";
-				reg = <0x0a800000 0xcd00>;
-				interrupts = <GIC_SPI 131 IRQ_TYPE_LEVEL_HIGH>;
-				snps,dis_u2_susphy_quirk;
-				snps,dis_enblslpm_quirk;
-				snps,parkmode-disable-ss-quirk;
-				phys = <&qusb2phy>, <&usb3phy>;
-				phy-names = "usb2-phy", "usb3-phy";
-				snps,has-lpm-erratum;
-				snps,hird-threshold = /bits/ 8 <0x10>;
+			snps,dis_u2_susphy_quirk;
+			snps,dis_enblslpm_quirk;
+			snps,parkmode-disable-ss-quirk;
+			phys = <&qusb2phy>, <&usb3phy>;
+			phy-names = "usb2-phy", "usb3-phy";
+			snps,has-lpm-erratum;
+			snps,hird-threshold = /bits/ 8 <0x10>;
 
-				ports {
-					#address-cells = <1>;
-					#size-cells = <0>;
+			ports {
+				#address-cells = <1>;
+				#size-cells = <0>;
 
-					port@0 {
-						reg = <0>;
+				port@0 {
+					reg = <0>;
 
-						usb3_dwc3_hs: endpoint {
-						};
+					usb3_dwc3_hs: endpoint {
 					};
+				};
 
-					port@1 {
-						reg = <1>;
+				port@1 {
+					reg = <1>;
 
-						usb3_dwc3_ss: endpoint {
-							remote-endpoint = <&usb3phy_usb_ss_in>;
-						};
+					usb3_dwc3_ss: endpoint {
+						remote-endpoint = <&usb3phy_usb_ss_in>;
 					};
 				};
 			};
