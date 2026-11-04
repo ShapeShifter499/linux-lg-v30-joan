@@ -1757,13 +1757,6 @@ static const struct regmap_config msm8998_bimc_regmap_config = {
 static const struct qcom_icc_desc msm8998_bimc = {
 	.regmap_cfg = &msm8998_bimc_regmap_config,
 	.qos_offset = 0x8000,
-	/*
-	 * DDR at the 1804 MHz step cannot be left reliably: stepping down from
-	 * it after sustained traffic hangs the SoC. Stop at the 1555 MHz step
-	 * (12440 MB/s over the 8-byte EBI), which also covers the INT_MAX
-	 * initial vote held until sync_state().
-	 */
-	.bus_clk_max_rate = 1555000,
 	.type = QCOM_ICC_BIMC,
 	.nodes = bimc_nodes,
 	.num_nodes = ARRAY_SIZE(bimc_nodes),

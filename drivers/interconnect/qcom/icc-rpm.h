@@ -61,7 +61,6 @@ struct qcom_icc_provider {
 	u16 ab_coeff;
 	u16 ib_coeff;
 	u32 bus_clk_rate[QCOM_SMD_RPM_STATE_NUM];
-	u32 bus_clk_max_rate;
 	const struct rpm_clk_resource *bus_clk_desc;
 	struct clk *bus_clk;
 	bool keep_alive;
@@ -134,12 +133,6 @@ struct qcom_icc_desc {
 	size_t num_intf_clocks;
 	bool keep_alive;
 	enum qcom_icc_type type;
-	/*
-	 * Highest bus clock (kHz) to request from the RPM, 0 for no limit:
-	 * keeps an unstable top step out of reach, including the INT_MAX
-	 * initial vote held until sync_state().
-	 */
-	u32 bus_clk_max_rate;
 	const struct regmap_config *regmap_cfg;
 	unsigned int qos_offset;
 	u16 ab_coeff;
