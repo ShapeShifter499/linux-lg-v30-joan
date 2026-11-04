@@ -2862,7 +2862,7 @@
 				opp-710000097 {
 					opp-hz = /bits/ 64 <710000097>;
 					/* gfx-mem: DDR 1804 MHz on stock, capped at 1555; gfx-l3: none */
-					opp-peak-kBps = <12440000 0>;
+					opp-peak-kBps = <14400000 0>;
 					required-opps = <&rpmpd_opp_turbo>;
 					opp-supported-hw = <0xff>;
 				};
@@ -2870,7 +2870,7 @@
 				opp-670000048 {
 					opp-hz = /bits/ 64 <670000048>;
 					/* gfx-mem: DDR 1804 MHz on stock, capped at 1555; gfx-l3: none */
-					opp-peak-kBps = <12440000 0>;
+					opp-peak-kBps = <14400000 0>;
 					required-opps = <&rpmpd_opp_turbo>;
 					opp-supported-hw = <0xff>;
 				};
@@ -3035,10 +3035,8 @@
 		 * CPU to DDR bandwidth monitor. It raises the EBI vote with the
 		 * traffic the CPUs generate; without it DDR stays at whatever
 		 * the other masters vote, which starved memory-bound CPU work.
-		 * The steps are the vendor kernel's cpubw table from its 200 MHz floor.
-		 * Its top 1804 MHz step is left out: voted from here alone it reset
-		 * the SoC (PS_HOLD) under sustained memory traffic, and 1555 MHz
-		 * already gives the same CPU copy throughput (2.4 GB/s).
+		 * The steps are the vendor kernel's cpubw table from its 200 MHz floor
+		 * up to 1804 MHz.
 		 */
 		pmu@1008000 {
 			compatible = "qcom,msm8998-bwmon";
@@ -3090,6 +3088,9 @@
 					opp-peak-kBps = <11863000>;
 				};
 
+				opp-11 {
+					opp-peak-kBps = <13763000>;
+				};
 			};
 		};
 
