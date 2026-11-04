@@ -848,7 +848,7 @@ static const struct smb_init_register smb_init_seq[] = {
 	 */
 	{ .addr = CHGR_CFG2,
 	  .mask = CHG_EN_SRC_BIT | CHG_EN_POLARITY_BIT |
-		  PRETOFAST_TRANSITION_CFG_BIT | BAT_OV_ECC_BIT | I_TERM_BIT |
+		  PRETOFAST_TRANSITION_CFG_BIT | I_TERM_BIT |
 		  AUTO_RECHG_BIT | EN_ANALOG_DROP_IN_VBATT_BIT |
 		  CHARGER_INHIBIT_BIT,
 	  .val = CHARGER_INHIBIT_BIT },
