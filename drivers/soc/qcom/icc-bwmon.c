@@ -729,16 +729,18 @@ static irqreturn_t bwmon_intr_thread(int irq, void *dev_id)
  */
 static void __iomem *bwmon_ioremap(struct platform_device *pdev, unsigned int index)
 {
-	void __iomem *base = devm_platform_ioremap_resource(pdev, index);
+	struct device *dev = &pdev->dev;
 	struct resource *res;
-
-	if (PTR_ERR_OR_ZERO(base) != -EBUSY)
-		return base;
+	void __iomem *base;
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, index);
 	if (!res)
 		return IOMEM_ERR_PTR(-EINVAL);
-	base = devm_ioremap(&pdev->dev, res->start, resource_size(res));
+
+	/* A busy region is the expected case here, not an error to report. */
+	devm_request_mem_region(dev, res->start, resource_size(res), dev_name(dev));
+
+	base = devm_ioremap(dev, res->start, resource_size(res));
 	return base ?: IOMEM_ERR_PTR(-ENOMEM);
 }
 
