@@ -286,9 +286,14 @@ static const u8 sw43402_blmap[SW43402_BLMAP_LEN] = {
 static int sw43402_backlight_update_status(struct backlight_device *bl)
 {
 	struct mipi_dsi_device *dsi = bl_get_data(bl);
+	struct sw43402_panel *ctx = mipi_dsi_get_drvdata(dsi);
 	unsigned int brightness = backlight_get_brightness(bl);
 	u8 dbv;
 	int ret;
+
+	/* No link yet; drm_panel_enable() sends the stored level */
+	if (!ctx->base.prepared)
+		return 0;
 
 	if (!brightness)
 		dbv = SW43402_DBV_OFF;
