@@ -126,6 +126,8 @@ struct es9218p_priv {
 	struct gpio_desc *reset_gpio;
 	struct gpio_desc *power_gpio;
 	struct gpio_desc *hph_sw_gpio;
+	unsigned int mode;	/* what userspace selected */
+	bool dac_on;		/* a stream is powering the DAC */
 };
 
 static const struct reg_default es9218p_reg_defaults[] = {
@@ -176,10 +178,12 @@ static const DECLARE_TLV_DB_SCALE(es9218p_vol_tlv, -12750, 50, 1);
  * means RESET_N is *high* and the part is out of reset; hph-sw-gpios is
  * ACTIVE_HIGH and maps straight through.
  *
- * This control only moves the mode pins.  The register sequences downstream
- * runs across a transition (es9218p_sabre_hifi2lpb() and friends) are not
- * implemented yet, so changing mode under an active stream is not expected to
- * be glitch-free.
+ * This control records the selected mode.  Selecting HiFi does not claim the
+ * jack by itself: the part stays in Low Power Bypass until a stream powers the
+ * DAC, because the WCD934x MBHC cannot see an insertion while this part drives
+ * the jack.  The register sequences downstream runs across a transition
+ * (es9218p_sabre_hifi2lpb() and friends) are not implemented yet, so changing
+ * mode under an active stream is not expected to be glitch-free.
  */
 /*
  * Defined below, beside the register sequence and amplifier power-up it
@@ -214,23 +218,13 @@ static int es9218p_mode_get(struct snd_kcontrol *kcontrol,
 {
 	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct es9218p_priv *es9218p = snd_soc_component_get_drvdata(component);
-	int rst, sw, i;
 
 	if (!es9218p->reset_gpio || !es9218p->hph_sw_gpio)
 		return -ENODEV;
 
-	rst = gpiod_get_value_cansleep(es9218p->reset_gpio);
-	sw  = gpiod_get_value_cansleep(es9218p->hph_sw_gpio);
+	ucontrol->value.enumerated.item[0] = es9218p->mode;
 
-	for (i = 0; i < ARRAY_SIZE(es9218p_mode_pins); i++) {
-		if (es9218p_mode_pins[i][0] == rst &&
-		    es9218p_mode_pins[i][1] == sw) {
-			ucontrol->value.enumerated.item[0] = i;
-			return 0;
-		}
-	}
-
-	return -EINVAL;
+	return 0;
 }
 
 static int es9218p_mode_put(struct snd_kcontrol *kcontrol,
@@ -240,6 +234,7 @@ static int es9218p_mode_put(struct snd_kcontrol *kcontrol,
 	struct es9218p_priv *es9218p = snd_soc_component_get_drvdata(component);
 	unsigned int mode = ucontrol->value.enumerated.item[0];
 	struct snd_soc_dapm_context *dapm;
+	unsigned int target;
 	int rst, sw;
 
 	if (mode >= ARRAY_SIZE(es9218p_mode_pins))
@@ -248,11 +243,26 @@ static int es9218p_mode_put(struct snd_kcontrol *kcontrol,
 	if (!es9218p->reset_gpio || !es9218p->hph_sw_gpio)
 		return -ENODEV;
 
+	if (mode == es9218p->mode)
+		return 0;
+
+	es9218p->mode = mode;
+
+	/*
+	 * With no stream running, HiFi only arms the DAPM path below.  The pins
+	 * stay in Low Power Bypass so MBHC keeps seeing the jack, and
+	 * es9218p_dac_event() moves them when a stream opens.
+	 */
+	target = mode;
+	if (mode == ES9218P_MODE_HIFI && !es9218p->dac_on)
+		target = ES9218P_MODE_LPB;
+
 	rst = gpiod_get_value_cansleep(es9218p->reset_gpio);
 	sw  = gpiod_get_value_cansleep(es9218p->hph_sw_gpio);
 
-	if (es9218p_mode_pins[mode][0] == rst && es9218p_mode_pins[mode][1] == sw)
-		return 0;
+	if (es9218p_mode_pins[target][0] == rst &&
+	    es9218p_mode_pins[target][1] == sw)
+		goto route;
 
 	/*
 	 * Leaving an amplifier mode has to hand amp-mode control back to the
@@ -264,24 +274,24 @@ static int es9218p_mode_put(struct snd_kcontrol *kcontrol,
 	 * this board specifically (CONFIG_MACH_MSM8998_JOAN); the generic path
 	 * has no delay there.
 	 */
-	if (es9218p_mode_pins[mode][0] == 1 && rst == 0) {
+	if (es9218p_mode_pins[target][0] == 1 && rst == 0) {
 		regmap_write(es9218p->regmap, ES9218P_AMP_CONFIG, 0);
 		gpiod_set_value_cansleep(es9218p->hph_sw_gpio,
-					 es9218p_mode_pins[mode][1]);
+					 es9218p_mode_pins[target][1]);
 		msleep(100);
 		gpiod_set_value_cansleep(es9218p->reset_gpio,
-					 es9218p_mode_pins[mode][0]);
+					 es9218p_mode_pins[target][0]);
 		/*
 		 * RESET_N is asserted again from here, so the register
 		 * interface is gone until the part is woken the next time.
 		 */
 		regcache_cache_only(es9218p->regmap, true);
-	} else if (es9218p_mode_pins[mode][0] == 0) {
+	} else if (es9218p_mode_pins[target][0] == 0) {
 		/* Powering the part back up: MODE2 first, then release RESET_N. */
 		gpiod_set_value_cansleep(es9218p->hph_sw_gpio,
-					 es9218p_mode_pins[mode][1]);
+					 es9218p_mode_pins[target][1]);
 		gpiod_set_value_cansleep(es9218p->reset_gpio,
-					 es9218p_mode_pins[mode][0]);
+					 es9218p_mode_pins[target][0]);
 		usleep_range(1000, 2000);
 		/* Out of reset again: the init replay below, and the
 		 * power-up sequence in es9218p_amp_power_up(), must reach
@@ -289,9 +299,9 @@ static int es9218p_mode_put(struct snd_kcontrol *kcontrol,
 		regcache_cache_only(es9218p->regmap, false);
 	} else {
 		gpiod_set_value_cansleep(es9218p->reset_gpio,
-					 es9218p_mode_pins[mode][0]);
+					 es9218p_mode_pins[target][0]);
 		gpiod_set_value_cansleep(es9218p->hph_sw_gpio,
-					 es9218p_mode_pins[mode][1]);
+					 es9218p_mode_pins[target][1]);
 		usleep_range(1000, 2000);
 	}
 
@@ -301,9 +311,10 @@ static int es9218p_mode_put(struct snd_kcontrol *kcontrol,
 	 * up.  Without this the part reports the right mode and the card shows
 	 * a live route and a RUNNING PCM while the jack stays silent.
 	 */
-	if (es9218p_mode_pins[mode][0] == 0 && rst == 1)
+	if (es9218p_mode_pins[target][0] == 0 && rst == 1)
 		es9218p_restore_after_reset(es9218p);
 
+route:
 	/*
 	 * Only HiFi drives the jack from this part.  Park the output pins in
 	 * every other mode so the DAPM path goes away and the DPCM backend
@@ -584,8 +595,19 @@ static int es9218p_dac_event(struct snd_soc_dapm_widget *w,
 
 	switch (event) {
 	case SND_SOC_DAPM_POST_PMU:
-		return es9218p_amp_power_up(es9218p);
+		es9218p->dac_on = true;
+		/*
+		 * The part has been in reset since the last stream, so its
+		 * register map is gone: take it out of reset, MODE2 first,
+		 * and replay everything.
+		 */
+		gpiod_set_value_cansleep(es9218p->hph_sw_gpio, 0);
+		gpiod_set_value_cansleep(es9218p->reset_gpio, 0);
+		usleep_range(1000, 2000);
+		regcache_cache_only(es9218p->regmap, false);
+		return es9218p_restore_after_reset(es9218p);
 	case SND_SOC_DAPM_PRE_PMD:
+		es9218p->dac_on = false;
 		return es9218p_amp_power_down(es9218p);
 	}
 
@@ -726,6 +748,7 @@ static int es9218p_i2c_probe(struct i2c_client *i2c)
 	/* The part idles in Low Power Bypass (RESET_N asserted) from here
 	 * on; see es9218p_amp_power_down(). */
 	regcache_cache_only(es9218p->regmap, true);
+	es9218p->mode = ES9218P_MODE_LPB;
 
 	return devm_snd_soc_register_component(dev, &es9218p_component_driver,
 					       &es9218p_dai, 1);
