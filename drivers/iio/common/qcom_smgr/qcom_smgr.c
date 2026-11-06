@@ -258,7 +258,8 @@ static int qcom_smgr_request_buffering(struct qcom_smgr *smgr,
 	}
 
 	/* Keep track of requested sample rate */
-	data_type->cur_sample_rate = sample_rate;
+	if (enable)
+		data_type->cur_sample_rate = sample_rate;
 
 	return 0;
 }

@@ -23,8 +23,7 @@ static const struct qmi_elem_info sns_smgr_all_sensor_info_ei[] = {
 	{
 		.data_type = QMI_DATA_LEN,
 		.elem_len = 1,
-		.elem_size =
-			sizeof_field(struct sns_smgr_all_sensor_info, type_len),
+		.elem_size = sizeof(u8),
 		.array_type = NO_ARRAY,
 		.offset = offsetof(struct sns_smgr_all_sensor_info, type_len),
 	},
@@ -54,8 +53,7 @@ const struct qmi_elem_info sns_smgr_all_sensor_info_resp_ei[] = {
 	{
 		.data_type = QMI_DATA_LEN,
 		.elem_len = 1,
-		.elem_size = sizeof_field(struct sns_smgr_all_sensor_info_resp,
-					  item_len),
+		.elem_size = sizeof(u8),
 		.array_type = NO_ARRAY,
 		.tlv_type = 0x03,
 		.offset = offsetof(struct sns_smgr_all_sensor_info_resp,
@@ -117,8 +115,7 @@ static const struct qmi_elem_info sns_smgr_single_sensor_info_data_type_ei[] = {
 	{
 		.data_type = QMI_DATA_LEN,
 		.elem_len = 1,
-		.elem_size = sizeof_field(
-			struct sns_smgr_single_sensor_info_data_type, name_len),
+		.elem_size = sizeof(u8),
 		.array_type = NO_ARRAY,
 		.offset = offsetof(struct sns_smgr_single_sensor_info_data_type,
 				   name_len),
@@ -134,9 +131,7 @@ static const struct qmi_elem_info sns_smgr_single_sensor_info_data_type_ei[] = {
 	{
 		.data_type = QMI_DATA_LEN,
 		.elem_len = 1,
-		.elem_size = sizeof_field(
-			struct sns_smgr_single_sensor_info_data_type,
-			vendor_len),
+		.elem_size = sizeof(u8),
 		.array_type = NO_ARRAY,
 		.offset = offsetof(struct sns_smgr_single_sensor_info_data_type,
 				   vendor_len),
@@ -215,8 +210,7 @@ static const struct qmi_elem_info sns_smgr_single_sensor_info_native_sample_rate
 	{
 		.data_type = QMI_DATA_LEN,
 		.elem_len = 1,
-		.elem_size = sizeof_field(
-			struct sns_smgr_single_sensor_info_native_sample_rates, rate_count),
+		.elem_size = sizeof(u8),
 		.array_type = NO_ARRAY,
 		.offset = offsetof(struct sns_smgr_single_sensor_info_native_sample_rates,
 				   rate_count),
@@ -248,8 +242,7 @@ const struct qmi_elem_info sns_smgr_single_sensor_info_resp_ei[] = {
 	{
 		.data_type = QMI_DATA_LEN,
 		.elem_len = 1,
-		.elem_size = sizeof_field(
-			struct sns_smgr_single_sensor_info_resp, data_type_len),
+		.elem_size = sizeof(u8),
 		.array_type = NO_ARRAY,
 		.tlv_type = 0x03,
 		.offset = offsetof(struct sns_smgr_single_sensor_info_resp,
@@ -269,8 +262,7 @@ const struct qmi_elem_info sns_smgr_single_sensor_info_resp_ei[] = {
 	{
 		.data_type = QMI_DATA_LEN,
 		.elem_len = 1,
-		.elem_size = sizeof_field(
-			struct sns_smgr_single_sensor_info_resp, data1_len),
+		.elem_size = sizeof(u8),
 		.array_type = NO_ARRAY,
 		.tlv_type = 0x10,
 		.offset = offsetof(struct sns_smgr_single_sensor_info_resp,
@@ -298,8 +290,7 @@ const struct qmi_elem_info sns_smgr_single_sensor_info_resp_ei[] = {
 	{
 		.data_type = QMI_DATA_LEN,
 		.elem_len = 1,
-		.elem_size = sizeof_field(
-			struct sns_smgr_single_sensor_info_resp, data3_len),
+		.elem_size = sizeof(u8),
 		.array_type = NO_ARRAY,
 		.tlv_type = 0x12,
 		.offset = offsetof(struct sns_smgr_single_sensor_info_resp,
@@ -317,9 +308,7 @@ const struct qmi_elem_info sns_smgr_single_sensor_info_resp_ei[] = {
 	{
 		.data_type = QMI_DATA_LEN,
 		.elem_len = 1,
-		.elem_size = sizeof_field(
-			struct sns_smgr_single_sensor_info_resp,
-			native_sample_rates_len),
+		.elem_size = sizeof(u8),
 		.array_type = NO_ARRAY,
 		.tlv_type = 0x13,
 		.offset = offsetof(struct sns_smgr_single_sensor_info_resp,
@@ -339,8 +328,7 @@ const struct qmi_elem_info sns_smgr_single_sensor_info_resp_ei[] = {
 	{
 		.data_type = QMI_DATA_LEN,
 		.elem_len = 1,
-		.elem_size = sizeof_field(
-			struct sns_smgr_single_sensor_info_resp, data5_len),
+		.elem_size = sizeof(u8),
 		.array_type = NO_ARRAY,
 		.tlv_type = 0x14,
 		.offset = offsetof(struct sns_smgr_single_sensor_info_resp,
@@ -469,8 +457,7 @@ const struct qmi_elem_info sns_smgr_buffering_req_ei[] = {
 	{
 		.data_type = QMI_DATA_LEN,
 		.elem_len = 1,
-		.elem_size =
-			sizeof_field(struct sns_smgr_buffering_req, item_len),
+		.elem_size = sizeof(u8),
 		.array_type = NO_ARRAY,
 		.tlv_type = 0x04,
 		.offset = offsetof(struct sns_smgr_buffering_req, item_len),
@@ -654,8 +641,7 @@ const struct qmi_elem_info sns_smgr_buffering_report_ind_ei[] = {
 	{
 		.data_type = QMI_DATA_LEN,
 		.elem_len = 1,
-		.elem_size = sizeof_field(struct sns_smgr_buffering_report_ind,
-					  samples_len),
+		.elem_size = sizeof(u8),
 		.array_type = NO_ARRAY,
 		.tlv_type = 0x03,
 		.offset = offsetof(struct sns_smgr_buffering_report_ind,
