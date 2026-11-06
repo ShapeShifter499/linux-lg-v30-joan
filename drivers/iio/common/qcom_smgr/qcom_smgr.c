@@ -395,8 +395,10 @@ static int qcom_smgr_iio_read_raw(struct iio_dev *iio_dev,
 			mutex_lock(&sensor->oneshot_lock);
 			reinit_completion(&sensor->sample_ready);
 			ret = qcom_smgr_request_buffering(smgr, sensor, true);
-			if (ret)
+			if (ret) {
+				mutex_unlock(&sensor->oneshot_lock);
 				return ret;
+			}
 			ret = wait_for_completion_timeout(&sensor->sample_ready,
 				msecs_to_jiffies(250));
 			qcom_smgr_request_buffering(smgr, sensor, false);
