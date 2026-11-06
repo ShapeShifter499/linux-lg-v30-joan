@@ -63,6 +63,7 @@ struct wcd_mbhc {
 	u32 hph_status; /* track headhpone status */
 	u8 hph_ocp_cnt[2]; /* OCP retries this session: left, right */
 	unsigned long hph_ocp_off; /* OCP irq disabled: bit 0 left, bit 1 right */
+	bool hph_pa_off_ack; /* MBHC turned a running PA off */
 	u8 current_plug;
 	unsigned int swap_thr;
 	bool is_btn_press;
@@ -238,6 +239,7 @@ int wcd_mbhc_event_notify(struct wcd_mbhc *mbhc, unsigned long event)
 
 		break;
 	case WCD_EVENT_POST_HPHL_PA_OFF:
+		mbhc->hph_pa_off_ack = false;
 		wcd_mbhc_hph_ocp_rearm(mbhc, false);
 		clear_bit(WCD_MBHC_EVENT_PA_HPHL, &mbhc->event_state);
 
@@ -250,6 +252,7 @@ int wcd_mbhc_event_notify(struct wcd_mbhc *mbhc, unsigned long event)
 			wcd_mbhc_curr_micbias_control(mbhc, WCD_MBHC_EN_CS);
 		break;
 	case WCD_EVENT_POST_HPHR_PA_OFF:
+		mbhc->hph_pa_off_ack = false;
 		wcd_mbhc_hph_ocp_rearm(mbhc, true);
 		clear_bit(WCD_MBHC_EVENT_PA_HPHR, &mbhc->event_state);
 		/* check if micbias is enabled */
@@ -308,6 +311,39 @@ static void wcd_micbias_disable(struct wcd_mbhc *mbhc)
 	}
 }
 
+static void wcd_mbhc_hph_pa_settle(struct wcd_mbhc *mbhc)
+{
+	unsigned int wg_ms = wcd_mbhc_read_field(mbhc, WCD_MBHC_HPH_CNP_WG_TIME) + 1;
+
+	usleep_range(wg_ms * 1000, wg_ms * 1000 + 50);
+}
+
+/* Don't leave a running PA driving an open jack */
+static void wcd_mbhc_hph_pa_off(struct wcd_mbhc *mbhc)
+{
+	if (!wcd_mbhc_read_field(mbhc, WCD_MBHC_HPH_PA_EN))
+		return;
+
+	mbhc->hph_pa_off_ack = true;
+	wcd_mbhc_write_field(mbhc, WCD_MBHC_HPHL_OCP_DET_EN, 0);
+	wcd_mbhc_write_field(mbhc, WCD_MBHC_HPHR_OCP_DET_EN, 0);
+	wcd_mbhc_write_field(mbhc, WCD_MBHC_HPH_PA_EN, 0);
+	wcd_mbhc_hph_pa_settle(mbhc);
+}
+
+/* Restore a PA that MBHC turned off, unless DAPM has closed it since */
+static void wcd_mbhc_hph_pa_on(struct wcd_mbhc *mbhc)
+{
+	if (!mbhc->hph_pa_off_ack)
+		return;
+
+	mbhc->hph_pa_off_ack = false;
+	wcd_mbhc_write_field(mbhc, WCD_MBHC_HPH_PA_EN, 3);
+	wcd_mbhc_write_field(mbhc, WCD_MBHC_HPHL_OCP_DET_EN, 1);
+	wcd_mbhc_write_field(mbhc, WCD_MBHC_HPHR_OCP_DET_EN, 1);
+	wcd_mbhc_hph_pa_settle(mbhc);
+}
+
 static void wcd_mbhc_report_plug_removal(struct wcd_mbhc *mbhc,
 					 enum snd_jack_types jack_type)
 {
@@ -321,6 +357,7 @@ static void wcd_mbhc_report_plug_removal(struct wcd_mbhc *mbhc,
 		mbhc->buttons_pressed &= ~WCD_MBHC_JACK_BUTTON_MASK;
 	}
 
+	wcd_mbhc_hph_pa_off(mbhc);
 	wcd_micbias_disable(mbhc);
 	mbhc->hph_type = WCD_MBHC_HPH_NONE;
 	mbhc->zl = mbhc->zr = 0;
@@ -419,6 +456,7 @@ static void wcd_mbhc_report_plug_insertion(struct wcd_mbhc *mbhc,
 
 	snd_soc_jack_report(mbhc->jack, (mbhc->hph_status | SND_JACK_MECHANICAL),
 			    WCD_MBHC_JACK_MASK);
+	wcd_mbhc_hph_pa_on(mbhc);
 }
 
 static void wcd_mbhc_report_plug(struct wcd_mbhc *mbhc, int insertion,
