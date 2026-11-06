@@ -545,6 +545,7 @@ struct wcd934x_codec {
 	int dmic_sample_rate;
 	int comp_enabled[COMPANDER_MAX];
 	int sysclk_users;
+	bool mbhc_micb_on;
 	struct mutex sysclk_mutex;
 	/* mbhc module */
 	struct wcd_mbhc *mbhc;
@@ -2473,6 +2474,13 @@ static int wcd934x_mbhc_request_micbias(struct snd_soc_component *component,
 {
 	struct wcd934x_codec *wcd = dev_get_drvdata(component->dev);
 	int ret;
+
+	/* MBHC can repeat a request; only a real change moves the MCLK vote */
+	if (req == MICB_ENABLE || req == MICB_DISABLE) {
+		if (wcd->mbhc_micb_on == (req == MICB_ENABLE))
+			return 0;
+		wcd->mbhc_micb_on = req == MICB_ENABLE;
+	}
 
 	if (req == MICB_ENABLE)
 		__wcd934x_cdc_mclk_enable(wcd, true);
