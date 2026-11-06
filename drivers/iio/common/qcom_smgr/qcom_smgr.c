@@ -307,15 +307,14 @@ static void qcom_smgr_buffering_report_handler(struct qmi_handle *hdl,
 	 * Proximity sensor values are reported differently from other sensors.
 	 * The value reported is a boolean (0 or 1, still in the same fixed-point
 	 * format) where 1 means the sensor is activated, i.e. something is
-	 * within its range. Use the reported range to pass an actual distance
-	 * value to IIO. We pass the sensor range when nothing is within range
-	 * (sensor maxed out) and 0 when something is within range (assume
-	 * sensor is covered).
+	 * within its range. IIO expects higher proximity values for closer
+	 * objects, so pass the sensor range when something is within range and
+	 * 0 when nothing is.
 	 */
 	if (sensor->type == SNS_SMGR_SENSOR_TYPE_PROX_LIGHT) {
 		temp = le32_to_cpu(iio_data.values[0]);
 		temp >>= SMGR_VALUE_DECIMAL_OFFSET;
-		temp = ~temp & 1;
+		temp &= 1;
 		temp *= sensor->data_types[0].range;
 		iio_data.values[0] = cpu_to_le32(temp);
 	}
@@ -382,6 +381,29 @@ qcom_smgr_iio_get_mount_matrix(const struct iio_dev *iio_dev,
 
 static const struct iio_chan_spec_ext_info qcom_smgr_iio_ext_info[] = {
 	IIO_MOUNT_MATRIX(IIO_SHARED_BY_DIR, qcom_smgr_iio_get_mount_matrix),
+	{ }
+};
+
+/*
+ * SMGR only tells us whether something is within range, so raw proximity is
+ * either 0 or the sensor range and any level between the two separates them.
+ */
+static ssize_t qcom_smgr_read_near_level(struct iio_dev *iio_dev,
+					 uintptr_t private,
+					 const struct iio_chan_spec *chan,
+					 char *buf)
+{
+	struct qcom_smgr_iio_priv *priv = iio_priv(iio_dev);
+
+	return sysfs_emit(buf, "%u\n", priv->sensor->data_types[0].range / 2);
+}
+
+static const struct iio_chan_spec_ext_info qcom_smgr_prox_ext_info[] = {
+	{
+		.name = "nearlevel",
+		.shared = IIO_SEPARATE,
+		.read = qcom_smgr_read_near_level,
+	},
 	{ }
 };
 
@@ -672,7 +694,8 @@ static const struct iio_chan_spec qcom_smgr_prox_iio_channels[] = {
 		},
 		.info_mask_separate = BIT(IIO_CHAN_INFO_RAW) |
 			      BIT(IIO_CHAN_INFO_SCALE) |
-				      BIT(IIO_CHAN_INFO_SAMP_FREQ)
+				      BIT(IIO_CHAN_INFO_SAMP_FREQ),
+		.ext_info = qcom_smgr_prox_ext_info
 	},
 	{
 		.type = IIO_TIMESTAMP,
