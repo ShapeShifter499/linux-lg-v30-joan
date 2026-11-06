@@ -26,6 +26,7 @@
 #define WCD_MBHC_ADC_MICBIAS_MV		1800
 #define WCD_MBHC_FAKE_INS_RETRY		4
 
+#define WCD_MBHC_OCP_ATTEMPTS	20
 #define WCD_MBHC_JACK_MASK (SND_JACK_HEADSET | SND_JACK_LINEOUT | \
 			   SND_JACK_MECHANICAL)
 
@@ -60,6 +61,8 @@ struct wcd_mbhc {
 	struct mutex lock;
 	int buttons_pressed;
 	u32 hph_status; /* track headhpone status */
+	u8 hph_ocp_cnt[2]; /* OCP retries this session: left, right */
+	unsigned long hph_ocp_off; /* OCP irq disabled: bit 0 left, bit 1 right */
 	u8 current_plug;
 	unsigned int swap_thr;
 	bool is_btn_press;
@@ -162,6 +165,20 @@ static void wcd_mbhc_curr_micbias_control(const struct wcd_mbhc *mbhc,
 	}
 }
 
+/* A PA turning off starts a new over-current detection session */
+static void wcd_mbhc_hph_ocp_rearm(struct wcd_mbhc *mbhc, bool hphr)
+{
+	mbhc->hph_ocp_cnt[hphr] = 0;
+
+	if (!test_and_clear_bit(hphr, &mbhc->hph_ocp_off))
+		return;
+
+	wcd_mbhc_write_field(mbhc, WCD_MBHC_OCP_FSM_EN, 0);
+	wcd_mbhc_write_field(mbhc, WCD_MBHC_OCP_FSM_EN, 1);
+	enable_irq(hphr ? mbhc->intr_ids->hph_right_ocp :
+			  mbhc->intr_ids->hph_left_ocp);
+}
+
 int wcd_mbhc_event_notify(struct wcd_mbhc *mbhc, unsigned long event)
 {
 
@@ -221,6 +238,7 @@ int wcd_mbhc_event_notify(struct wcd_mbhc *mbhc, unsigned long event)
 
 		break;
 	case WCD_EVENT_POST_HPHL_PA_OFF:
+		wcd_mbhc_hph_ocp_rearm(mbhc, false);
 		clear_bit(WCD_MBHC_EVENT_PA_HPHL, &mbhc->event_state);
 
 		/* check if micbias is enabled */
@@ -232,6 +250,7 @@ int wcd_mbhc_event_notify(struct wcd_mbhc *mbhc, unsigned long event)
 			wcd_mbhc_curr_micbias_control(mbhc, WCD_MBHC_EN_CS);
 		break;
 	case WCD_EVENT_POST_HPHR_PA_OFF:
+		wcd_mbhc_hph_ocp_rearm(mbhc, true);
 		clear_bit(WCD_MBHC_EVENT_PA_HPHR, &mbhc->event_state);
 		/* check if micbias is enabled */
 		if (micbias2)
@@ -733,10 +752,24 @@ exit:
 
 static irqreturn_t wcd_mbhc_hph_ocp_irq(struct wcd_mbhc *mbhc, bool hphr)
 {
+	const char *side = hphr ? "HPHR" : "HPHL";
+
+	if (mbhc->hph_ocp_cnt[hphr] >= WCD_MBHC_OCP_ATTEMPTS) {
+		/* Leave the amplifier alone until the PA next turns off */
+		if (!test_and_set_bit(hphr, &mbhc->hph_ocp_off)) {
+			dev_err(mbhc->dev,
+				"MBHC Over Current on %s: stopped after %d retries\n",
+				side, WCD_MBHC_OCP_ATTEMPTS);
+			disable_irq_nosync(hphr ? mbhc->intr_ids->hph_right_ocp :
+						  mbhc->intr_ids->hph_left_ocp);
+		}
+		return IRQ_HANDLED;
+	}
+
+	mbhc->hph_ocp_cnt[hphr]++;
 
 	/* TODO Find a better way to report this to Userspace */
-	dev_err(mbhc->dev, "MBHC Over Current on %s detected\n",
-		hphr ? "HPHR" : "HPHL");
+	dev_err(mbhc->dev, "MBHC Over Current on %s detected\n", side);
 
 	wcd_mbhc_write_field(mbhc, WCD_MBHC_OCP_FSM_EN, 0);
 	wcd_mbhc_write_field(mbhc, WCD_MBHC_OCP_FSM_EN, 1);
