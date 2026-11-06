@@ -18,6 +18,8 @@ enum qcom_smgr_sensor_type {
 	SNS_SMGR_SENSOR_TYPE_PROX_LIGHT,
 	SNS_SMGR_SENSOR_TYPE_PRESSURE,
 	SNS_SMGR_SENSOR_TYPE_HALL_EFFECT,
+	/* Not an SMGR type: the secondary data type of PROX_LIGHT */
+	SNS_SMGR_SENSOR_TYPE_LIGHT,
 
 	SNS_SMGR_SENSOR_TYPE_COUNT
 };
@@ -44,13 +46,13 @@ struct qcom_smgr_data_type_item {
 
 struct qcom_smgr_sensor {
 	u8 id;
+	/* Identifies this sensor's reports; differs from id for light */
+	u8 report_id;
 	enum qcom_smgr_sensor_type type;
 
 	u8 data_type_count;
-	/*
-	 * Only SNS_SMGR_DATA_TYPE_PRIMARY is used at the moment, but we store
-	 * SNS_SMGR_DATA_TYPE_SECONDARY when available as well for future use.
-	 */
+	/* The entry of data_types this sensor reads */
+	u8 data_type;
 	struct qcom_smgr_data_type_item *data_types;
 
 	struct iio_dev *iio_dev;
