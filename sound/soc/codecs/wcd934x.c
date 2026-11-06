@@ -2224,6 +2224,10 @@ static void wcd934x_hw_init(struct wcd934x_codec *wcd)
 
 	/* Take DMICs out of reset */
 	regmap_update_bits(rm, WCD934X_CPE_SS_DMIC_CFG, 0x80, 0x00);
+
+	/* HPH over-current: two attempts, and the downstream limit setting */
+	regmap_update_bits(rm, WCD934X_RX_OCP_CTL, 0x0f, 0x02);
+	regmap_write(rm, WCD934X_HPH_OCP_CTL, 0x3a);
 }
 
 static int wcd934x_comp_init(struct snd_soc_component *component)
