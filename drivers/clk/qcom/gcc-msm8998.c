@@ -2154,19 +2154,6 @@ static struct clk_branch gcc_gpu_bimc_gfx_clk = {
 	},
 };
 
-static struct clk_branch gcc_gpu_bimc_gfx_src_clk = {
-	.halt_reg = 0x7100c,
-	.halt_check = BRANCH_HALT,
-	.clkr = {
-		.enable_reg = 0x7100c,
-		.enable_mask = BIT(0),
-		.hw.init = &(struct clk_init_data){
-			.name = "gcc_gpu_bimc_gfx_src_clk",
-			.ops = &clk_branch2_ops,
-		},
-	},
-};
-
 static struct clk_branch gcc_gpu_cfg_ahb_clk = {
 	.halt_reg = 0x71004,
 	.halt_check = BRANCH_HALT_SKIP,
@@ -2182,19 +2169,6 @@ static struct clk_branch gcc_gpu_cfg_ahb_clk = {
 			 * secure contexts protection.
 			 */
 			.flags = CLK_IS_CRITICAL,
-		},
-	},
-};
-
-static struct clk_branch gcc_gpu_snoc_dvm_gfx_clk = {
-	.halt_reg = 0x71018,
-	.halt_check = BRANCH_HALT,
-	.clkr = {
-		.enable_reg = 0x71018,
-		.enable_mask = BIT(0),
-		.hw.init = &(struct clk_init_data){
-			.name = "gcc_gpu_snoc_dvm_gfx_clk",
-			.ops = &clk_branch2_ops,
 		},
 	},
 };
@@ -2295,32 +2269,6 @@ static struct clk_branch gcc_mmss_noc_cfg_ahb_clk = {
 			 * when mmssnoc_axi_rpm_clk is inited in rpmcc.
 			 */
 			.flags = CLK_IS_CRITICAL,
-		},
-	},
-};
-
-static struct clk_branch gcc_mmss_qm_ahb_clk = {
-	.halt_reg = 0x9030,
-	.halt_check = BRANCH_HALT,
-	.clkr = {
-		.enable_reg = 0x9030,
-		.enable_mask = BIT(0),
-		.hw.init = &(struct clk_init_data){
-			.name = "gcc_mmss_qm_ahb_clk",
-			.ops = &clk_branch2_ops,
-		},
-	},
-};
-
-static struct clk_branch gcc_mmss_qm_core_clk = {
-	.halt_reg = 0x900c,
-	.halt_check = BRANCH_HALT,
-	.clkr = {
-		.enable_reg = 0x900c,
-		.enable_mask = BIT(0),
-		.hw.init = &(struct clk_init_data){
-			.name = "gcc_mmss_qm_core_clk",
-			.ops = &clk_branch2_ops,
 		},
 	},
 };
@@ -3112,16 +3060,12 @@ static struct clk_regmap *gcc_msm8998_clocks[] = {
 	[GCC_GP3_CLK] = &gcc_gp3_clk.clkr,
 	[GCC_BIMC_GFX_CLK] = &gcc_bimc_gfx_clk.clkr,
 	[GCC_GPU_BIMC_GFX_CLK] = &gcc_gpu_bimc_gfx_clk.clkr,
-	[GCC_GPU_BIMC_GFX_SRC_CLK] = &gcc_gpu_bimc_gfx_src_clk.clkr,
 	[GCC_GPU_CFG_AHB_CLK] = &gcc_gpu_cfg_ahb_clk.clkr,
-	[GCC_GPU_SNOC_DVM_GFX_CLK] = &gcc_gpu_snoc_dvm_gfx_clk.clkr,
 	[GCC_HMSS_AHB_CLK] = &gcc_hmss_ahb_clk.clkr,
 	[GCC_HMSS_AT_CLK] = &gcc_hmss_at_clk.clkr,
 	[GCC_HMSS_RBCPR_CLK] = &gcc_hmss_rbcpr_clk.clkr,
 	[GCC_HMSS_TRIG_CLK] = &gcc_hmss_trig_clk.clkr,
 	[GCC_MMSS_NOC_CFG_AHB_CLK] = &gcc_mmss_noc_cfg_ahb_clk.clkr,
-	[GCC_MMSS_QM_AHB_CLK] = &gcc_mmss_qm_ahb_clk.clkr,
-	[GCC_MMSS_QM_CORE_CLK] = &gcc_mmss_qm_core_clk.clkr,
 	[GCC_MMSS_SYS_NOC_AXI_CLK] = &gcc_mmss_sys_noc_axi_clk.clkr,
 	[GCC_MSS_AT_CLK] = &gcc_mss_at_clk.clkr,
 	[GCC_PCIE_0_AUX_CLK] = &gcc_pcie_0_aux_clk.clkr,
@@ -3351,6 +3295,21 @@ static struct clk_hw *gcc_msm8998_hws[] = {
 	&gpll0_out_main_div2.hw,
 };
 
+/* Keep firmware-owned graphics/interconnect branches enabled at probe;
+ * do not let later CCF registration or unused-clock cleanup gate them.
+ */
+static const u32 gcc_msm8998_critical_cbcrs[] = {
+	0x900c, /* GCC_MMSS_QM_CORE_CLK */
+	0x9030, /* GCC_MMSS_QM_AHB_CLK */
+	0x7100c, /* GCC_GPU_BIMC_GFX_SRC_CLK */
+	0x71018, /* GCC_GPU_SNOC_DVM_GFX_CLK */
+};
+
+static const struct qcom_cc_driver_data gcc_msm8998_driver_data = {
+	.clk_cbcrs = gcc_msm8998_critical_cbcrs,
+	.num_clk_cbcrs = ARRAY_SIZE(gcc_msm8998_critical_cbcrs),
+};
+
 static const struct qcom_cc_desc gcc_msm8998_desc = {
 	.config = &gcc_msm8998_regmap_config,
 	.clks = gcc_msm8998_clocks,
@@ -3361,6 +3320,7 @@ static const struct qcom_cc_desc gcc_msm8998_desc = {
 	.num_gdscs = ARRAY_SIZE(gcc_msm8998_gdscs),
 	.clk_hws = gcc_msm8998_hws,
 	.num_clk_hws = ARRAY_SIZE(gcc_msm8998_hws),
+	.driver_data = &gcc_msm8998_driver_data,
 };
 
 static int gcc_msm8998_probe(struct platform_device *pdev)

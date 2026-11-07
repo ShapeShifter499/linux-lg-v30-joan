@@ -321,38 +321,36 @@ static int pmi8998_fg_get_property(struct power_supply *psy,
 
 	switch (psp) {
 	case POWER_SUPPLY_PROP_STATUS:
-		/* Get status from charger if available */
-		if (chip->chg_psy &&
-		    chip->status != POWER_SUPPLY_STATUS_UNKNOWN) {
-			val->intval = chip->status;
-		} else {
-			/*
-			 * Fall back to capacity and current-based
-			 * status checking
-			 */
-			ret = pmi8998_fg_get_capacity(chip, &temp);
-			if (ret) {
-				val->intval = POWER_SUPPLY_STATUS_UNKNOWN;
+		/* Query the charger even before its first change notification. */
+		if (chip->chg_psy) {
+			ret = power_supply_get_property(chip->chg_psy,
+							POWER_SUPPLY_PROP_STATUS, val);
+			if (!ret && val->intval != POWER_SUPPLY_STATUS_UNKNOWN)
 				break;
-			}
-			if (temp == 100) {
-				val->intval = POWER_SUPPLY_STATUS_FULL;
-				break;
-			}
-
-			ret = pmi8998_fg_get_current(chip, &temp);
-			if (ret) {
-				val->intval = POWER_SUPPLY_STATUS_UNKNOWN;
-				break;
-			}
-			if (temp < 0)
-				val->intval = POWER_SUPPLY_STATUS_CHARGING;
-			else if (temp > 0)
-				val->intval = POWER_SUPPLY_STATUS_DISCHARGING;
-			else
-				val->intval = POWER_SUPPLY_STATUS_NOT_CHARGING;
 		}
 
+		ret = pmi8998_fg_get_capacity(chip, &temp);
+		if (ret) {
+			val->intval = POWER_SUPPLY_STATUS_UNKNOWN;
+			break;
+		}
+		if (temp == 100) {
+			val->intval = POWER_SUPPLY_STATUS_FULL;
+			break;
+		}
+
+		ret = pmi8998_fg_get_current(chip, &temp);
+		if (ret) {
+			val->intval = POWER_SUPPLY_STATUS_UNKNOWN;
+			break;
+		}
+		/* get_current() already converts to positive charging current. */
+		if (temp > 0)
+			val->intval = POWER_SUPPLY_STATUS_CHARGING;
+		else if (temp < 0)
+			val->intval = POWER_SUPPLY_STATUS_DISCHARGING;
+		else
+			val->intval = POWER_SUPPLY_STATUS_NOT_CHARGING;
 		break;
 	case POWER_SUPPLY_PROP_TECHNOLOGY:
 		val->intval = POWER_SUPPLY_TECHNOLOGY_LION;
@@ -534,8 +532,8 @@ static int pmi8998_fg_notifier_call(struct notifier_block *nb, unsigned long val
 						POWER_SUPPLY_PROP_STATUS, &propval);
 		if (ret)
 			chip->status = POWER_SUPPLY_STATUS_UNKNOWN;
-
-		chip->status = propval.intval;
+		else
+			chip->status = propval.intval;
 
 		power_supply_changed(chip->batt_psy);
 
