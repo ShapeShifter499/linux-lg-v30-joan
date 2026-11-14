@@ -90,6 +90,8 @@ struct slim_driver {
 				 enum slim_device_status s);
 	struct device_driver		driver;
 	const struct slim_device_id	*id_table;
+	/* device is powered on demand: bind without a logical address */
+	bool				probe_no_laddr;
 };
 #define to_slim_driver(d) container_of_const(d, struct slim_driver, driver)
 

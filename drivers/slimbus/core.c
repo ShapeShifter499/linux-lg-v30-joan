@@ -73,6 +73,9 @@ static int slim_device_probe(struct device *dev)
 	ret = slim_get_logical_addr(sbdev);
 	if (!ret) {
 		slim_device_update_status(sbdev, SLIM_DEVICE_STATUS_UP);
+	} else if (sbdrv->probe_no_laddr) {
+		/* not on the bus yet; the driver asks again when it needs it */
+		ret = 0;
 	} else {
 		dev_err(&sbdev->dev, "Failed to get logical address\n");
 		ret = -EPROBE_DEFER;
