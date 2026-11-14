@@ -463,6 +463,7 @@ static int sdm845_snd_startup(struct snd_pcm_substream *substream)
 		}
 		break;
 	case SLIMBUS_0_RX...SLIMBUS_6_TX:
+	case SLIMBUS_7_RX...SLIMBUS_8_TX:
 		break;
 
 	default:
@@ -510,6 +511,7 @@ static void  sdm845_snd_shutdown(struct snd_pcm_substream *substream)
 		}
 		break;
 	case SLIMBUS_0_RX...SLIMBUS_6_TX:
+	case SLIMBUS_7_RX...SLIMBUS_8_TX:
 	case QUATERNARY_MI2S_RX:
 	case TERTIARY_MI2S_RX:
 		break;
