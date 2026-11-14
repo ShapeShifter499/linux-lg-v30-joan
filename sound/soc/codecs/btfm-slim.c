@@ -28,6 +28,8 @@
  * downstream; the FM receiver driver takes care of that part.
  */
 
+#include <linux/delay.h>
+#include <linux/jiffies.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
 #include <linux/slimbus.h>
@@ -61,6 +63,9 @@
 #define WCN3990_PORT_RX_SCO			16
 #define WCN3990_PORT_RX_A2P			17
 
+/* How long the chip may take to report present (downstream btfm_slim.h) */
+#define WCN3990_PRESENT_TIMEOUT_MS		100
+
 /* Enumeration address of the WCN3990 devices (downstream msm8998.dtsi) */
 #define WCN3990_MANF_ID				0x0217
 #define WCN3990_PROD_CODE			0x0220
@@ -89,8 +94,13 @@ struct btfm_slim {
 	struct btfm_slim_ch rx_chs[2];
 	unsigned int rate;
 	unsigned int ch_count;
+	/* one stream at a time: the slave state below is shared by the DAIs */
 	struct slim_stream_runtime *sruntime;
+	struct slim_stream_config sconfig;
+	unsigned int sconfig_chs[2];
 	int stream_dai;			/* DAI that owns sruntime */
+	bool ports_on;
+	bool streaming;
 };
 
 static int btfm_slim_write_ifd(struct btfm_slim *btfm, u16 reg, u8 val)
@@ -125,6 +135,28 @@ static int btfm_slim_read_ifd(struct btfm_slim *btfm, u16 reg, u8 *val)
 }
 
 /*
+ * The logical addresses are handed out when the chip joins the bus, which
+ * it does a moment after Bluetooth or FM is switched on.  Ask again for a
+ * short while before giving up (downstream btfm_slim_get_logical_addr).
+ */
+static int btfm_slim_get_laddr(struct slim_device *sdev)
+{
+	unsigned long timeout = jiffies +
+				msecs_to_jiffies(WCN3990_PRESENT_TIMEOUT_MS);
+	int ret;
+
+	do {
+		sdev->is_laddr_valid = false;
+		ret = slim_get_logical_addr(sdev);
+		if (!ret)
+			break;
+		usleep_range(1000, 1100);
+	} while (time_before(jiffies, timeout));
+
+	return ret;
+}
+
+/*
  * Probe the slave (downstream btfm_slim_chrk_hw_init).  The chip only
  * answers once it is powered, so this runs when a stream is prepared,
  * not at slimbus device probe and not at PCM open: sound servers open
@@ -138,20 +170,14 @@ static int btfm_slim_hw_init(struct btfm_slim *btfm)
 	if (btfm->enabled)
 		return 0;
 
-	/*
-	 * The logical addresses are handed out when the chip joins the bus,
-	 * so ask for them again on every start.
-	 */
-	btfm->sdev->is_laddr_valid = false;
-	ret = slim_get_logical_addr(btfm->sdev);
+	ret = btfm_slim_get_laddr(btfm->sdev);
 	if (ret) {
 		dev_info_ratelimited(&btfm->sdev->dev,
 			"WCN3990 is not on the bus (%d); is FM or Bluetooth on?\n",
 			ret);
 		return -ENODEV;
 	}
-	btfm->sidev->is_laddr_valid = false;
-	ret = slim_get_logical_addr(btfm->sidev);
+	ret = btfm_slim_get_laddr(btfm->sidev);
 	if (ret) {
 		dev_err(&btfm->sdev->dev,
 			"no logical address for the interface device: %d\n", ret);
@@ -288,16 +314,41 @@ static int btfm_slim_enable_ports(struct btfm_slim *btfm, int dai_id,
 	}
 }
 
+/*
+ * The slimbus stream follows the PCM trigger, as in the WCD93xx drivers:
+ * the ADSP has started its AFE port by the time the channels are defined
+ * and activated, and they are removed again before that port stops.
+ */
+static int btfm_slim_stream_start(struct btfm_slim *btfm)
+{
+	int ret;
+
+	if (btfm->streaming)
+		return 0;
+
+	ret = slim_stream_prepare(btfm->sruntime, &btfm->sconfig);
+	if (ret)
+		return ret;
+
+	ret = slim_stream_enable(btfm->sruntime);
+	if (ret) {
+		slim_stream_unprepare(btfm->sruntime);
+		return ret;
+	}
+
+	btfm->streaming = true;
+
+	return 0;
+}
+
 static void btfm_slim_stream_stop(struct btfm_slim *btfm)
 {
-	if (!btfm->sruntime)
+	if (!btfm->streaming)
 		return;
 
 	slim_stream_disable(btfm->sruntime);
 	slim_stream_unprepare(btfm->sruntime);
-	slim_stream_free(btfm->sruntime);
-	btfm->sruntime = NULL;
-	btfm_slim_enable_ports(btfm, btfm->stream_dai, false);
+	btfm->streaming = false;
 }
 
 static void btfm_slim_dai_shutdown(struct snd_pcm_substream *substream,
@@ -305,10 +356,17 @@ static void btfm_slim_dai_shutdown(struct snd_pcm_substream *substream,
 {
 	struct btfm_slim *btfm = snd_soc_component_get_drvdata(dai->component);
 
-	if (btfm->sruntime && btfm->stream_dai != dai->id)
+	if (!btfm->sruntime || btfm->stream_dai != dai->id)
 		return;
 
 	btfm_slim_stream_stop(btfm);
+	slim_stream_free(btfm->sruntime);
+	btfm->sruntime = NULL;
+
+	if (btfm->ports_on) {
+		btfm_slim_enable_ports(btfm, dai->id, false);
+		btfm->ports_on = false;
+	}
 	btfm_slim_hw_deinit(btfm);
 }
 
@@ -333,11 +391,17 @@ static int btfm_slim_dai_hw_params(struct snd_pcm_substream *substream,
 	return 0;
 }
 
+/*
+ * Look the chip up and program its ports.  This can run more than once
+ * per stream (alsa-lib prepares after hw_params and again before it
+ * starts the PCM, and after every overrun), so everything here may be
+ * repeated; the stream itself starts and stops in the trigger.
+ */
 static int btfm_slim_dai_prepare(struct snd_pcm_substream *substream,
 				 struct snd_soc_dai *dai)
 {
 	struct btfm_slim *btfm = snd_soc_component_get_drvdata(dai->component);
-	struct slim_stream_config cfg = {0};
+	struct slim_stream_config *cfg = &btfm->sconfig;
 	const struct btfm_slim_ch *chs;
 	int nports, i, ret;
 
@@ -368,74 +432,76 @@ static int btfm_slim_dai_prepare(struct snd_pcm_substream *substream,
 		return -EINVAL;
 	}
 
-	if (btfm->sruntime) {
-		/* one shared stream state: another DAI would leak the first */
-		if (btfm->stream_dai != dai->id) {
-			dev_err(dai->dev, "%s: another stream is active\n",
-				dai->name);
-			return -EBUSY;
-		}
-		/*
-		 * Prepared again: alsa-lib does it after hw_params and again
-		 * before starting, and after every overrun.  Start over.
-		 */
-		btfm_slim_stream_stop(btfm);
+	if (btfm->sruntime && btfm->stream_dai != dai->id) {
+		dev_err(dai->dev, "%s: another stream is active\n", dai->name);
+		return -EBUSY;
 	}
+
+	/* a prepare after an overrun arrives with the stream stopped */
+	btfm_slim_stream_stop(btfm);
 
 	ret = btfm_slim_hw_init(btfm);
 	if (ret)
 		return ret;
 
-	cfg.rate = btfm->rate;
-	cfg.bps = 16;
-	cfg.ch_count = btfm->ch_count;
-	cfg.direction = substream->stream;
-	cfg.port_mask = 0;
-	cfg.chs = kcalloc(btfm->ch_count, sizeof(*cfg.chs), GFP_KERNEL);
-	if (!cfg.chs)
-		return -ENOMEM;
-
-	for (i = 0; i < btfm->ch_count && i < nports; i++) {
-		cfg.chs[i] = chs[i].ch_num;
-		cfg.port_mask |= BIT(chs[i].port);
+	cfg->rate = btfm->rate;
+	cfg->bps = 16;
+	cfg->ch_count = min_t(unsigned int, btfm->ch_count, nports);
+	cfg->direction = substream->stream;
+	cfg->chs = btfm->sconfig_chs;
+	cfg->port_mask = 0;
+	for (i = 0; i < cfg->ch_count; i++) {
+		cfg->chs[i] = chs[i].ch_num;
+		cfg->port_mask |= BIT(chs[i].port);
 	}
 
 	ret = btfm_slim_enable_ports(btfm, dai->id, true);
 	if (ret)
-		goto err_free_chs;
+		return ret;
+	btfm->ports_on = true;
 
-	btfm->sruntime = slim_stream_allocate(btfm->sdev, "WCN399x-BTFM");
-	if (IS_ERR(btfm->sruntime)) {
-		ret = PTR_ERR(btfm->sruntime);
-		btfm->sruntime = NULL;
-		goto err_disable_ports;
+	if (!btfm->sruntime) {
+		btfm->sruntime = slim_stream_allocate(btfm->sdev,
+						      "WCN399x-BTFM");
+		if (IS_ERR(btfm->sruntime)) {
+			ret = PTR_ERR(btfm->sruntime);
+			btfm->sruntime = NULL;
+			btfm_slim_enable_ports(btfm, dai->id, false);
+			btfm->ports_on = false;
+			return ret;
+		}
+		btfm->stream_dai = dai->id;
 	}
-
-	ret = slim_stream_prepare(btfm->sruntime, &cfg);
-	if (ret) {
-		slim_stream_unprepare(btfm->sruntime);
-		goto err_free_stream;
-	}
-
-	ret = slim_stream_enable(btfm->sruntime);
-	if (ret)
-		goto err_unprepare;
-
-	btfm->stream_dai = dai->id;
-
-	kfree(cfg.chs);
 
 	return 0;
+}
 
-err_unprepare:
-	slim_stream_unprepare(btfm->sruntime);
-err_free_stream:
-	slim_stream_free(btfm->sruntime);
-	btfm->sruntime = NULL;
-err_disable_ports:
-	btfm_slim_enable_ports(btfm, dai->id, false);
-err_free_chs:
-	kfree(cfg.chs);
+static int btfm_slim_dai_trigger(struct snd_pcm_substream *substream, int cmd,
+				 struct snd_soc_dai *dai)
+{
+	struct btfm_slim *btfm = snd_soc_component_get_drvdata(dai->component);
+	int ret = 0;
+
+	if (!btfm->sruntime || btfm->stream_dai != dai->id)
+		return -EINVAL;
+
+	switch (cmd) {
+	case SNDRV_PCM_TRIGGER_START:
+	case SNDRV_PCM_TRIGGER_RESUME:
+	case SNDRV_PCM_TRIGGER_PAUSE_RELEASE:
+		ret = btfm_slim_stream_start(btfm);
+		if (ret)
+			dev_err(dai->dev, "%s: stream start failed: %d\n",
+				dai->name, ret);
+		break;
+	case SNDRV_PCM_TRIGGER_STOP:
+	case SNDRV_PCM_TRIGGER_SUSPEND:
+	case SNDRV_PCM_TRIGGER_PAUSE_PUSH:
+		btfm_slim_stream_stop(btfm);
+		break;
+	default:
+		break;
+	}
 
 	return ret;
 }
@@ -525,6 +591,7 @@ static const struct snd_soc_dai_ops btfm_slim_dai_ops = {
 	.shutdown	= btfm_slim_dai_shutdown,
 	.hw_params	= btfm_slim_dai_hw_params,
 	.prepare	= btfm_slim_dai_prepare,
+	.trigger	= btfm_slim_dai_trigger,
 	.set_channel_map = btfm_slim_set_channel_map,
 	.get_channel_map = btfm_slim_get_channel_map,
 };
