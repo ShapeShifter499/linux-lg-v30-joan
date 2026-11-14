@@ -10,11 +10,15 @@
 
 #include <linux/auxiliary_bus.h>
 #include <linux/completion.h>
+#include <linux/delay.h>
 #include <linux/kfifo.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
+#include <linux/of.h>
+#include <linux/pm_runtime.h>
 #include <linux/skbuff.h>
 #include <linux/slab.h>
+#include <linux/slimbus.h>
 #include <linux/spinlock.h>
 #include <linux/unaligned.h>
 #include <linux/wait.h>
@@ -453,11 +457,73 @@ static int qca_radio_tune(struct qca_radio *radio, u32 khz)
 	return 0;
 }
 
+/*
+ * The audio leaves the chip through its SLIMbus ports.  The chip joins that
+ * bus at the moment it is told to enable them, and only if the bus is
+ * running right then: with the controller runtime-suspended it misses the
+ * bus and does not try again until FM is switched off and on.  So find the
+ * slimbus device of the chip, wake its controller for the command and keep
+ * it awake a little longer, until the chip has reported present.
+ */
+#define FM_SLIMBUS_JOIN_MS		300
+
+#if IS_REACHABLE(CONFIG_SLIMBUS)
+static int qca_radio_slim_match(struct device *dev, const void *data)
+{
+	/* enumeration address of the WCN399x: manufacturer 0x217, product 0x220 */
+	return dev->of_node &&
+	       of_device_is_compatible(dev->of_node, "slim217,220");
+}
+
+static struct device *qca_radio_slimbus_get(void)
+{
+	struct device *sdev, *ctrl;
+
+	sdev = bus_find_device(&slimbus_bus, NULL, NULL, qca_radio_slim_match);
+	if (!sdev)
+		return NULL;
+
+	/* a slimbus device hangs off its controller */
+	ctrl = get_device(sdev->parent);
+	put_device(sdev);
+	if (!ctrl)
+		return NULL;
+
+	if (pm_runtime_resume_and_get(ctrl) < 0) {
+		put_device(ctrl);
+		return NULL;
+	}
+
+	return ctrl;
+}
+
+static void qca_radio_slimbus_put(struct device *ctrl)
+{
+	if (!ctrl)
+		return;
+
+	msleep(FM_SLIMBUS_JOIN_MS);
+	pm_runtime_mark_last_busy(ctrl);
+	pm_runtime_put_autosuspend(ctrl);
+	put_device(ctrl);
+}
+#else
+static struct device *qca_radio_slimbus_get(void)
+{
+	return NULL;
+}
+
+static void qca_radio_slimbus_put(struct device *ctrl)
+{
+}
+#endif
+
 static int qca_radio_power_up(struct qca_radio *radio)
 {
 	const struct v4l2_frequency_band *band = qca_radio_band_of(radio->freq);
 	int generation = atomic_read(&radio->fm->generation);
 	__le32 rds_process = cpu_to_le32(FM_RDS_PROCESS_ALL);
+	struct device *slimbus;
 	u8 mask, slim;
 	int ret;
 
@@ -499,11 +565,13 @@ static int qca_radio_power_up(struct qca_radio *radio)
 	 * Have the chip put the received audio on its SLIMbus ports.  Tuning
 	 * and RDS work without it, so a refusal is not fatal.
 	 */
+	slimbus = qca_radio_slimbus_get();
 	slim = 1;
 	ret = qca_radio_cmd(radio, FM_DIAG_ENABLE_SLIMBUS, &slim, sizeof(slim));
 	if (ret)
 		dev_warn(&radio->fm->adev.dev,
 			 "audio over SLIMbus not enabled: %d\n", ret);
+	qca_radio_slimbus_put(slimbus);
 
 	radio->generation = generation;
 	radio->on = true;
