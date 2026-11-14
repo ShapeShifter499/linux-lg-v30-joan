@@ -40,6 +40,9 @@
 #define FM_RECV_RDS_PROCESS		FM_OP(FM_OGF_RECV, 0x13)
 #define FM_RECV_EVENT_MASK		FM_OP(FM_OGF_RECV, 0x16)
 #define FM_TUNE				FM_OP(FM_OGF_COMMON, 0x01)
+/* helium HCI_OCF_FM_ENABLE_SLIMBUS: route the audio to the SLIMbus ports */
+#define FM_OGF_DIAG			0x3f
+#define FM_DIAG_ENABLE_SLIMBUS		FM_OP(FM_OGF_DIAG, 0x0e)
 
 #define FM_EV_TUNE_STATUS		0x01
 #define FM_EV_RDS_GROUP			0x08
@@ -455,7 +458,7 @@ static int qca_radio_power_up(struct qca_radio *radio)
 	const struct v4l2_frequency_band *band = qca_radio_band_of(radio->freq);
 	int generation = atomic_read(&radio->fm->generation);
 	__le32 rds_process = cpu_to_le32(FM_RDS_PROCESS_ALL);
-	u8 mask;
+	u8 mask, slim;
 	int ret;
 
 	radio->on = false;
@@ -492,6 +495,16 @@ static int qca_radio_power_up(struct qca_radio *radio)
 	if (ret)
 		goto disable;
 
+	/*
+	 * Have the chip put the received audio on its SLIMbus ports.  Tuning
+	 * and RDS work without it, so a refusal is not fatal.
+	 */
+	slim = 1;
+	ret = qca_radio_cmd(radio, FM_DIAG_ENABLE_SLIMBUS, &slim, sizeof(slim));
+	if (ret)
+		dev_warn(&radio->fm->adev.dev,
+			 "audio over SLIMbus not enabled: %d\n", ret);
+
 	radio->generation = generation;
 	radio->on = true;
 	return 0;
@@ -503,8 +516,12 @@ disable:
 
 static void qca_radio_power_down(struct qca_radio *radio)
 {
-	if (radio->on)
+	if (radio->on) {
+		u8 slim = 0;
+
+		qca_radio_cmd(radio, FM_DIAG_ENABLE_SLIMBUS, &slim, sizeof(slim));
 		qca_radio_cmd(radio, FM_RECV_DISABLE, NULL, 0);
+	}
 	radio->on = false;
 }
 
