@@ -135,6 +135,28 @@ static int btfm_slim_hw_init(struct btfm_slim *btfm)
 	if (btfm->enabled)
 		return 0;
 
+	/*
+	 * The logical addresses are handed out when the chip joins the bus,
+	 * so ask for them again on every start.
+	 */
+	btfm->sdev->is_laddr_valid = false;
+	ret = slim_get_logical_addr(btfm->sdev);
+	if (ret) {
+		dev_err(&btfm->sdev->dev,
+			"WCN3990 is not on the bus (%d); is FM or Bluetooth on?\n",
+			ret);
+		return ret;
+	}
+	btfm->sidev->is_laddr_valid = false;
+	ret = slim_get_logical_addr(btfm->sidev);
+	if (ret) {
+		dev_err(&btfm->sdev->dev,
+			"no logical address for the interface device: %d\n", ret);
+		return ret;
+	}
+	dev_dbg(&btfm->sdev->dev, "logical address pgd %#x ifd %#x\n",
+		btfm->sdev->laddr, btfm->sidev->laddr);
+
 	ret = btfm_slim_read_ifd(btfm, WCN3990_SB_SLAVE_HW_REV_MSB, &rev_msb);
 	if (ret)
 		return ret;
@@ -632,6 +654,8 @@ static struct slim_driver btfm_slim_driver = {
 	.probe = btfm_slim_probe,
 	.remove = btfm_slim_remove,
 	.id_table = btfm_slim_id,
+	/* the chip is only on the bus while Bluetooth or FM is on */
+	.probe_no_laddr = true,
 };
 
 static int __init btfm_slim_init(void)
