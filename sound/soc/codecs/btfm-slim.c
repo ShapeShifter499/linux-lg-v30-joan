@@ -221,6 +221,12 @@ static int btfm_slim_enable_fm_port(struct btfm_slim *btfm, u16 port,
 	u8 val;
 	int ret;
 
+	/* off: clear the enable bit only, the watermark stays (downstream) */
+	if (!enable)
+		return btfm_slim_write_ifd(btfm,
+					   WCN3990_SB_PGD_TX_PORT_CFG(port),
+					   WCN3990_PORT_WM_L8);
+
 	/* the two FM TX ports share the two-channel group */
 	val = BIT(WCN3990_PORT_TX1_FM) | BIT(WCN3990_PORT_TX2_FM);
 	ret = btfm_slim_write_ifd(btfm,
@@ -228,18 +234,13 @@ static int btfm_slim_enable_fm_port(struct btfm_slim *btfm, u16 port,
 	if (ret)
 		return ret;
 
-	if (enable) {
-		val = WCN3990_OVERRUN_AUTO_RECOVERY |
-		      WCN3990_UNDERRUN_AUTO_RECOVERY;
-		ret = btfm_slim_write_ifd(btfm,
-				WCN3990_SB_PGD_TX_PORT_OR_UR_CFG(port), val);
-		if (ret)
-			return ret;
+	val = WCN3990_OVERRUN_AUTO_RECOVERY | WCN3990_UNDERRUN_AUTO_RECOVERY;
+	ret = btfm_slim_write_ifd(btfm, WCN3990_SB_PGD_TX_PORT_OR_UR_CFG(port),
+				  val);
+	if (ret)
+		return ret;
 
-		val = WCN3990_PORT_ENABLE | WCN3990_PORT_WM_L8;
-	} else {
-		val = 0;
-	}
+	val = WCN3990_PORT_ENABLE | WCN3990_PORT_WM_L8;
 
 	return btfm_slim_write_ifd(btfm, WCN3990_SB_PGD_TX_PORT_CFG(port), val);
 }
@@ -698,6 +699,13 @@ static int btfm_slim_probe(struct slim_device *sdev)
 		return ret;
 
 	btfm->sdev = sdev;
+	/*
+	 * Downstream never disconnects the ports of this chip; it removes the
+	 * channel and connects the ports again for the next stream.  After a
+	 * DISCONNECT_PORT the chip takes about 2.5 s to put audio on the next
+	 * stream, or stays silent if that stream is shorter.
+	 */
+	sdev->keep_ports_connected = true;
 	mutex_init(&btfm->io_lock);
 	dev_set_drvdata(&sdev->dev, btfm);
 
