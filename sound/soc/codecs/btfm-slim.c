@@ -90,6 +90,7 @@ struct btfm_slim {
 	unsigned int rate;
 	unsigned int ch_count;
 	struct slim_stream_runtime *sruntime;
+	int stream_dai;			/* DAI that owns sruntime */
 };
 
 static int btfm_slim_write_ifd(struct btfm_slim *btfm, u16 reg, u8 val)
@@ -115,8 +116,9 @@ static int btfm_slim_read_ifd(struct btfm_slim *btfm, u16 reg, u8 *val)
 	ret = slim_read(btfm->sidev, WCN3990_SLIM_REG_OFFSET + reg, 1, val);
 	mutex_unlock(&btfm->io_lock);
 
+	/* reads only probe the chip, which is absent while BT and FM are off */
 	if (ret)
-		dev_err(&btfm->sdev->dev, "IFD read 0x%04x failed: %d\n",
+		dev_dbg(&btfm->sdev->dev, "IFD read 0x%04x failed: %d\n",
 			reg, ret);
 
 	return ret;
@@ -124,8 +126,9 @@ static int btfm_slim_read_ifd(struct btfm_slim *btfm, u16 reg, u8 *val)
 
 /*
  * Probe the slave (downstream btfm_slim_chrk_hw_init).  The chip only
- * answers once it is powered, so this runs at DAI startup, not at
- * slimbus device probe.
+ * answers once it is powered, so this runs when a stream is prepared,
+ * not at slimbus device probe and not at PCM open: sound servers open
+ * every PCM once to see what it can do, with the chip off.
  */
 static int btfm_slim_hw_init(struct btfm_slim *btfm)
 {
@@ -142,10 +145,10 @@ static int btfm_slim_hw_init(struct btfm_slim *btfm)
 	btfm->sdev->is_laddr_valid = false;
 	ret = slim_get_logical_addr(btfm->sdev);
 	if (ret) {
-		dev_err(&btfm->sdev->dev,
+		dev_info_ratelimited(&btfm->sdev->dev,
 			"WCN3990 is not on the bus (%d); is FM or Bluetooth on?\n",
 			ret);
-		return ret;
+		return -ENODEV;
 	}
 	btfm->sidev->is_laddr_valid = false;
 	ret = slim_get_logical_addr(btfm->sidev);
@@ -285,14 +288,16 @@ static int btfm_slim_enable_ports(struct btfm_slim *btfm, int dai_id,
 	}
 }
 
-static int btfm_slim_dai_startup(struct snd_pcm_substream *substream,
-				 struct snd_soc_dai *dai)
+static void btfm_slim_stream_stop(struct btfm_slim *btfm)
 {
-	struct btfm_slim *btfm = snd_soc_component_get_drvdata(dai->component);
+	if (!btfm->sruntime)
+		return;
 
-	dev_dbg(dai->dev, "%s: dai %s\n", __func__, dai->name);
-
-	return btfm_slim_hw_init(btfm);
+	slim_stream_disable(btfm->sruntime);
+	slim_stream_unprepare(btfm->sruntime);
+	slim_stream_free(btfm->sruntime);
+	btfm->sruntime = NULL;
+	btfm_slim_enable_ports(btfm, btfm->stream_dai, false);
 }
 
 static void btfm_slim_dai_shutdown(struct snd_pcm_substream *substream,
@@ -300,14 +305,10 @@ static void btfm_slim_dai_shutdown(struct snd_pcm_substream *substream,
 {
 	struct btfm_slim *btfm = snd_soc_component_get_drvdata(dai->component);
 
-	if (btfm->sruntime) {
-		slim_stream_disable(btfm->sruntime);
-		slim_stream_unprepare(btfm->sruntime);
-		slim_stream_free(btfm->sruntime);
-		btfm->sruntime = NULL;
-	}
+	if (btfm->sruntime && btfm->stream_dai != dai->id)
+		return;
 
-	btfm_slim_enable_ports(btfm, dai->id, false);
+	btfm_slim_stream_stop(btfm);
 	btfm_slim_hw_deinit(btfm);
 }
 
@@ -367,11 +368,23 @@ static int btfm_slim_dai_prepare(struct snd_pcm_substream *substream,
 		return -EINVAL;
 	}
 
-	/* one shared stream state: a second open would leak the first */
 	if (btfm->sruntime) {
-		dev_err(dai->dev, "%s: stream already active\n", dai->name);
-		return -EBUSY;
+		/* one shared stream state: another DAI would leak the first */
+		if (btfm->stream_dai != dai->id) {
+			dev_err(dai->dev, "%s: another stream is active\n",
+				dai->name);
+			return -EBUSY;
+		}
+		/*
+		 * Prepared again: alsa-lib does it after hw_params and again
+		 * before starting, and after every overrun.  Start over.
+		 */
+		btfm_slim_stream_stop(btfm);
 	}
+
+	ret = btfm_slim_hw_init(btfm);
+	if (ret)
+		return ret;
 
 	cfg.rate = btfm->rate;
 	cfg.bps = 16;
@@ -407,6 +420,8 @@ static int btfm_slim_dai_prepare(struct snd_pcm_substream *substream,
 	ret = slim_stream_enable(btfm->sruntime);
 	if (ret)
 		goto err_unprepare;
+
+	btfm->stream_dai = dai->id;
 
 	kfree(cfg.chs);
 
@@ -507,7 +522,6 @@ static int btfm_slim_get_channel_map(const struct snd_soc_dai *dai,
 }
 
 static const struct snd_soc_dai_ops btfm_slim_dai_ops = {
-	.startup	= btfm_slim_dai_startup,
 	.shutdown	= btfm_slim_dai_shutdown,
 	.hw_params	= btfm_slim_dai_hw_params,
 	.prepare	= btfm_slim_dai_prepare,
