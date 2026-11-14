@@ -453,8 +453,11 @@ int slim_stream_unprepare(struct slim_stream_runtime *stream)
 	if (!stream->ports || !stream->num_ports)
 		return -EINVAL;
 
-	for (i = 0; i < stream->num_ports; i++)
+	for (i = 0; i < stream->num_ports; i++) {
+		if (stream->dev->keep_ports_connected)
+			break;
 		slim_disconnect_port(stream, &stream->ports[i]);
+	}
 
 	kfree(stream->ports);
 	stream->ports = NULL;

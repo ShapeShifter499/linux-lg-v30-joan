@@ -48,6 +48,9 @@ struct slim_controller;
  * @ctrl: slim controller instance.
  * @laddr: 1-byte Logical address of this device.
  * @is_laddr_valid: indicates if the laddr is valid or not
+ * @keep_ports_connected: set by the driver of a device whose ports must not
+ *	be sent DISCONNECT_PORT when a stream is unprepared; they are simply
+ *	connected again by the next stream
  * @stream_list: List of streams on this device
  * @stream_list_lock: lock to protect the stream list
  *
@@ -62,6 +65,7 @@ struct slim_device {
 	enum slim_device_status	status;
 	u8			laddr;
 	bool			is_laddr_valid;
+	bool			keep_ports_connected;
 	struct list_head	stream_list;
 	spinlock_t stream_list_lock;
 };
