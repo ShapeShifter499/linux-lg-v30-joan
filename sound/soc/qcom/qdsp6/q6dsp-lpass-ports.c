@@ -421,7 +421,7 @@ static struct snd_soc_dai_driver q6dsp_audio_fe_dais[] = {
 			.rate_min = 48000,
 			.rate_max = 48000,
 		},
-
+	}, {
 		.playback = {
 			.stream_name = "Primary MI2S Playback",
 			.rates = SNDRV_PCM_RATE_48000 | SNDRV_PCM_RATE_8000 |
