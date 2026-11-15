@@ -727,11 +727,12 @@ static int qca_radio_s_hw_freq_seek(struct file *file, void *priv,
 		high = FM_V4L2_TO_KHZ(band->rangehigh);
 	}
 
+	/* the seek spacing is in Hz, not in tuner frequency units */
 	if (!seek->spacing)
 		spacing = FM_SPACING_100KHZ;
-	else if (FM_V4L2_TO_KHZ(seek->spacing) <= 50)
+	else if (seek->spacing <= 50000)
 		spacing = FM_SPACING_50KHZ;
-	else if (FM_V4L2_TO_KHZ(seek->spacing) <= 100)
+	else if (seek->spacing <= 100000)
 		spacing = FM_SPACING_100KHZ;
 	else
 		spacing = FM_SPACING_200KHZ;
